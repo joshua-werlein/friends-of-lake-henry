@@ -77,6 +77,10 @@ const jsonLdRaffle = (Astro.site && isRafflePage) ? {
     <meta property="og:site_name" content="Friends of Lake Henry" />
     {canonical && <link rel="canonical" href={canonical} />}
     {canonical && <meta property="og:url" content={canonical} />}
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#263345" />
+    <link rel="icon" href="/pwa/icon-192.png" />
+    <link rel="apple-touch-icon" href="/pwa/icon-192.png" />
 
     {jsonLdOrg && (<script type="application/ld+json" set:html={JSON.stringify(jsonLdOrg)} />)}
     {jsonLdDonate && (<script type="application/ld+json" set:html={JSON.stringify(jsonLdDonate)} />)}
