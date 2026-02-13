@@ -3,7 +3,7 @@
   "short_name": "FOLH",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fbfbfb",
+  "background_color": "#263345",
   "theme_color": "#263345",
   "icons": [
     { "src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png" },
