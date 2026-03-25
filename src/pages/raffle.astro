@@ -123,19 +123,41 @@ if (DB) {
     if (!raffleTitle) raffleTitle = null;
 }
 
-let rafflePosterKey: string | null = null;
-let rafflePosterAlt: string | null = null;
+let heroPosterMonthKey: string | null = null;
+let heroPosterKey: string | null = null;
+let heroPosterAlt: string | null = null;
 
 if (DB) {
-    const posterRes = await DB.prepare(
-        `SELECT poster_key, poster_alt FROM raffle_months WHERE month_key = ?`
-    ).bind(raffleKey).first();
+    const upcomingPosterRes = await DB.prepare(
+        `SELECT month_key, poster_key, poster_alt
+         FROM raffle_months
+         WHERE poster_key IS NOT NULL
+           AND trim(poster_key) != ''
+           AND month_key >= ?
+         ORDER BY month_key ASC
+         LIMIT 1`
+    ).bind(currentMonth).first();
 
-    rafflePosterKey = posterRes ? String((posterRes as any).poster_key ?? "").trim() : "";
-    rafflePosterAlt = posterRes ? String((posterRes as any).poster_alt ?? "").trim() : "";
+    const fallbackPosterRes = !upcomingPosterRes
+        ? await DB.prepare(
+            `SELECT month_key, poster_key, poster_alt
+             FROM raffle_months
+             WHERE poster_key IS NOT NULL
+               AND trim(poster_key) != ''
+             ORDER BY month_key DESC
+             LIMIT 1`
+        ).first()
+        : null;
 
-    if (!rafflePosterKey) rafflePosterKey = null;
-    if (!rafflePosterAlt) rafflePosterAlt = null;
+    const posterRes = upcomingPosterRes ?? fallbackPosterRes;
+
+    heroPosterMonthKey = posterRes ? String((posterRes as any).month_key ?? "").trim() : "";
+    heroPosterKey = posterRes ? String((posterRes as any).poster_key ?? "").trim() : "";
+    heroPosterAlt = posterRes ? String((posterRes as any).poster_alt ?? "").trim() : "";
+
+    if (!heroPosterMonthKey) heroPosterMonthKey = null;
+    if (!heroPosterKey) heroPosterKey = null;
+    if (!heroPosterAlt) heroPosterAlt = null;
 }
 
 let liveConfig: LiveConfig = { latestVideoUrl: null, updatedAt: null };
@@ -220,13 +242,13 @@ const description =
                 class="heroPoster"
                 id="raffleHeroPoster"
                 type="button"
-                style={rafflePosterKey ? "" : "display:none;"}
+                style={heroPosterKey ? "" : "display:none;"}
                 aria-label="Open raffle poster preview"
             >
                 <img
                     id="raffleHeroPosterImg"
-                    src={rafflePosterKey ? `/api/raffle/poster?month=${encodeURIComponent(raffleKey)}` : ""}
-                    alt={rafflePosterAlt ?? `${monthLabel} raffle poster`}
+                    src={heroPosterKey && heroPosterMonthKey ? `/api/raffle/poster?month=${encodeURIComponent(heroPosterMonthKey)}` : ""}
+                    alt={heroPosterAlt ?? "Upcoming raffle poster"}
                     loading="lazy"
                 />
             </button>
