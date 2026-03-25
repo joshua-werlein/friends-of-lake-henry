@@ -6,7 +6,7 @@ export const prerender = false;
 const facebookPageLiveUrl = "https://www.facebook.com/61552199315213/videos/";
 
 const rules = [
-    "Drawing at 6pm EVERYDAY in November.",
+        "Daily drawings are held during the raffle month.",
     "All proceeds go to Lake Henry Project.",
     "If drawn, name goes in for remaining drawings.",
     'Every firearm has a minimum value of $1000; $800 cash option if you do not choose the firearm.',
@@ -57,47 +57,42 @@ function monthKeyToLabel(monthKey: string) {
     }).format(d);
 }
 
-let months: string[] = [];
-let defaultMonth = currentMonth;
+function shiftMonthKey(monthKey: string, delta: number) {
+    const [y, m] = monthKey.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1, 12));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+let months: string[] = [currentMonth];
 
 if (DB) {
     const winnerMonthsRes = await DB.prepare(
         `SELECT DISTINCT raffle_key as monthKey
-     FROM raffle_winners
-     ORDER BY raffle_key DESC`
+         FROM raffle_winners
+         ORDER BY raffle_key DESC`
     ).all();
 
-    const activeMonths = (winnerMonthsRes.results ?? [])
-        .map((r: any) => String(r.monthKey ?? "").trim())
+    const metaMonthsRes = await DB.prepare(
+        `SELECT DISTINCT month_key as monthKey
+         FROM raffle_months
+         ORDER BY month_key DESC`
+    ).all();
+
+    months = Array.from(new Set([
+        currentMonth,
+        ...(winnerMonthsRes.results ?? []).map((r: any) => String(r.monthKey ?? "").trim()),
+        ...(metaMonthsRes.results ?? []).map((r: any) => String(r.monthKey ?? "").trim()),
+    ]))
         .filter(isMonthKey)
-        .sort((a, b) => b.localeCompare(a)); // DESC
-
-    // assign to OUTER variables (no const)
-    months = Array.from(new Set([currentMonth, ...activeMonths]))
-        .filter(isMonthKey)
-        .sort((a, b) => b.localeCompare(a)); // DESC
-
-    defaultMonth =
-        activeMonths.includes(currentMonth) ? currentMonth : (activeMonths[0] ?? currentMonth);
-
-} else {
-    months = [currentMonth];
-    defaultMonth = currentMonth;
+        .sort((a, b) => b.localeCompare(a));
 }
 
-// pick raffleKey
-if (isMonthKey(monthParam) && months.includes(monthParam)) {
-    raffleKey = monthParam;
-} else {
-    raffleKey = defaultMonth;
+if (!isMonthKey(raffleKey)) {
+    raffleKey = currentMonth;
 }
 
-// harden against mismatch
-if (!months.includes(raffleKey)) raffleKey = months[0] ?? currentMonth;
-
-const idx = months.indexOf(raffleKey);
-const prevMonthKey = idx >= 0 && idx + 1 < months.length ? months[idx + 1] : null; // because DESC
-const nextMonthKey = idx > 0 ? months[idx - 1] : null;
+const prevMonthKey = shiftMonthKey(raffleKey, -1);
+const nextMonthKey = shiftMonthKey(raffleKey, 1);
 const monthLabel = monthKeyToLabel(raffleKey);
 
 let winners: WinnerRow[] = [];
@@ -126,6 +121,21 @@ if (DB) {
 
     raffleTitle = metaRes ? String((metaRes as any).title ?? "").trim() : "";
     if (!raffleTitle) raffleTitle = null;
+}
+
+let rafflePosterKey: string | null = null;
+let rafflePosterAlt: string | null = null;
+
+if (DB) {
+    const posterRes = await DB.prepare(
+        `SELECT poster_key, poster_alt FROM raffle_months WHERE month_key = ?`
+    ).bind(raffleKey).first();
+
+    rafflePosterKey = posterRes ? String((posterRes as any).poster_key ?? "").trim() : "";
+    rafflePosterAlt = posterRes ? String((posterRes as any).poster_alt ?? "").trim() : "";
+
+    if (!rafflePosterKey) rafflePosterKey = null;
+    if (!rafflePosterAlt) rafflePosterAlt = null;
 }
 
 let liveConfig: LiveConfig = { latestVideoUrl: null, updatedAt: null };
@@ -192,7 +202,16 @@ const description =
                     Ticket sales and raffle details will be posted when available.
                 </p>
             </div>
-
+            <div
+                class="heroPoster"
+                id="raffleHeroPoster"
+                style={rafflePosterKey ? "" : "display:none;"} >
+                <img
+                    id="raffleHeroPosterImg"
+                    src={rafflePosterKey ? `/api/raffle/poster?month=${encodeURIComponent(raffleKey)}` : ""}
+                    alt={rafflePosterAlt ?? `${monthLabel} raffle poster`}
+                    loading="lazy"/>
+            </div>
             <div class="heroRight">
                 <div class="infoCard enter-block delay-3">
                     <div class="infoTitle">Friends of Lake Henry</div>
@@ -344,6 +363,8 @@ const description =
         const monthLabelEl = document.getElementById("monthLabel");
         const raffleTitleEl = document.getElementById("raffleTitle");
         const monthSelect = document.getElementById("monthSelect");
+        const heroPosterEl = document.getElementById("raffleHeroPoster");
+        const heroPosterImgEl = document.getElementById("raffleHeroPosterImg");
 
         function setNavDisabled(prevMonthKey, nextMonthKey) {
             if (prevBtn instanceof HTMLButtonElement) {
@@ -361,6 +382,21 @@ const description =
         }
 
         function renderWinners(monthLabel, raffleTitle, winners) {
+            function renderPoster(posterUrl, posterAlt) {
+                if (!(heroPosterEl instanceof HTMLElement)) return;
+                if (!(heroPosterImgEl instanceof HTMLImageElement)) return;
+
+                if (!posterUrl) {
+                    heroPosterEl.style.display = "none";
+                    heroPosterImgEl.removeAttribute("src");
+                    heroPosterImgEl.alt = "";
+                    return;
+                }
+
+                heroPosterEl.style.display = "";
+                heroPosterImgEl.src = posterUrl;
+                heroPosterImgEl.alt = (posterAlt ?? "").trim() || "Raffle poster";
+            }
             if (monthLabelEl) monthLabelEl.textContent = monthLabel;
 
             if (raffleTitleEl instanceof HTMLElement) {
@@ -469,6 +505,7 @@ const description =
 
             setNavDisabled(state.prevMonthKey, state.nextMonthKey);
             renderWinners(data.monthLabel, data.raffleTitle, data.winners);
+            renderPoster(data.rafflePosterUrl, data.rafflePosterAlt);
 
             if (pushUrl) {
                 const nextUrl = new URL(window.location.href);

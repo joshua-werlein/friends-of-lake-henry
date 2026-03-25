@@ -54,7 +54,7 @@ export const prerender = false;
             <div class="panel adminPanel enter-block delay-4" style="margin-top: 1rem;">
                 <div class="adminHeaderRow">
                     <h2 class="h2-zero">Winners</h2>
-                    <div class="muted">Raffle: <strong>2025</strong></div>
+                    <div class="muted">Raffle</div>
                 </div>
                 <div class="formGrid" style="margin-top: .85rem;">
                     <div class="field">
@@ -86,6 +86,33 @@ export const prerender = false;
                     <div class="span2">
                         <div id="metaStatus" class="status status--empty status--center" aria-live="polite"></div>
                     </div>
+                </div>
+
+                <div class="formGrid" style="margin-top: .85rem;">
+                  <div class="field span2">
+                    <label class="label" for="rafflePoster">Raffle poster image</label>
+                    <form id="rafflePosterForm" method="post" action="/api/admin/raffle/poster" enctype="multipart/form-data">
+                      <input id="rafflePosterMonthKey" type="hidden" name="monthKey" value="" />
+                      <input id="rafflePoster" class="input" type="file" name="poster" accept="image/jpeg,image/png,image/webp,image/gif" />
+                      <div class="muted" style="margin-top:.35rem;">
+                        Upload the poster image for the selected raffle month.
+                      </div>
+
+                      <label class="label" for="rafflePosterAlt" style="margin-top:.75rem;">Poster alt text</label>
+                      <input
+                        id="rafflePosterAlt"
+                        class="input"
+                        name="alt"
+                        placeholder='Example: "November 2026 30 Day Gun Giveaway poster for Friends of Lake Henry."'
+                        autocomplete="off"
+                      />
+
+                      <div class="actions" style="margin-top:.75rem;">
+                        <button class="btn" type="submit">Upload poster</button>
+                      </div>
+                    </form>
+                    <div id="posterStatus" class="status status--empty status--center" aria-live="polite"></div>
+                  </div>
                 </div>
 
                 <div class="formGrid" style="margin-top: .85rem;">
@@ -170,6 +197,7 @@ export const prerender = false;
             pageStatus.className = `status status--${kind} status--center`;
             pageStatus.textContent = msg;
         }
+        const rafflePosterMonthKey = document.getElementById("rafflePosterMonthKey");
         const raffleMonth = document.getElementById("raffleMonth");
         const raffleTitle = document.getElementById("raffleTitle");
         const saveRaffleMetaBtn = document.getElementById("saveRaffleMeta");
@@ -312,6 +340,14 @@ export const prerender = false;
                 return `${mm}/${dd}/${yyyy}`;
             }
 
+            function syncPosterMonthKey() {
+                if (rafflePosterMonthKey instanceof HTMLInputElement && raffleMonth instanceof HTMLInputElement) {
+                    rafflePosterMonthKey.value = raffleMonth.value || currentMonthKeyChicago();
+                }
+            }
+
+            syncPosterMonthKey();
+
             function renderWinners(rows) {
                 const tbody = winnersTable.tBodies?.[0];
                 if (!tbody) return;
@@ -394,6 +430,7 @@ export const prerender = false;
                 wDate.value = `${raffleMonth.value}-01`;
                 setMetaStatus("info", "");
                 setWinnersStatus("info", "");
+                syncPosterMonthKey();
                 await loadWinners();
             });
 
