@@ -202,16 +202,21 @@ const description =
                     Ticket sales and raffle details will be posted when available.
                 </p>
             </div>
-            <div
-                class="heroPoster"
-                id="raffleHeroPoster"
-                style={rafflePosterKey ? "" : "display:none;"} >
-                <img
-                    id="raffleHeroPosterImg"
-                    src={rafflePosterKey ? `/api/raffle/poster?month=${encodeURIComponent(raffleKey)}` : ""}
-                    alt={rafflePosterAlt ?? `${monthLabel} raffle poster`}
-                    loading="lazy"/>
-            </div>
+           <a
+               class="heroPoster"
+               id="raffleHeroPoster"
+               href={rafflePosterKey ? `/api/raffle/poster?month=${encodeURIComponent(raffleKey)}` : "#"}
+               target="_blank"
+               rel="noopener noreferrer"
+               style={rafflePosterKey ? "" : "display:none;"}
+           >
+               <img
+                   id="raffleHeroPosterImg"
+                   src={rafflePosterKey ? `/api/raffle/poster?month=${encodeURIComponent(raffleKey)}` : ""}
+                   alt={rafflePosterAlt ?? `${monthLabel} raffle poster`}
+                   loading="lazy"
+               />
+           </a>
             <div class="heroRight">
                 <div class="infoCard enter-block delay-3">
                     <div class="infoTitle">Friends of Lake Henry</div>
@@ -398,7 +403,7 @@ const description =
                     }
 
         function renderWinners(monthLabel, raffleTitle, winners) {
-           
+
             if (monthLabelEl) monthLabelEl.textContent = monthLabel;
 
             if (raffleTitleEl instanceof HTMLElement) {
@@ -592,9 +597,37 @@ const description =
             margin-top: var(--section-gap);
             padding: 2rem;
             display: grid;
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 560px) minmax(260px, 320px);
             gap: 1.25rem;
+            align-items: start;
         }
+        .heroLeft {
+          min-width: 0;
+        }
+
+        .heroPoster {
+          min-width: 0;
+          width: 100%;
+          max-width: 560px;
+          margin-inline: auto;
+          border-radius: 18px;
+          overflow: hidden;
+          border: 1px solid var(--border-strong);
+          background: rgba(0,0,0,0.16);
+        }
+
+        .heroPoster img {
+          display: block;
+          width: 100%;
+          height: auto;
+          max-height: 760px;
+          object-fit: contain;
+        }
+
+        .heroRight {
+          min-width: 0;
+        }
+
         .kicker { color: var(--muted); font-weight: 800; letter-spacing: .3px; }
         .lead { margin: 0; max-width: 70ch; }
 
@@ -745,6 +778,15 @@ const description =
         .dateMobile { display: none; }
         .dateDesktop { display: inline; }
         #winnersEmpty{ width: min(980px, 100%); text-align: center; }
+        @media (max-width: 1100px) {
+          .hero {
+            grid-template-columns: 1fr;
+          }
+
+          .heroPoster {
+            max-width: 720px;
+          }
+        }
         @media (min-width: 980px) {
             .hero { grid-template-columns: 1.35fr .65fr; align-items: start; }
         }
