@@ -114,16 +114,34 @@ const description =
             <div class="panel galleryPanel enter-block delay-2" role="tabpanel" aria-labelledby="tab-0">
                 <div class="grid enter-block delay-2" id="photoGrid">
                     {photos.map((p) => (
-                        <a class="photoLink" href={`/photos/${p.id}`} data-category={p.category}>
-                            <figure class="photo">
-                                <img src={`/api/photos/file?id=${p.id}`} alt={p.alt?.trim() || p.caption?.trim() || p.title?.trim() || "Photo from Friends of Lake Henry"} loading="lazy" />
-                            </figure>
-                        </a>
+                       <a
+                           class="photoLink"
+                           href={`/photos/${p.id}`}
+                           data-category={p.category}
+                           data-modal-src={`/api/photos/file?id=${p.id}`}
+                           data-modal-alt={p.alt?.trim() || p.caption?.trim() || p.title?.trim() || "Photo from Friends of Lake Henry"}
+                           data-modal-caption={p.caption ?? ""}
+                           aria-haspopup="dialog"
+                       >
+                           <figure class="photo">
+                               <img src={`/api/photos/file?id=${p.id}`} alt={p.alt?.trim() || p.caption?.trim() || p.title?.trim() || "Photo from Friends of Lake Henry"} loading="lazy" />
+                           </figure>
+                       </a>
                     ))}
                 </div>
             </div>
         </section>
     </div>
+    <dialog id="galleryModal" class="photoModal">
+        <button type="button" class="photoModalClose" id="galleryModalClose" aria-label="Close preview">×</button>
+        <div class="photoModalBody">
+            <img id="galleryModalImg" class="photoModalImg" src="" alt="" />
+            <p id="galleryModalCaption" class="photoModalCaption"></p>
+            <p style="margin-top:.75rem; text-align:center;">
+                <a id="galleryModalDetails" class="pill" href="#">Open photo page</a>
+            </p>
+        </div>
+    </dialog>
     <script is:inline>
         (function () {
             // --- cleanFlashParams(["submitted"], 0) ---
@@ -168,6 +186,75 @@ const description =
                     statusEl.textContent = `Showing ${visible} photo${visible === 1 ? "" : "s"} in ${filter}.`;
                 }
             }
+
+            const galleryModal = document.getElementById("galleryModal");
+            const galleryModalImg = document.getElementById("galleryModalImg");
+            const galleryModalCaption = document.getElementById("galleryModalCaption");
+            const galleryModalClose = document.getElementById("galleryModalClose");
+            const galleryModalDetails = document.getElementById("galleryModalDetails");
+
+            document.addEventListener("click", (e) => {
+                const link = e.target?.closest?.(".photoLink");
+                if (!(link instanceof HTMLAnchorElement)) return;
+
+                e.preventDefault();
+
+                if (!(galleryModal instanceof HTMLDialogElement) || !(galleryModalImg instanceof HTMLImageElement)) {
+                    window.location.href = link.href;
+                    return;
+                }
+
+                galleryModalImg.src = link.dataset.modalSrc || "";
+                galleryModalImg.alt = link.dataset.modalAlt || "";
+                if (galleryModalCaption instanceof HTMLElement) {
+                    const caption = link.dataset.modalCaption || "";
+                    galleryModalCaption.textContent = caption;
+                    galleryModalCaption.style.display = caption ? "" : "none";
+                }
+                if (galleryModalDetails instanceof HTMLAnchorElement) {
+                    galleryModalDetails.href = link.href;
+                }
+
+                galleryModal.showModal();
+            });
+
+            galleryModalClose?.addEventListener("click", () => {
+                if (galleryModal instanceof HTMLDialogElement) galleryModal.close();
+            });
+
+            galleryModal?.addEventListener("click", (e) => {
+                if (!(galleryModal instanceof HTMLDialogElement)) return;
+                const rect = galleryModal.getBoundingClientRect();
+                const inside =
+                    e.clientX >= rect.left &&
+                    e.clientX <= rect.right &&
+                    e.clientY >= rect.top &&
+                    e.clientY <= rect.bottom;
+                if (!inside) galleryModal.close();
+            });
+
+            function resetGalleryModal() {
+                if (galleryModalImg instanceof HTMLImageElement) {
+                    galleryModalImg.src = "";
+                    galleryModalImg.alt = "";
+                }
+                if (galleryModalCaption instanceof HTMLElement) {
+                    galleryModalCaption.textContent = "";
+                    galleryModalCaption.style.display = "none";
+                }
+                if (galleryModalDetails instanceof HTMLAnchorElement) {
+                    galleryModalDetails.href = "#";
+                }
+            }
+
+            galleryModalClose?.addEventListener("click", () => {
+                if (galleryModal instanceof HTMLDialogElement) {
+                    galleryModal.close();
+                    resetGalleryModal();
+                }
+            });
+
+            galleryModal?.addEventListener("close", resetGalleryModal);
 
             function activate(btn) {
                 const filter = btn.dataset.filter || "All";
@@ -298,6 +385,55 @@ const description =
         .photo:hover::after{
             opacity: 0;
         }
+
+        .photoModal {
+            border: 0;
+            padding: 0;
+            background: transparent;
+            max-width: min(92vw, 1200px);
+        }
+
+        .photoModal::backdrop {
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(4px);
+        }
+
+        .photoModalBody {
+            position: relative;
+        }
+
+        .photoModalImg {
+            display: block;
+            max-width: 100%;
+            max-height: 88vh;
+            width: auto;
+            height: auto;
+            border-radius: 16px;
+            border: 1px solid var(--border-strong);
+            background: #111;
+        }
+
+        .photoModalCaption {
+            margin: .75rem 0 0;
+            text-align: center;
+            color: var(--text-on-dark);
+        }
+
+        .photoModalClose {
+            position: absolute;
+            top: .75rem;
+            right: .75rem;
+            z-index: 2;
+            width: 2.25rem;
+            height: 2.25rem;
+            border: 0;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.72);
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
         /* Submit pill should share the SAME material as the filter pills */
         .filters .pill.submitPill{
             /* use the same base as tabs */

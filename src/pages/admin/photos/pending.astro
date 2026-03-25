@@ -79,14 +79,21 @@ const statusMsg =
                             <article class="pendingItem panel">
                                 <div class="itemGrid">
                                     {/* Preview */}
-                                    <a class="previewLink" href={`/api/admin/photos/file?id=${p.id}`} target="_blank" rel="noopener">
+                                    <button
+                                        class="previewLink previewBtn"
+                                        type="button"
+                                        data-modal-src={`/api/admin/photos/file?id=${p.id}`}
+                                        data-modal-alt={p.alt?.trim() || p.caption?.trim() || p.title?.trim() || "Pending photo preview"}
+                                        data-modal-caption={p.caption ?? ""}
+                                        aria-label="Open photo preview"
+                                    >
                                         <img
                                             class="previewImg"
                                             src={`/api/admin/photos/file?id=${p.id}`}
                                             alt=""
                                             loading="lazy"
                                         />
-                                    </a>
+                                    </button>
 
                                     {/* Details + Actions */}
                                     <div class="itemBody">
@@ -165,6 +172,54 @@ const statusMsg =
             </div>
         </section>
     </div>
+    <dialog id="photoModal" class="photoModal">
+        <button type="button" class="photoModalClose" id="photoModalClose" aria-label="Close preview">×</button>
+        <div class="photoModalBody">
+            <img id="photoModalImg" class="photoModalImg" src="" alt="" />
+            <p id="photoModalCaption" class="photoModalCaption"></p>
+        </div>
+    </dialog>
+    <script is:inline>
+        (function () {
+            const modal = document.getElementById("photoModal");
+            const modalImg = document.getElementById("photoModalImg");
+            const modalCaption = document.getElementById("photoModalCaption");
+            const closeBtn = document.getElementById("photoModalClose");
+
+            if (!(modal instanceof HTMLDialogElement) || !(modalImg instanceof HTMLImageElement)) return;
+
+            document.addEventListener("click", (e) => {
+                const btn = e.target?.closest?.(".previewBtn");
+                if (!(btn instanceof HTMLElement)) return;
+
+                const src = btn.dataset.modalSrc || "";
+                const alt = btn.dataset.modalAlt || "";
+                const caption = btn.dataset.modalCaption || "";
+
+                if (!src) return;
+
+                modalImg.src = src;
+                modalImg.alt = alt;
+                if (modalCaption instanceof HTMLElement) {
+                    modalCaption.textContent = caption;
+                    modalCaption.style.display = caption ? "" : "none";
+                }
+                modal.showModal();
+            });
+
+            closeBtn?.addEventListener("click", () => modal.close());
+
+            modal.addEventListener("click", (e) => {
+                const rect = modal.getBoundingClientRect();
+                const inside =
+                    e.clientX >= rect.left &&
+                    e.clientX <= rect.right &&
+                    e.clientY >= rect.top &&
+                    e.clientY <= rect.bottom;
+                if (!inside) modal.close();
+            });
+        })();
+    </script>
     <script is:inline>
         (function () {
             const params = new URLSearchParams(window.location.search);
@@ -221,6 +276,59 @@ const statusMsg =
             border-radius: 16px;
             overflow: hidden;
             padding: 1rem;
+        }
+
+        .previewBtn {
+            padding: 0;
+            cursor: zoom-in;
+        }
+
+        .photoModal {
+            border: 0;
+            padding: 0;
+            background: transparent;
+            max-width: min(92vw, 1100px);
+        }
+
+        .photoModal::backdrop {
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(4px);
+        }
+
+        .photoModalBody {
+            position: relative;
+        }
+
+        .photoModalImg {
+            display: block;
+            max-width: 100%;
+            max-height: 88vh;
+            width: auto;
+            height: auto;
+            border-radius: 16px;
+            border: 1px solid var(--border-strong);
+            background: #111;
+        }
+
+        .photoModalCaption {
+            margin: .75rem 0 0;
+            text-align: center;
+            color: var(--text-on-dark);
+        }
+
+        .photoModalClose {
+            position: absolute;
+            top: .75rem;
+            right: .75rem;
+            z-index: 2;
+            width: 2.25rem;
+            height: 2.25rem;
+            border: 0;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.72);
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
         }
 
         .itemGrid{
