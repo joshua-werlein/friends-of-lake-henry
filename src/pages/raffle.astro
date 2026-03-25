@@ -560,7 +560,9 @@ const description =
 
             setNavDisabled(state.prevMonthKey, state.nextMonthKey);
             renderWinners(data.monthLabel, data.raffleTitle, data.winners);
-            renderPoster(data.rafflePosterUrl, data.rafflePosterAlt);
+            if (data.rafflePosterUrl) {
+                renderPoster(data.rafflePosterUrl, data.rafflePosterAlt);
+            }
 
             if (pushUrl) {
                 const nextUrl = new URL(window.location.href);
