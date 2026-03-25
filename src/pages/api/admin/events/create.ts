@@ -165,7 +165,7 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
 
         return redirectTo(
             url.origin,
-            `/admin/events/${encodeURIComponent(id)}?ok=created`
+            `/admin/events/new?ok=created`
         );
     } catch {
         return redirectTo(url.origin, "/admin/events/new?err=server");
