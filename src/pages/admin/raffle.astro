@@ -205,6 +205,7 @@ export const prerender = false;
         const input = document.getElementById("latestVideoUrl");
         const btn = document.getElementById("saveLive");
         const liveStatus = document.getElementById("liveStatus");
+        const posterStatus = document.getElementById("posterStatus");
 
 
         function setLiveStatus(kind, msg) {
@@ -424,6 +425,20 @@ export const prerender = false;
                 } catch {
                     setWinnersStatus("error", "Failed to load winners.");
                 }
+            }
+
+            const params = new URLSearchParams(location.search);
+
+            function setPosterStatus(type, msg) {
+                if (!posterStatus) return;
+                posterStatus.textContent = msg || "";
+                posterStatus.className = `status status--${type}`;
+            }
+
+            if (params.get("ok") === "poster") {
+                setPosterStatus("ok", "Poster uploaded successfully.");
+            } else if (params.get("err")) {
+                setPosterStatus("err", "Poster upload failed.");
             }
 
             raffleMonth.addEventListener("change", async () => {
