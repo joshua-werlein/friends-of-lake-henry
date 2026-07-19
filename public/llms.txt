@@ -1,0 +1,14 @@
+# Friends of Lake Henry
+ 
+> Nonprofit organization supporting restoration efforts for Lake Henry in Blair, Wisconsin through fundraising, community events, and an annual raffle.
+ 
+Friends of Lake Henry is a nonprofit dedicated to the restoration of Lake Henry in Blair, WI. The organization raises funds through donations, events, and raffles, recognizes its donors, and documents the lake through a community photo gallery. Raffle winners and live drawings are posted on Facebook.
+ 
+## Pages
+ 
+- [Home](https://friendsoflakehenry.com/): Organization overview and announcements
+- [Events](https://friendsoflakehenry.com/events): Upcoming events hosted by the organization
+- [Photo Gallery](https://friendsoflakehenry.com/photos): Photos of Lake Henry; community members can submit photos at https://friendsoflakehenry.com/photos/submit
+- [Raffle](https://friendsoflakehenry.com/raffle): Current raffle details; winners and live drawings on Facebook
+- [Donors](https://friendsoflakehenry.com/donors): Recognition of donors supporting the restoration effort
+- [Contact](https://friendsoflakehenry.com/contact): Get in touch with the organizatio
