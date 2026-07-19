@@ -209,8 +209,13 @@ community, and fundraising needs.
 
 ## License
 
-[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+> **Proprietary Software — Friends of Lake Henry**  
+> Unauthorized use, reproduction, or distribution of this code is prohibited. [![License](https://img.shields.io/badge/License-©%20Friends-of%20Lake-Henry-blue)](LICENSE)
 
-The source code in this repository is open-source and licensed under the **MIT License**.
+---
 
-All site content, branding, and images are © Friends of Lake Henry and may not be reused without prior permission.
+<sub>
+<strong>Legal Notice:</strong> All code and assets within this repository are the confidential and proprietary
+property of Friends of Lake Henry. No part of this project may be copied, modified, published, or distributed
+without prior written consent. Access is provided solely for portfolio review and technical evaluation.
+</sub>
