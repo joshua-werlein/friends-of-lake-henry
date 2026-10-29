@@ -185,7 +185,7 @@ All timestamps are normalized and displayed in **America/Chicago** time.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20 (see `.nvmrc` and `package.json` engines)
 - Cloudflare account
 - Wrangler CLI (for local Workers / D1 development)
 
@@ -195,6 +195,12 @@ All timestamps are normalized and displayed in **America/Chicago** time.
 npm install
 npm run dev
 ```
+
+Local verification: `npm test`, `npm run typecheck`, and `npm run build`.
+Tests use isolated in-memory D1/R2 via Miniflare and require local loopback access.
+See [Facebook Live preparation](docs/facebook-live-automation.md) for the disabled
+automation foundation, API research blockers and setup checklist, and the separate
+[Astro upgrade assessment](docs/astro-7-upgrade-assessment.md).
 
 ---
 

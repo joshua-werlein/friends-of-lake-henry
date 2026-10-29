@@ -1,9 +1,10 @@
 ---
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
 import BaseLayout from "../layouts/BaseLayout.astro";
+import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, parseLiveConfig, RAFFLE_LIVE_KEY, type LiveConfig } from "../lib/facebook";
 export const prerender = false;
 
-const facebookPageLiveUrl = "https://www.facebook.com/61552199315213/videos/";
+const facebookPageLiveUrl = FACEBOOK_PAGE_VIDEOS_URL;
 
 const rules = [
         "Daily drawings are held during the raffle month.",
@@ -12,8 +13,6 @@ const rules = [
     'Every firearm has a minimum value of $1000; $800 cash option if you do not choose the firearm.',
     "All State & Federal laws apply; MUST be 21 or older to purchase a ticket.",
 ];
-
-type LiveConfig = { latestVideoUrl: string | null; updatedAt: string | null };
 
 type WinnerRow = {
     id: string;
@@ -163,17 +162,7 @@ if (DB) {
 let liveConfig: LiveConfig = { latestVideoUrl: null, updatedAt: null };
 
 try {
-    const raw = await env?.CONFIG?.get("raffle_live");
-
-    if (raw) {
-        const parsed = JSON.parse(raw) as Partial<LiveConfig>;
-        const cur = typeof parsed.latestVideoUrl === "string" ? parsed.latestVideoUrl.trim() : "";
-
-        liveConfig = {
-            latestVideoUrl: cur.length ? cur : null,
-            updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
-        };
-    }
+    liveConfig = parseLiveConfig(await env?.CONFIG?.get(RAFFLE_LIVE_KEY));
 } catch {
     // ignore bad KV / parse
 }
@@ -185,13 +174,7 @@ const initial = {
 
 const effectiveVideoUrl = liveConfig.latestVideoUrl ?? null;
 
-const isReel = effectiveVideoUrl ? /\/reel\/\d+/.test(effectiveVideoUrl) : false;
-
-const embedSrc = effectiveVideoUrl
-    ? isReel
-        ? `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(effectiveVideoUrl)}&show_text=0&width=500`
-        : `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(effectiveVideoUrl)}&show_text=0&adapt_container_width=true`
-    : null;
+const embedSrc = facebookEmbedSrc(effectiveVideoUrl);
 
 const updatedAtDate = liveConfig.updatedAt ? new Date(liveConfig.updatedAt) : null;
 const updatedAtLabel =

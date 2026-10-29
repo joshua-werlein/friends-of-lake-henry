@@ -104,9 +104,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
             return json({ ok: false, error: "raffleKey (YYYY-MM) required" }, 400);
         }
 
-        // Allow blank to clear
+        // Clear only the title: the month may still own a poster and rules.
         if (!title) {
-            await DB.prepare(`DELETE FROM raffle_months WHERE month_key = ?`)
+            await DB.prepare(`UPDATE raffle_months SET title = '',
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE month_key = ?`)
                 .bind(monthKey)
                 .run();
             return json({ ok: true, meta: { title: "" } }, 200);

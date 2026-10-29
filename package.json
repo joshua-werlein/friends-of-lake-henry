@@ -6,6 +6,8 @@
     "node": ">=20 <21"
   },
   "scripts": {
+    "test": "node --import ./tests/register.mjs --test tests/facebook.test.mjs tests/raffle.test.mjs",
+    "typecheck": "tsc --noEmit",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
@@ -16,6 +18,9 @@
     "scripts": "^0.1.0"
   },
   "devDependencies": {
+    "esbuild": "0.25.12",
+    "miniflare": "4.20251118.1",
+    "typescript": "5.9.3",
     "@astrojs/cloudflare": "^12.6.12",
     "@cloudflare/workers-types": "^4.20251213.0",
     "astro": "^5.16.6"
