@@ -37,13 +37,13 @@ export const prerender = false;
                             <p>
                                 Paste the Facebook <strong>video</strong> or <strong>reel</strong> URL for what should show on the public raffle page.
                                 <strong>Leave blank</strong> and save to remove it and show the “Watch on Facebook” button.
-                                For short or share links, open the video on Facebook and copy its full URL first.
+                                Use a public Page broadcast with embedding enabled, not a private Group broadcast. Open raffle pages check for a new selection every 15 seconds; Facebook and KV propagation can take longer. For short or share links, open the video on Facebook and copy its full URL first.
                             </p>
                         </div>
                     </div>
 
                     <div class="actions span2 enter-block delay-3">
-                        <button class="btn" id="saveLive" type="button">Save video links</button>
+                        <button class="btn" id="saveLive" type="button">Save broadcast</button>
                         <a class="pill" href="/raffle">View public raffle page</a>
                     </div>
                     <div class="span2">
@@ -54,7 +54,7 @@ export const prerender = false;
 
             <div class="panel adminPanel enter-block delay-4" style="margin-top: 1rem;">
                 <div class="adminHeaderRow">
-                    <h2 class="h2-zero">Winners</h2>
+                    <h2 class="h2-zero">Daily winners</h2>
                     <div class="muted">Raffle</div>
                 </div>
                 <div class="formGrid" style="margin-top: .85rem;">
@@ -135,10 +135,23 @@ export const prerender = false;
                     </div>
 
                     <div class="field span2">
-                        <label class="label" for="wTown">Town</label>
+                        <label class="label" for="wTown">Hometown</label>
                         <input id="wTown" class="input" placeholder="Galesville" autocomplete="off" />
                     </div>
 
+                    <div class="field">
+                        <label class="label" for="wPlace">Place</label>
+                        <select id="wPlace" class="input">
+                            <option value="1st place">First place</option>
+                            <option value="2nd place">Second place</option>
+                            <option value="3rd place">Third place</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="wPrize">Prize description (optional)</label>
+                        <input id="wPrize" class="input" maxlength="200" placeholder="Prize or cash amount" />
+                    </div>
+                    <p class="muted span2" id="prizeSchedule" aria-live="polite"></p>
                     <div class="actions span2">
                         <button class="btn" id="addWinner" type="button">Add winner</button>
                     </div>
@@ -150,11 +163,12 @@ export const prerender = false;
 
                 <div class="winnersList" style="margin-top: 1rem;">
                     <div class="muted" id="winnersCount" style="margin:0 0 .5rem;"></div>
-                    <div class="winnersTableWrap" role="region" aria-label="Admin winners list">
+                    <div class="winnersTableWrap" role="region" aria-label="Admin winners list" tabindex="0">
                         <table class="winnersTable" id="winnersTable">
                             <thead>
                             <tr>
                                 <th>Date</th>
+                                <th>Place / prize</th>
                                 <th>Ticket</th>
                                 <th>Name</th>
                                 <th>Town</th>
@@ -291,6 +305,8 @@ export const prerender = false;
         const wDate = document.getElementById("wDate");
         const wTicket = document.getElementById("wTicket");
         const wName = document.getElementById("wName");
+        const wPlace = document.getElementById("wPlace");
+        const wPrize = document.getElementById("wPrize");
         const wTown = document.getElementById("wTown");
         const addWinnerBtn = document.getElementById("addWinner");
         const winnersStatus = document.getElementById("winnersStatus");
@@ -313,6 +329,8 @@ export const prerender = false;
             !(wTicket instanceof HTMLInputElement) ||
             !(wName instanceof HTMLInputElement) ||
             !(wTown instanceof HTMLInputElement) ||
+            !(wPlace instanceof HTMLSelectElement) ||
+            !(wPrize instanceof HTMLInputElement) ||
             !(addWinnerBtn instanceof HTMLButtonElement) ||
             !(winnersTable instanceof HTMLTableElement) ||
             !(winnersStatus instanceof HTMLElement) ||
@@ -328,13 +346,29 @@ export const prerender = false;
                 raffleMonth.value = currentMonthKeyChicago(); // YYYY-MM
             }
             if (!wDate.value) {
-                wDate.value = `${raffleMonth.value}-01`; // keep date in selected month
+                wDate.value = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
             }
             const dateMonth = wDate.value.slice(0, 7);
 
             if (dateMonth !== raffleMonth.value) {
                 wDate.value = `${raffleMonth.value}-01`;
             }
+
+            function updatePrizeSchedule() {
+                const date = new Date(`${wDate.value}T12:00:00Z`);
+                const day = date.getUTCDay();
+                const thanksgiving = date.getUTCMonth() === 10 && day === 4 && date.getUTCDate() >= 22 && date.getUTCDate() <= 28;
+                const third = [0, 5, 6].includes(day) || thanksgiving;
+                document.getElementById("prizeSchedule").textContent = third
+                    ? "Three prizes scheduled: first, second and third place."
+                    : "Two prizes scheduled: first and second place.";
+                // Advisory only: preserve flexibility for historical/corrected entries.
+            }
+            wDate.addEventListener("change", () => {
+                wPlace.selectedIndex = 0;
+                updatePrizeSchedule();
+            });
+            updatePrizeSchedule();
 
             function formatISODateMDY(iso) {
                 if (!iso) return "";
@@ -396,7 +430,9 @@ export const prerender = false;
 
                     tdActions.appendChild(btn);
 
-                    tr.append(tdDate, tdTicket, tdName, tdTown, tdActions);
+                    const tdPrize = document.createElement("td");
+                    tdPrize.textContent = String(r.prize ?? "Not recorded");
+                    tr.append(tdDate, tdPrize, tdTicket, tdName, tdTown, tdActions);
                     tbody.appendChild(tr);
                     }
                 }
@@ -446,6 +482,8 @@ export const prerender = false;
 
             raffleMonth.addEventListener("change", async () => {
                 wDate.value = `${raffleMonth.value}-01`;
+                wPlace.selectedIndex = 0;
+                updatePrizeSchedule();
                 setMetaStatus("info", "");
                 setWinnersStatus("info", "");
                 syncPosterMonthKey();
@@ -496,6 +534,7 @@ export const prerender = false;
                         ticketNumber: wTicket.value.trim(),
                         name: wName.value.trim(),
                         town: wTown.value.trim(),
+                        prize: wPlace.value + (wPrize.value.trim() ? ` — ${wPrize.value.trim()}` : ""),
                     };
 
                     const res = await fetch("/api/admin/raffle/winners", {
@@ -509,6 +548,9 @@ export const prerender = false;
                         wTicket.value = "";
                         wName.value = "";
                         wTown.value = "";
+                        wPrize.value = "";
+                        wPlace.selectedIndex = Math.min(wPlace.selectedIndex + 1, 2);
+                        wTicket.focus();
                         // keep date for batch entry convenience
                         setWinnersStatus("info", "Winner saved.");
                         await loadWinners();

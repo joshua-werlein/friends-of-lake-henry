@@ -106,7 +106,7 @@ if (DB) {
             prize
      FROM raffle_winners
      WHERE raffle_key = ?
-     ORDER BY draw_date DESC, created_at DESC`
+     ORDER BY draw_date DESC, CASE WHEN prize LIKE '1st place%' THEN 1 WHEN prize LIKE '2nd place%' THEN 2 WHEN prize LIKE '3rd place%' THEN 3 ELSE 4 END, created_at DESC`
     ).bind(raffleKey).all();
     winners = (results ?? []) as any;
 }
@@ -215,7 +215,7 @@ const description =
                         <div class="muted">P.O. Box 142, Blair, WI 54616</div>
                         <div class="muted">Phone: 608-484-9241</div>
                         <div class="muted" style="margin-top:.5rem;">
-                            Winners are posted on Facebook.
+                            Daily winners are posted below after each drawing.
                         </div>
                     </div>
                 </div>
@@ -247,49 +247,28 @@ const description =
             />
         </dialog>
         <section class="card liveCard enter-block delay-3">
-            <h2 class="sectionTitle">Latest Raffle</h2>
+            <h2 class="sectionTitle">Live Drawings & Latest Replay</h2>
 
             <div class="panel livePanel enter-block delay-4">
-                {embedSrc ? (
-                    <div class="liveFrame">
-                        <iframe
-                            class="fbFrame"
-                            src={embedSrc}
-                            title="Friends of Lake Henry — Facebook Video"
-                            loading="lazy"
-                            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-                            allowfullscreen
-                        ></iframe>
-                    </div>
-                ) : (
-                    <div class="liveFrame liveFrame--empty">
-                        <div class="liveOverlay">
-                            <p class="muted" style="margin:0 0 .75rem;">
-                                Live is offline right now. Watch on Facebook for the newest broadcast.
-                            </p>
-                            <a class="btn  btn--facebook" href={facebookPageLiveUrl} target="_blank" rel="noopener noreferrer">
-                                Watch on Facebook
-                            </a>
-                        </div>
-                    </div>
-                )}
-
-                {updatedAtLabel && (
-                    <p class="muted" style="margin:.5rem 0 0;">Last updated: {updatedAtLabel}</p>
-                )}
-
-                {embedSrc && (
-                    <div class="liveFallback enter-block delay-5">
-                        <a class="btn  btn--facebook" href={facebookPageLiveUrl} target="_blank" rel="noopener noreferrer">
-                            Watch on Facebook
-                        </a>
-                    </div>
-                )}
+                <div id="livePlayer" data-video-url={effectiveVideoUrl ?? ""}>
+                    {embedSrc && <div class="liveFrame"><iframe class="fbFrame" src={embedSrc}
+                        title="Friends of Lake Henry — Facebook video" loading="lazy"
+                        allow="autoplay; encrypted-media; picture-in-picture; web-share" allowfullscreen></iframe></div>}
+                </div>
+                <p id="liveMessage" class="muted" aria-live="polite">
+                    {embedSrc ? "Latest selected drawing. If the player is unavailable, watch directly on Facebook." : "No broadcast selected yet. This page checks for updates automatically."}
+                </p>
+                <p class="muted" id="liveUpdated">{updatedAtLabel ? `Video selected: ${updatedAtLabel} Central` : ""}</p>
+                <div class="liveFallback">
+                    <a id="facebookFallback" class="btn btn--facebook" href={effectiveVideoUrl ?? facebookPageLiveUrl} target="_blank" rel="noopener noreferrer">Watch on Facebook<span class="srOnly"> (opens in a new tab)</span></a>
+                </div>
             </div>
         </section>
 
         <section class="card winnersCard enter-block delay-6">
-            <h2 class="sectionTitle">Past Winners</h2>
+            <h2 class="sectionTitle">Daily Winners</h2>
+            <p>November 1–30, 2026: drawings every day at 6:00 PM Central. Two prizes daily; a third on Fridays, Saturdays, Sundays and Thanksgiving (November 26). Winners appear after each drawing.</p>
+            <p id="winnerRefreshStatus" class="muted" aria-live="polite">Winners update automatically.</p>
             <nav class="monthNav" aria-label="Select raffle month">
                 <div class="monthMeta" aria-live="polite">
                     <div class="monthNavLabel" id="monthLabel">{monthLabel}</div>
@@ -314,10 +293,12 @@ const description =
                 </div>
             </nav>
             <div id="winnersPanel" class="panel winnersPanel enter-block delay-7">
-                <div class="winnersTableWrap" role="region" aria-label="Raffle winners list">
+                <p class="muted winnersScrollHint">Scroll the table sideways to see every winner detail.</p>
+                <div class="winnersTableWrap" role="region" aria-label="Raffle winners list" tabindex="0">
                     <table class="winnersTable">
                         <colgroup>
                             <col class="colDate" />
+                            <col class="colPrize" />
                             <col class="colTicket" />
                             <col class="colName" />
                             <col class="colTown" />
@@ -326,9 +307,10 @@ const description =
                         <thead>
                         <tr>
                             <th scope="col">Date</th>
+                            <th scope="col">Place / prize</th>
                             <th scope="col">Ticket</th>
                             <th scope="col">Name</th>
-                            <th scope="col" class="thTown">Town</th>
+                            <th scope="col" class="thTown">Hometown</th>
                         </tr>
                         </thead>
 
@@ -345,6 +327,7 @@ const description =
                                         </span>
                                     </time>
                                 </td>
+                                <td class="tdPrize">{w.prize ?? "Not recorded"}</td>
                                 <td>{w.ticketNumber}</td>
                                 <td class="tdName">{w.name}</td>
                                 <td class="tdTown">{w.town}</td>
@@ -528,21 +511,28 @@ const description =
                 tdTown.className = "tdTown";
                 tdTown.textContent = String(w.town ?? "");
 
-                tr.append(tdDate, tdTicket, tdName, tdTown);
+                const tdPrize = document.createElement("td");
+                tdPrize.className = "tdPrize";
+                tdPrize.textContent = String(w.prize ?? "Not recorded");
+                tr.append(tdDate, tdPrize, tdTicket, tdName, tdTown);
                 tbody.appendChild(tr);
             }
             // when month changes, snap scroll back to left so Date is visible
             if (wrap) wrap.scrollLeft = 0;
         }
 
+        let monthRequest = 0;
+        let winnersSignature = "";
         async function loadMonth(targetMonthKey, pushUrl = true) {
+            const requestId = ++monthRequest;
             const u = new URL("/api/raffle/month", window.location.origin);
             u.searchParams.set("month", targetMonthKey);
 
-            const res = await fetch(u.toString(), { headers: { "Accept": "application/json" } });
+            const res = await fetch(u.toString(), { cache: "no-store", signal: AbortSignal.timeout(10000), headers: { "Accept": "application/json" } });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data?.ok) throw new Error(data?.error ?? "Failed to load month");
 
+            if (requestId !== monthRequest) return;
             // update state
             state = {
                 monthKey: data.monthKey,
@@ -564,7 +554,11 @@ const description =
             }
 
             setNavDisabled(state.prevMonthKey, state.nextMonthKey);
-            renderWinners(data.monthLabel, data.raffleTitle, data.winners);
+            const signature = JSON.stringify([data.monthKey, data.raffleTitle, data.winners]);
+            if (signature !== winnersSignature) {
+                renderWinners(data.monthLabel, data.raffleTitle, data.winners);
+                winnersSignature = signature;
+            }
             if (data.rafflePosterUrl) {
                 renderPoster(data.rafflePosterUrl, data.rafflePosterAlt);
             }
@@ -614,39 +608,20 @@ const description =
         bindNav();
         bindMonthSelect();
 
-       (function initFbEmbedFailover() {
-         const iframe = document.querySelector(".fbFrame");
-         const fallback = document.querySelector(".liveFallback");
-
-         if (!(iframe instanceof HTMLIFrameElement)) return;
-         if (!(fallback instanceof HTMLElement)) return;
-
-         const frame = iframe.closest(".liveFrame");
-         if (!(frame instanceof HTMLElement)) return;
-
-         let settled = false;
-
-         const fail = () => {
-           if (settled) return;
-           settled = true;
-           frame.style.display = "none";
-           fallback.style.display = "flex";
-         };
-
-         const t = window.setTimeout(fail, 6500);
-         bindPosterModal();
-
-         iframe.addEventListener("load", () => {
-           if (settled) return;
-           settled = true;
-           window.clearTimeout(t);
-         });
-
-         iframe.addEventListener("error", () => {
-           window.clearTimeout(t);
-           fail();
-         });
-       })();
+        bindPosterModal();
+        let refreshingWinners = false;
+        async function refreshWinners() {
+            if (document.hidden || refreshingWinners) return;
+            refreshingWinners = true;
+            try {
+                await loadMonth(state.monthKey, false);
+                document.getElementById("winnerRefreshStatus").textContent = "Winners update automatically.";
+            } catch {
+                document.getElementById("winnerRefreshStatus").textContent = "Unable to check winners. Showing the last loaded results; retrying automatically.";
+            } finally { refreshingWinners = false; }
+        }
+        window.setInterval(refreshWinners, 30000);
+        document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshWinners(); });
     </script>
     <style>
         .hero {
@@ -986,7 +961,13 @@ const description =
             .winnersTable td:last-child  { padding-right: .25rem; }
         }
     </style>
+    <script src="../scripts/raffle-live.ts"></script>
     <style is:global>
+        .rafflePage #livePlayer .liveFrame { aspect-ratio: 16 / 9; width: 100%; border-radius: 14px; overflow: hidden; }
+        .rafflePage #livePlayer .fbFrame { width: 100%; height: 100%; border: 0; display: block; }
+        .rafflePage .winnersTable col.colPrize { width: 10rem; }
+        .rafflePage .winnersTable .tdPrize { white-space: normal; overflow-wrap: anywhere; min-width: 8rem; }
+        .rafflePage [hidden] { display: none !important; }
         .rafflePage .winnersPanel{
             padding: 1rem;
             border-radius: 14px;
@@ -1039,9 +1020,8 @@ const description =
         }
         .rafflePage .tdName,
         .rafflePage .tdTown{
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            overflow-wrap: anywhere;
+            white-space: normal;
         }
 
         /* Date format toggle must be global because spans are injected */

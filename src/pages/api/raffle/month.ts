@@ -76,7 +76,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
            prize
     FROM raffle_winners
     WHERE raffle_key = ?
-    ORDER BY draw_date DESC, created_at DESC
+    ORDER BY draw_date DESC, CASE WHEN prize LIKE '1st place%' THEN 1 WHEN prize LIKE '2nd place%' THEN 2 WHEN prize LIKE '3rd place%' THEN 3 ELSE 4 END, created_at DESC
   `).bind(raffleKey).all();
 
   const metaRes = await DB.prepare(`

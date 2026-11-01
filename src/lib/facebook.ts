@@ -15,7 +15,7 @@ export function normalizeFacebookVideoUrl(input: string, depth = 0): string | nu
         }
         if (!['facebook.com', 'www.facebook.com', 'm.facebook.com'].includes(url.hostname)) return null;
         const video = url.pathname.match(/^\/(?:[^/]+\/)?videos\/(\d+)\/?$/);
-        const watch = /^\/watch\/?$/.test(url.pathname) ? url.searchParams.get('v') : null;
+        const watch = /^\/(?:watch(?:\/live)?\/?|live\/?|video\.php)$/.test(url.pathname) ? url.searchParams.get('v') : null;
         const id = video?.[1] ?? (watch && /^\d+$/.test(watch) ? watch : null);
         if (id) return `${FACEBOOK_PAGE_VIDEOS_URL}${id}/`;
         const reel = url.pathname.match(/^\/reel\/(\d+)\/?$/);

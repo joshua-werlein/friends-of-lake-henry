@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
+import { GET as eventsGet } from '../src/pages/api/events/month.ts';
+import { POST as donorPost } from '../src/pages/api/admin/donors/index.ts';
+import { GET as photoGet } from '../src/pages/api/photos/file.ts';
 import { GET as adminGet, POST as winnersPost } from '../src/pages/api/admin/raffle/winners.ts';
 import { GET as monthGet } from '../src/pages/api/raffle/month.ts';
 import { GET as posterGet } from '../src/pages/api/raffle/poster.ts';
@@ -74,4 +77,39 @@ test('November title, poster, winner and history workflow against local D1/R2', 
         assert.equal(admin.winners.length, 2);
         assert.equal((await month('2025-11')).winners.length, 1);
     });
+    await t.test('three prizes on Sunday and Thanksgiving, two on Monday, legacy prizes preserved', async () => {
+        for (const date of ['2026-11-08', '2026-11-26', '2026-11-09']) {
+            for (const place of (date.endsWith('09') ? [2, 1] : [3, 1, 2])) {
+                const label = `${place}${place === 1 ? 'st' : place === 2 ? 'nd' : 'rd'} place — Test prize`;
+                assert.equal((await post({ drawDate: date, ticketNumber: 100 + place, name: 'Test Winner', town: 'Blair', prize: label })).status, 200);
+            }
+        }
+        const data = await month(monthKey);
+        for (const date of ['2026-11-08', '2026-11-26', '2026-11-09']) {
+            const winners = data.winners.filter(w => w.drawDate === date);
+            assert.deepEqual(winners.map(w => w.prize.slice(0, 3)), date.endsWith('09') ? ['1st', '2nd'] : ['1st', '2nd', '3rd']);
+        }
+        assert.equal(data.winners.find(w => w.drawDate === '2026-11-01').prize, null);
+        const admin = await (await adminGet(ctx('/api/admin/raffle/winners?raffleKey=2026-11'))).json();
+        assert.deepEqual(admin.winners.map(w => w.prize), data.winners.map(w => w.prize));
+        assert.equal((await post({ drawDate: '2026-11-01', ticketNumber: 1.5, name: 'Test Winner', town: 'Blair' })).status, 400);
+    });
+
+    await t.test('event listing, donor entry and approved photo serving remain functional', async () => {
+        await DB.prepare("INSERT INTO events (id,title,kind,status,date_start) VALUES ('event-test','Test event','Event','published','2026-11-01T23:00:00Z')").run();
+        const events = await (await eventsGet(ctx('/api/events/month?month=2026-11'))).json();
+        assert.equal(events.monthEvents[0].title, 'Test event');
+        const donor = ctx('/api/admin/donors');
+        donor.request = new Request(donor.url, { method: 'POST', body: new URLSearchParams({ name: 'Test donor', amount: '25.50' }) });
+        assert.match((await donorPost(donor)).headers.get('location'), /ok=1/);
+        assert.equal((await DB.prepare('SELECT amount_cents FROM donors').first()).amount_cents, 2550);
+        await PHOTOS_BUCKET.put('approved/test.png', new Uint8Array([137, 80, 78, 71]), { httpMetadata: { contentType: 'image/png' } });
+        await DB.prepare("INSERT INTO photos (id,status,r2_key,content_type,category,alt,submitted_at) VALUES ('photo-test','approved','approved/test.png','image/png','lake','Test photo','2026-11-01')").run();
+        const photo = await photoGet(ctx('/api/photos/file?id=photo-test'));
+        assert.equal(photo.status, 200);
+        assert.equal(photo.headers.get('content-type'), 'image/png');
+        await DB.prepare("UPDATE photos SET status = 'pending' WHERE id = 'photo-test'").run();
+        assert.equal((await photoGet(ctx('/api/photos/file?id=photo-test'))).status, 404);
+    });
+
 });

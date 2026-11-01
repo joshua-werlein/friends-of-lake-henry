@@ -43,7 +43,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
             `SELECT id, raffle_key as raffleKey, draw_date as drawDate, ticket_number as ticketNumber, winner_name as name, town, prize, created_at as createdAt
        FROM raffle_winners
        WHERE raffle_key = ?
-       ORDER BY draw_date DESC, created_at DESC`
+       ORDER BY draw_date DESC, CASE WHEN prize LIKE '1st place%' THEN 1 WHEN prize LIKE '2nd place%' THEN 2 WHEN prize LIKE '3rd place%' THEN 3 ELSE 4 END, created_at DESC`
         )
         .bind(raffleKey)
         .all();
@@ -133,6 +133,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         await DB.prepare(`DELETE FROM raffle_winners WHERE id = ?`).bind(id).run();
         return json({ ok: true }, 200);
     }
+    if (action !== "add") return json({ ok: false, error: "Unknown action" }, 400);
     const drawDate = (data?.drawDate ?? "").toString().trim();
     const raffleKey = drawDate.slice(0, 7); // "YYYY-MM"
     const ticketNumberRaw = (data?.ticketNumber ?? "").toString().trim();
@@ -146,11 +147,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (!isRealIsoDate(drawDate)) return json({ ok: false, error: "drawDate must be a valid date" }, 400);
 
     const ticketNumber = Number(ticketNumberRaw);
-    if (!Number.isFinite(ticketNumber) || ticketNumber <= 0) {
-        return json({ ok: false, error: "ticketNumber must be a positive number" }, 400);
+    if (!Number.isSafeInteger(ticketNumber) || ticketNumber <= 0) {
+        return json({ ok: false, error: "ticketNumber must be a positive whole number" }, 400);
     }
     if (name.length < 2) return json({ ok: false, error: "name required" }, 400);
     if (town.length < 2) return json({ ok: false, error: "town required" }, 400);
+
+    if (name.length > 200 || town.length > 200 || (prize?.length ?? 0) > 250) return json({ ok: false, error: "Name, hometown or prize is too long" }, 400);
 
     // Deterministic ID helps avoid duplicates; allow same ticket across different dates.
     const id = `${raffleKey}-${drawDate}-${ticketNumber}`.replace(/[^\w-]/g, "");

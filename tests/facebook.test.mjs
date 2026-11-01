@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { FACEBOOK_PAGE_ID, RAFFLE_LIVE_KEY, normalizeFacebookVideoUrl, parseLiveConfig, facebookEmbedSrc } from '../src/lib/facebook.ts';
 import { AUTOMATIC_KEY, FUNDRAISER_START, FUNDRAISER_END, pollBroadcasts, validateBroadcast } from '../src/lib/server/facebook-automation.ts';
 import worker from '../workers/facebook-live/index.ts';
+import { GET as publicLiveGet } from '../src/pages/api/raffle/live.ts';
 import { GET, POST } from '../src/pages/api/admin/raffle/live.ts';
 
 const canonical = id => `https://www.facebook.com/${FACEBOOK_PAGE_ID}/videos/${id}/`;
@@ -20,7 +21,9 @@ const context = (kv, body) => ({ locals: { runtime: { env: { CONFIG: kv } } },
 
 test('normalizes full video, watch, mobile, tracking, reel and local redirect-wrapper URLs without fetch', () => {
     for (const input of ['https://facebook.com/page/videos/123/?tracking=1', 'http://m.facebook.com/watch/?v=123&x=1',
-        'https://www.facebook.com/videos/123', `https://l.facebook.com/l.php?u=${encodeURIComponent(canonical('123'))}`]) {
+        'https://www.facebook.com/videos/123', 'https://www.facebook.com/watch/live/?v=123',
+        'https://www.facebook.com/live/?v=123', 'https://www.facebook.com/video.php?v=123',
+        `https://l.facebook.com/l.php?u=${encodeURIComponent(canonical('123'))}`]) {
         assert.equal(normalizeFacebookVideoUrl(input), canonical('123'));
     }
     assert.equal(normalizeFacebookVideoUrl('https://facebook.com/reel/123/?x=1'), 'https://www.facebook.com/reel/123');
@@ -130,4 +133,19 @@ test('storage errors and an override saved during discovery fail safely', async 
     const source = async () => { kv.data.set(RAFFLE_LIVE_KEY, '{}'); return { ok: true, broadcasts: [broadcast()] }; };
     assert.equal((await pollBroadcasts(options({ store: kv, source }))).status, 'manual-override');
     assert.equal(kv.writes.length, 0);
+});
+
+test('public live selection is read-only, uncached, resilient and ignores automatic staging', async () => {
+    const kv = store([[RAFFLE_LIVE_KEY, JSON.stringify({ latestVideoUrl: canonical('123') })],
+        [AUTOMATIC_KEY, JSON.stringify(broadcast('456'))]]);
+    const response = await publicLiveGet(context(kv));
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal((await response.json()).config.latestVideoUrl, canonical('123'));
+    kv.data.set(RAFFLE_LIVE_KEY, JSON.stringify({ latestVideoUrl: canonical('789') }));
+    assert.equal((await (await publicLiveGet(context(kv))).json()).config.latestVideoUrl, canonical('789'));
+    kv.data.set(RAFFLE_LIVE_KEY, JSON.stringify({ latestVideoUrl: null }));
+    assert.equal((await (await publicLiveGet(context(kv))).json()).config.latestVideoUrl, null);
+    assert.deepEqual(kv.writes, []);
+    assert.equal((await publicLiveGet({ locals: {} })).status, 503);
+    assert.equal((await publicLiveGet(context({ get() { throw Error('private failure'); } }))).status, 503);
 });

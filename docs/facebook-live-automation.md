@@ -1,3 +1,9 @@
+> November 1 launch update: public refresh and daily prize display are now implemented.
+> The Page ID and replay playback were verified in-browser, and Meta's embedded
+> video documentation was readable there. Earlier 429/unverified notes below describe
+> the prior investigation. Automation itself remains disabled and unverified against
+> a Page token. See [launch validation and runbook](raffle-launch-2026-11.md).
+
 # Facebook Live preparation — November 2026
 
 Prepared locally October 29, 2026. Page: `61552199315213`.
