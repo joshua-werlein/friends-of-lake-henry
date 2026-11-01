@@ -105,19 +105,13 @@ export function verifyVideo(candidate: Candidate, metadata: unknown): Discovery 
         status: metadata.live_status === 'LIVE' ? 'live' : 'replay', liveStatus: metadata.live_status as Discovery['liveStatus'] };
 }
 
-/** Read-only Graph client. Never follows paging URLs or redirects; never logs raw API data. */
-export async function discoverPosts(options: {
-    token: string; marker: string; probeVideoMetadata?: boolean; now?: Date; fetcher?: typeof fetch;
-}): Promise<GraphResult> {
-    const now = options.now ?? new Date();
-    const fetcher = options.fetcher ?? fetch;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
-    async function get(path: string, params: Record<string, string>): Promise<RecordValue> {
+/** Shared read-only Graph transport for video and photo paths. Errors never expose API bodies. */
+export function graphReader(token: string, now = new Date(), fetcher: typeof fetch = fetch, signal?: AbortSignal) {
+    return async function get(path: string, params: Record<string, string>): Promise<RecordValue> {
         const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${path}`);
         for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
         const response = await fetcher(url, { method: 'GET', redirect: 'error', cache: 'no-store',
-            signal: controller.signal, headers: { Authorization: `Bearer ${options.token}`, Accept: 'application/json' } });
+            signal: signal, headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
         let body: unknown;
         try { body = await boundedJson(response); }
         catch (e) {
@@ -131,15 +125,15 @@ export async function discoverPosts(options: {
         }
         return body;
     }
-    try {
-        if (!options.token || !/^#[A-Za-z][A-Za-z0-9_]{2,80}$/.test(options.marker)) throw new GraphFailure('invalid-response');
-        const identity = await get(GRAPH_PAGE_ID, { fields: 'id' });
-        if (identity.id !== GRAPH_PAGE_ID) throw new GraphFailure('identity-mismatch');
+}
+
+/** Shared bounded Page-post feed. Never follows a token-bearing paging URL. */
+export async function readPagePosts(get: ReturnType<typeof graphReader>, fields = POST_FIELDS): Promise<unknown[]> {
         const posts: unknown[] = [];
         let after: string | undefined;
         const cursors = new Set<string>();
         for (let page = 0; page < 3; page++) {
-            const body = await get(`${GRAPH_PAGE_ID}/published_posts`, { fields: POST_FIELDS, limit: '25', ...(after ? { after } : {}) });
+            const body = await get(`${GRAPH_PAGE_ID}/published_posts`, { fields, limit: '25', ...(after ? { after } : {}) });
             if (!Array.isArray(body.data) || body.data.length > 100) throw new GraphFailure('invalid-response');
             posts.push(...body.data);
             const paging = record(body.paging) ? body.paging : null;
@@ -149,6 +143,23 @@ export async function discoverPosts(options: {
             cursors.add(cursor);
             after = cursor; // Rebuild on fixed Graph host; paging.next may contain a token.
         }
+        return posts;
+}
+
+/** Read-only Graph client. Never follows paging URLs or redirects; never logs raw API data. */
+export async function discoverPosts(options: {
+    token: string; marker: string; probeVideoMetadata?: boolean; now?: Date; fetcher?: typeof fetch;
+}): Promise<GraphResult> {
+    const now = options.now ?? new Date();
+    const fetcher = options.fetcher ?? fetch;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    const get = graphReader(options.token, now, fetcher, controller.signal);
+    try {
+        if (!options.token || !/^#[A-Za-z][A-Za-z0-9_]{2,80}$/.test(options.marker)) throw new GraphFailure('invalid-response');
+        const identity = await get(GRAPH_PAGE_ID, { fields: 'id' });
+        if (identity.id !== GRAPH_PAGE_ID) throw new GraphFailure('identity-mismatch');
+        const posts = await readPagePosts(get);
         const candidates = extractCandidates(posts, options.marker, now).slice(0, 8);
         const discoveries: Discovery[] = [];
         if (options.probeVideoMetadata) {

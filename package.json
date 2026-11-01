@@ -6,14 +6,15 @@
     "node": ">=20 <21"
   },
   "scripts": {
-    "test": "node --import ./tests/register.mjs --test tests/facebook.test.mjs tests/facebook-worker.test.mjs tests/raffle.test.mjs tests/raffle-selection.test.mjs",
+    "test": "node --import ./tests/register.mjs --test tests/facebook.test.mjs tests/facebook-worker.test.mjs tests/raffle.test.mjs tests/raffle-selection.test.mjs tests/raffle-photos.test.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:facebook-worker": "tsc -p workers/facebook-live/tsconfig.json",
     "build:facebook-worker": "esbuild workers/facebook-live/index.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=.wrangler/facebook-live-build/index.js",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "build:facebook-photos": "esbuild workers/facebook-live/photos-entry.ts --bundle --format=esm --platform=browser --target=es2022 --external:cloudflare:workers --outfile=.wrangler/facebook-photos-build/index.js"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.6.0",

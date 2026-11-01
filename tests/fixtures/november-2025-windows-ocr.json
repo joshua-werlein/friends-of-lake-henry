@@ -1,0 +1,249 @@
+{
+  "provenance": "Actual Windows.Media.Ocr output on user-provided 831x1554 fixture, 2026-11-01; grouped by the visible table column/row geometry. No database values used to fill OCR fields. Not Workers AI output.",
+  "containsWinners": true,
+  "rows": [
+    {
+      "drawDate": "2025-11-01",
+      "position": null,
+      "ticketNumber": "66",
+      "name": "Kurt Thesing",
+      "town": "Gallesville",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-02",
+      "position": null,
+      "ticketNumber": "307",
+      "name": "John Liesgang",
+      "town": "Chaseburg",
+      "notes": ""
+    },
+    {
+      "drawDate": "",
+      "position": null,
+      "ticketNumber": "257",
+      "name": "Jeff Tilson",
+      "town": "Lacrosse",
+      "notes": "Ambiguous OCR date: 1113/25"
+    },
+    {
+      "drawDate": "2025-11-04",
+      "position": null,
+      "ticketNumber": "516",
+      "name": "Trystan Gunderson",
+      "town": "Whitehall",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-05",
+      "position": null,
+      "ticketNumber": "270",
+      "name": "Jill Berg",
+      "town": "Melrose",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-06",
+      "position": null,
+      "ticketNumber": "26",
+      "name": "Brent Janzen",
+      "town": "Blair",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-07",
+      "position": null,
+      "ticketNumber": "513",
+      "name": "Matt Ness",
+      "town": "Osseo",
+      "notes": ""
+    },
+    {
+      "drawDate": "",
+      "position": null,
+      "ticketNumber": "92",
+      "name": "John & Rita Halam-",
+      "town": "Whitehall",
+      "notes": "Ambiguous OCR date: 1118/25 Name reaches column boundary; confirm clipped text."
+    },
+    {
+      "drawDate": "",
+      "position": null,
+      "ticketNumber": "1986",
+      "name": "Cody Seekamp",
+      "town": "West Salem",
+      "notes": "Ambiguous OCR date: 1119/25"
+    },
+    {
+      "drawDate": "2025-11-10",
+      "position": null,
+      "ticketNumber": "761",
+      "name": "Dave Quarne",
+      "town": "Blair",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-11",
+      "position": null,
+      "ticketNumber": "57",
+      "name": "Dick Pinnow",
+      "town": "Brodhead",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-12",
+      "position": null,
+      "ticketNumber": "565",
+      "name": "Doug McPherson",
+      "town": "Ettrick",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-13",
+      "position": null,
+      "ticketNumber": "27",
+      "name": "Lisa Janzen",
+      "town": "Blair",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-14",
+      "position": null,
+      "ticketNumber": "1926",
+      "name": "Nate Sheaver",
+      "town": "Helm Bar",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-15",
+      "position": null,
+      "ticketNumber": "529",
+      "name": "Scott Tiepleman",
+      "town": "Blair",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-16",
+      "position": null,
+      "ticketNumber": "37",
+      "name": "Kevin Hamill",
+      "town": "Stratford",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-17",
+      "position": null,
+      "ticketNumber": "597",
+      "name": "Wyett Nerby",
+      "town": "Blair",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-18",
+      "position": null,
+      "ticketNumber": "598",
+      "name": "Randy Mauer",
+      "town": "Hudson, Fl",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-19",
+      "position": null,
+      "ticketNumber": "1897",
+      "name": "Andy Huber",
+      "town": "Sparta",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-20",
+      "position": null,
+      "ticketNumber": "725",
+      "name": "Ray Conant",
+      "town": "Black River Falls",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-21",
+      "position": null,
+      "ticketNumber": "91",
+      "name": "Brenna Peters",
+      "town": "Hixton",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-22",
+      "position": null,
+      "ticketNumber": "215",
+      "name": "Lance Aleckson",
+      "town": "Lacrosse",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-23",
+      "position": null,
+      "ticketNumber": "373",
+      "name": "Mary & Scott Marti",
+      "town": "Ettrick",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-24",
+      "position": null,
+      "ticketNumber": "5",
+      "name": "Renee Kujak",
+      "town": "Blair",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-25",
+      "position": null,
+      "ticketNumber": "1972",
+      "name": "Carl Clements",
+      "town": "Sparta",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-26",
+      "position": null,
+      "ticketNumber": "1993",
+      "name": "Jesse Todd",
+      "town": "Tomah",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-27",
+      "position": null,
+      "ticketNumber": "33",
+      "name": "Scott Berg",
+      "town": "Melrose",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-28",
+      "position": null,
+      "ticketNumber": "752",
+      "name": "Nathan Hruza",
+      "town": "Melrose",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-29",
+      "position": null,
+      "ticketNumber": "1891",
+      "name": "Mark Murphy",
+      "town": "Lacrosse",
+      "notes": ""
+    },
+    {
+      "drawDate": "2025-11-30",
+      "position": null,
+      "ticketNumber": "75",
+      "name": "Al Chikowski",
+      "town": "Berlin",
+      "notes": ""
+    }
+  ],
+  "warnings": [
+    "Local Windows OCR baseline. Column-boundary and date ambiguities require review; no prize positions visible."
+  ]
+}

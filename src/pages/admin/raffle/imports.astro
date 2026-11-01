@@ -1,0 +1,159 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+export const prerender = false;
+const enabled = (Astro.locals.runtime?.env as any)?.RAFFLE_PHOTO_IMPORT_ENABLED === 'true';
+---
+<BaseLayout title="Review winner photos | Friends of Lake Henry">
+    <div class="container importPage" style="--maxw: 1400px;">
+        <section class="card importCard">
+            <a class="pill" href="/admin/raffle">Back to manual raffle controls</a>
+            <h1>Review winner photos</h1>
+            <p class="lead">Read the original. Check every row. Publish only what you approve.</p>
+            <p class="muted">Photo recognition can miss letters, dates and rows. Blank prize positions stay blank. Complete existing winners are duplicates; conflicts are never overwritten.</p>
+            {!enabled && <p class="status status--info">Photo importing is disabled for this deployment. Manual winner entry remains available.</p>}
+            <div id="importApp" data-enabled={String(enabled)}>
+                <div class="panel sourcePanel">
+                    <div class="field"><label for="importMonth">Raffle month shown in the image</label><input class="input" id="importMonth" type="month" required /><p class="muted">Choose the source year and month, including historical raffles.</p></div>
+                    <div class="field"><label for="facebookPhotoSource">Historical Facebook photo or post URL (optional)</label><input class="input" id="facebookPhotoSource" type="text" inputmode="url" placeholder="https://www.facebook.com/photo/?fbid=122279759156073310" /><p class="muted">Leave blank to find recent Page photos tagged #LakeHenryRaffle. A historical URL or numeric photo ID is an explicit selection and does not need the hashtag.</p></div>
+                    <button class="btn" id="discoverPhotos" type="button" disabled={!enabled}>Find photos</button>
+                    <div id="photoCandidates" class="candidateList"></div>
+                </div>
+                <div class="draftPicker"><label for="importPicker">Previous imports</label><select class="input" id="importPicker" disabled={!enabled}><option value="">Select an import</option></select><button class="btn" id="refreshImports" type="button" disabled={!enabled}>Refresh list</button></div>
+                <p id="importStatus" role="status" aria-live="polite"></p>
+                <section id="reviewPanel" hidden>
+                    <div class="reviewHeading"><h2 id="reviewTitle">Photo review</h2><p id="reviewSummary"></p></div>
+                    <div class="reviewGrid">
+                        <figure class="originalPhoto"><a id="originalPhotoLink" target="_blank" rel="noopener"><img id="originalPhoto" alt="Original Facebook raffle winner announcement or monthly table for administrator comparison" /></a><figcaption><a id="facebookOriginal" target="_blank" rel="noopener noreferrer">View original post/photo on Facebook</a><p id="imageDetails" class="muted"></p><p class="muted">Open the image in a new tab to zoom. This private copy does not expire with Facebook’s image URL.</p></figcaption></figure>
+                        <div class="extractedRows"><h3>Extracted rows</h3><p id="extractionWarnings" class="status status--info"></p><p class="muted">No model confidence score is treated as verification. Check spelling, clipping, dates and ticket numbers against the image. Selecting a row plus the confirmation below is required for publication.</p><div id="reviewRows"></div><button class="btn" id="addImportRow" type="button">Add a row for manual transcription</button></div>
+                    </div>
+                    <div class="panel approvalPanel"><p id="approvalHelp">Approving finalizes this photo. Unchecked rows will not be published; use manual entry for any remaining winners. Complete / duplicate rows and conflicting rows cannot be published. Correct uncertain extracted fields first. Only blank existing fields may be filled; populated values and existing prizes are preserved.</p><label class="confirmation"><input id="confirmImportReview" type="checkbox" /> I checked every selected row against the original image and confirm the raffle month is correct.</label><div class="reviewActions"><button class="btn" id="saveImportDraft" type="button">Save corrections without publishing</button><button class="btn" id="approveImport" type="button">Approve selected rows</button><button class="pill" id="rejectImport" type="button">Reject photo</button><button class="pill" id="retryImport" type="button" hidden>Retry failed extraction</button></div></div>
+                </section>
+            </div>
+        </section>
+    </div>
+</BaseLayout>
+<script>
+    import { compareWinner, type DraftWinner, type ExistingWinner } from '../../../lib/raffle-photo-import';
+    const get = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const app = get('importApp'), status = get('importStatus'), panel = get('reviewPanel');
+    const month = get<HTMLInputElement>('importMonth'), source = get<HTMLInputElement>('facebookPhotoSource');
+    const picker = get<HTMLSelectElement>('importPicker');
+    const rowsContainer = get('reviewRows');
+    let current: any = null, rows: DraftWinner[] = [], existing: ExistingWinner[] = [], selected = new Set<number>(), busy = false;
+    month.value = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit'}).format(new Date()).slice(0,7);
+    function say(message: string, error = false) { status.textContent=message; status.className=`status status--${error?'error':'info'}`; }
+    async function api(body?: unknown, id?: string) {
+        const response = await fetch('/api/admin/raffle/imports'+(id?'?id='+encodeURIComponent(id):''), body ? {
+            method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(body)
+        } : {cache:'no-store',headers:{Accept:'application/json'}});
+        const data=await response.json();
+        if(!response.ok || !data.ok) throw Error(data.error || 'Import request failed.');
+        return data;
+    }
+    async function run(action:()=>Promise<void>) {
+        if(busy) return; busy=true;
+        app.setAttribute('aria-busy','true');
+        for(const button of app.querySelectorAll<HTMLButtonElement>('button')) button.disabled=true;
+        for(const fieldset of rowsContainer.querySelectorAll('fieldset')) fieldset.disabled=true;
+        try { await action(); } catch(error) { say(error instanceof Error?error.message:'Import unavailable.',true); }
+        finally { busy=false; app.removeAttribute('aria-busy'); updateControls(); }
+    }
+    function updateControls() {
+        for(const button of app.querySelectorAll<HTMLButtonElement>('button')) button.disabled=app.dataset.enabled!=='true'||(!!button.closest('.importRow')&&current?.status!=='pending');
+        const pending=current?.status==='pending';
+        for(const fieldset of rowsContainer.querySelectorAll('fieldset')) fieldset.disabled=!pending;
+        for(const id of ['saveImportDraft','approveImport','addImportRow']) get<HTMLButtonElement>(id).disabled=!pending;
+        get<HTMLButtonElement>('rejectImport').disabled=!['pending','failed'].includes(current?.status);
+        const retry=get<HTMLButtonElement>('retryImport');retry.hidden=!['failed','processing'].includes(current?.status);retry.disabled=(current?.attempts??0)>=3;
+        for(const input of rowsContainer.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select')) {
+            if(input.type!=='checkbox') input.disabled=!pending;
+        }
+    }
+    async function list() {
+        const data=await api();picker.replaceChildren(new Option('Select an import',''));
+        for(const item of data.items) picker.add(new Option(`${item.monthHint} · ${item.status} · photo ${item.photoId}`,item.id));
+        if(current) picker.value=current.id;
+    }
+    function show(item: any) {
+        current=item;rows=item.rows.map((row:DraftWinner)=>({...row}));existing=item.existing;selected.clear();
+        month.value=item.monthHint;
+        panel.hidden=false;get('reviewTitle').textContent=`Photo ${item.photoId} · ${item.status}`;
+        get<HTMLInputElement>('confirmImportReview').checked=false;
+        const image=get<HTMLImageElement>('originalPhoto');image.hidden=!item.imageUrl;
+        if(item.imageUrl) image.src=item.imageUrl;
+        get<HTMLAnchorElement>('originalPhotoLink').href=item.imageUrl||'#';
+        get<HTMLAnchorElement>('facebookOriginal').href=item.sourceUrl;
+        get('imageDetails').textContent=item.imageUrl?`${item.imageWidth} × ${item.imageHeight} pixels · raffle month ${item.monthHint}`:'No image captured yet.';
+        const warnings=item.extraction?.warnings||[];
+        get('extractionWarnings').textContent=item.error || (item.extraction?.containsWinners===false?'No winner table or announcement recognized. Review or reject this photo. ': '')+warnings.join(' ');
+        renderRows();updateControls();
+    }
+    function renderRows() {
+        rowsContainer.replaceChildren();
+        const counts={complete:0,incomplete:0,missing:0,conflicting:0};
+        rows.forEach((row,index)=>{
+            const comparison=compareWinner(row,existing);counts[comparison.status]++;
+            const card=document.createElement('fieldset');card.className='importRow';card.dataset.row=String(index);
+            const legend=document.createElement('legend');legend.textContent=`Row ${index+1}`;card.append(legend);
+            const badge=document.createElement('p');badge.className='reviewBadge';badge.textContent=comparison.status==='complete'?'Complete · duplicate':comparison.status==='missing'?'New candidate · review required':comparison.status==='incomplete'?'Existing row · blank fields only':'Conflict · correction required';card.append(badge);
+            const chooseLabel=document.createElement('label'),choose=document.createElement('input');choose.type='checkbox';
+            choose.className='rowSelection';choose.disabled=current.status!=='pending'||!['missing','incomplete'].includes(comparison.status);choose.checked=selected.has(index)&&!choose.disabled;
+            if(choose.disabled) selected.delete(index);
+            choose.addEventListener('change',()=>choose.checked?selected.add(index):selected.delete(index));
+            chooseLabel.append(choose,document.createTextNode(` Select row ${index+1} for approval`));card.append(chooseLabel);
+            const fields=document.createElement('div');fields.className='importFields';
+            for(const [key,label,type] of [['drawDate','Draw date','date'],['ticketNumber','Ticket number','text'],['name','Winner name','text'],['town','Hometown','text'],['notes','Review notes / uncertainty','text']] as const) {
+                const wrap=document.createElement('label');wrap.textContent=label;
+                const input=document.createElement('input');input.className='input';input.type=type;input.value=row[key];input.setAttribute('aria-label',`${label}, row ${index+1}`);
+                input.maxLength=key==='notes'?500:key==='name'||key==='town'?200:30;
+                input.addEventListener('input',()=>{row[key]=input.value.trim();selected.delete(index);get<HTMLInputElement>('confirmImportReview').checked=false;refreshComparisons();updateControls();});wrap.append(input);fields.append(wrap);
+            }
+            const label=document.createElement('label');label.textContent='Prize position (only if shown)';
+            const position=document.createElement('select');position.className='input';position.setAttribute('aria-label',`Prize position, row ${index+1}`);
+            position.add(new Option('Not shown — leave blank',''));for(const value of [1,2,3]) position.add(new Option(`${value}${value===1?'st':value===2?'nd':'rd'} place`,String(value)));
+            position.value=row.position===null?'':String(row.position);position.addEventListener('change',()=>{row.position=position.value?Number(position.value):null;selected.delete(index);get<HTMLInputElement>('confirmImportReview').checked=false;refreshComparisons();updateControls();});label.append(position);fields.append(label);card.append(fields);
+            const details=document.createElement('p');details.className='muted rowDetails';details.textContent=[comparison.missingFields.length?'Missing existing fields: '+comparison.missingFields.join(', '):'',comparison.conflicts.length?'Different existing fields: '+comparison.conflicts.join(', '):'',...comparison.issues].filter(Boolean).join(' · ');card.append(details);
+            const old=existing.find(v=>v.id===comparison.existingId);
+            const previous=document.createElement('p');previous.className='muted existingWinner';previous.textContent=old?`Existing: ${old.drawDate||'(date missing)'} · ticket ${old.ticketNumber||'(missing)'} · ${old.name||'(name missing)'} · ${old.town||'(hometown missing)'}`:'';card.append(previous);
+            const remove=document.createElement('button');remove.className='pill';remove.type='button';remove.textContent='Remove extracted row';remove.disabled=current.status!=='pending';remove.addEventListener('click',()=>{rows.splice(index,1);selected.clear();renderRows();updateControls();});card.append(remove);rowsContainer.append(card);
+        });
+        get('reviewSummary').textContent=`${rows.length} rows · ${counts.complete} complete / duplicates · ${counts.incomplete} incomplete · ${counts.missing} new candidates · ${counts.conflicting} conflicts`;
+    }
+    function refreshComparisons() {
+        const counts={complete:0,incomplete:0,missing:0,conflicting:0};
+        rows.forEach((row,index)=>{
+            const comparison=compareWinner(row,existing);counts[comparison.status]++;
+            const card=rowsContainer.querySelector<HTMLElement>(`[data-row="${index}"]`)!;
+            card.querySelector<HTMLElement>('.reviewBadge')!.textContent=comparison.status==='complete'?'Complete · duplicate':comparison.status==='missing'?'New candidate · review required':comparison.status==='incomplete'?'Existing row · blank fields only':'Conflict · correction required';
+            const choice=card.querySelector<HTMLInputElement>('.rowSelection')!;
+            choice.disabled=current.status!=='pending'||!['missing','incomplete'].includes(comparison.status);
+            choice.checked=selected.has(index)&&!choice.disabled;
+            if(choice.disabled)selected.delete(index);
+            card.querySelector<HTMLElement>('.rowDetails')!.textContent=[comparison.missingFields.length?'Missing existing fields: '+comparison.missingFields.join(', '):'',comparison.conflicts.length?'Different existing fields: '+comparison.conflicts.join(', '):'',...comparison.issues].filter(Boolean).join(' · ');
+            const old=existing.find(v=>v.id===comparison.existingId);
+            card.querySelector<HTMLElement>('.existingWinner')!.textContent=old?`Existing: ${old.drawDate||'(date missing)'} · ticket ${old.ticketNumber||'(missing)'} · ${old.name||'(name missing)'} · ${old.town||'(hometown missing)'}`:'';
+        });
+        get('reviewSummary').textContent=`${rows.length} rows · ${counts.complete} complete / duplicates · ${counts.incomplete} incomplete · ${counts.missing} new candidates · ${counts.conflicting} conflicts`;
+    }
+    get('discoverPhotos').addEventListener('click',()=>run(async()=>{
+        say('Reading Facebook photo attachments…');const data=await api({action:'discover',source:source.value.trim()});
+        const container=get('photoCandidates');container.replaceChildren();
+        for(const photo of data.photos){const item=document.createElement('div');item.className='candidate';const text=document.createElement('span');text.textContent=`Photo ${photo.photoId}${photo.postId?' · Page post '+photo.postId:' · selected manually; verify source'}`;const button=document.createElement('button');button.type='button';button.className='btn';button.textContent='Extract draft';button.addEventListener('click',()=>run(async()=>{say('Capturing original and extracting draft rows. Nothing will be published…');const result=await api({action:'extract',photoId:photo.photoId,postId:photo.postId,monthHint:month.value});show(result.item);await list();say(result.existing?'This photo was already imported. Showing its existing review.':'Draft ready. Compare every field with the original image.');}));item.append(text,button);container.append(item);}
+        say(data.photos.length?`Found ${data.photos.length} photo(s). Select the correct month before extracting.`:'No matching photo attachments found. Try a full historical photo URL.');
+    }));
+    get('refreshImports').addEventListener('click',()=>run(list));
+    picker.addEventListener('change',()=>{if(picker.value) void run(async()=>show((await api(undefined,picker.value)).item));});
+    get('addImportRow').addEventListener('click',()=>{rows.push({drawDate:'',ticketNumber:'',name:'',town:'',position:null,notes:'Manually transcribed; check original.'});renderRows();updateControls();});
+    get('saveImportDraft').addEventListener('click',()=>run(async()=>{show((await api({action:'save',id:current.id,version:current.version,rows})).item);say('Corrections saved. No winners published.');}));
+    get('approveImport').addEventListener('click',()=>run(async()=>{
+        if(!get<HTMLInputElement>('confirmImportReview').checked) throw Error('Confirm that you checked the selected rows against the image.');
+        if(!selected.size) throw Error('Select only reviewed new rows or verified blank-field fills.');
+        const data=await api({action:'approve',id:current.id,version:current.version,confirmReviewed:true,rows:rows.filter((_,i)=>selected.has(i))});show(data.item);await list();say(`Approved ${data.inserted} new winner(s), filled ${data.filled} incomplete row(s). Existing populated values were preserved.`);
+    }));
+    get('rejectImport').addEventListener('click',()=>run(async()=>{show((await api({action:'reject',id:current.id,version:current.version})).item);await list();say('Photo rejected. No winners published.');}));
+    get('retryImport').addEventListener('click',()=>run(async()=>{show((await api({action:'retry',id:current.id,version:current.version})).item);say('New extraction is ready for review.');}));
+    if(app.dataset.enabled==='true') void run(list);
+</script>
+<style is:global>
+    .importPage{margin-top:var(--section-gap)}.importCard{padding:clamp(1rem,3vw,2rem);background:var(--surface-veil)}.importCard h1{margin-bottom:.5rem}.sourcePanel{display:grid;gap:1rem;margin-block:1.5rem}.sourcePanel .field{display:grid;gap:.4rem}.sourcePanel p{margin:.25rem 0}.sourcePanel .btn{justify-self:start}.draftPicker{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}.draftPicker select{max-width:32rem}.reviewHeading{margin-top:2rem}.reviewGrid{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(0,1.2fr);gap:1.5rem;align-items:start}.originalPhoto{position:sticky;top:1rem;margin:0;background:var(--panel-bg);padding:.75rem;border:1px solid var(--panel-border);border-radius:12px}.originalPhoto img{display:block;width:100%;height:auto}.originalPhoto figcaption{padding-top:.8rem}.originalPhoto a{text-decoration:underline}.extractedRows{min-width:0}.importRow{border:1px solid var(--panel-border);border-radius:12px;padding:1rem;margin:0 0 1rem;min-width:0;background:var(--panel-bg)}.importRow legend{font-weight:750;padding:0 .4rem}.reviewBadge{font-weight:750;margin:.2rem 0 .6rem}.importFields{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin:1rem 0}.importFields label{display:grid;gap:.35rem;min-width:0}.importFields input,.importFields select{width:100%;min-width:0}.reviewActions{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem}.approvalPanel{margin-top:1.5rem;padding:1rem}.confirmation{display:flex;gap:.7rem;align-items:flex-start}.confirmation input{margin-top:.3rem}.candidateList{display:grid;gap:.75rem}.candidate{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}.importRow input[type=checkbox],.confirmation input{width:1.25rem;height:1.25rem;flex-shrink:0}#reviewPanel[hidden]{display:none}@media(max-width:900px){.reviewGrid{grid-template-columns:1fr}.originalPhoto{position:static;max-width:600px}}@media(max-width:520px){.importFields{grid-template-columns:1fr}.draftPicker>*{width:100%}.reviewActions{display:grid}.sourcePanel .btn{justify-self:stretch}}
+</style>

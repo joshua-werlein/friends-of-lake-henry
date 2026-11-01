@@ -1,0 +1,215 @@
+{
+  "provenance": "Read-only public raffle API, November 1 2026. Existing published D1 winners; not OCR output.",
+  "rows": [
+    {
+      "drawDate": "2025-11-30",
+      "ticketNumber": 75,
+      "name": "Al Chikowski",
+      "town": "Berlin",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-29",
+      "ticketNumber": 1891,
+      "name": "Mark Murphy",
+      "town": "Lacrosse",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-28",
+      "ticketNumber": 752,
+      "name": "Nathan Hruza",
+      "town": "Melrose",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-27",
+      "ticketNumber": 33,
+      "name": "Scott Berg",
+      "town": "Melrose",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-26",
+      "ticketNumber": 1993,
+      "name": "Jesse Todd",
+      "town": "Tomah",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-25",
+      "ticketNumber": 1972,
+      "name": "Carl Clements",
+      "town": "Sparta",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-24",
+      "ticketNumber": 5,
+      "name": "Renee Kujak",
+      "town": "Blair",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-23",
+      "ticketNumber": 373,
+      "name": "Mary & Scott Martin",
+      "town": "Ettrick",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-22",
+      "ticketNumber": 215,
+      "name": "Lance Aleckson",
+      "town": "Lacrosse",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-21",
+      "ticketNumber": 91,
+      "name": "Brenna Peters",
+      "town": "Hixton",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-20",
+      "ticketNumber": 725,
+      "name": "Ray Conant",
+      "town": "Black River Falls",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-19",
+      "ticketNumber": 1897,
+      "name": "Andy Huber",
+      "town": "Sparta",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-18",
+      "ticketNumber": 598,
+      "name": "Randy Mauer",
+      "town": "Hudson, Fl",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-17",
+      "ticketNumber": 597,
+      "name": "Wyett Nerby",
+      "town": "Blair",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-16",
+      "ticketNumber": 37,
+      "name": "Kevin Hamill",
+      "town": "Stratford",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-15",
+      "ticketNumber": 529,
+      "name": "Scott Tiepleman",
+      "town": "Blair",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-14",
+      "ticketNumber": 1926,
+      "name": "Nate Sheaver",
+      "town": "Helm Bar",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-13",
+      "ticketNumber": 27,
+      "name": "Lisa Janzen",
+      "town": "Blair",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-12",
+      "ticketNumber": 565,
+      "name": "Doug McPherson",
+      "town": "Ettrick",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-11",
+      "ticketNumber": 57,
+      "name": "Dick Pinnow",
+      "town": "Brodhead",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-10",
+      "ticketNumber": 761,
+      "name": "Dave Quarne",
+      "town": "Blair",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-09",
+      "ticketNumber": 1986,
+      "name": "Cody Seekamp",
+      "town": "West Salem",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-08",
+      "ticketNumber": 92,
+      "name": "John & Rita Halama",
+      "town": "Whitehall",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-07",
+      "ticketNumber": 513,
+      "name": "Matt Ness",
+      "town": "Osseo",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-06",
+      "ticketNumber": 26,
+      "name": "Brent Janzen",
+      "town": "Blair",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-05",
+      "ticketNumber": 270,
+      "name": "Jill Berg",
+      "town": "Melrose",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-04",
+      "ticketNumber": 516,
+      "name": "Trystan Gunderson",
+      "town": "Whitehall",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-03",
+      "ticketNumber": 257,
+      "name": "Jeff Tilson",
+      "town": "Lacrosse",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-02",
+      "ticketNumber": 307,
+      "name": "John Liesgang",
+      "town": "Chaseburg",
+      "prize": null
+    },
+    {
+      "drawDate": "2025-11-01",
+      "ticketNumber": 66,
+      "name": "Kurt Thesing",
+      "town": "Galesville",
+      "prize": null
+    }
+  ]
+}

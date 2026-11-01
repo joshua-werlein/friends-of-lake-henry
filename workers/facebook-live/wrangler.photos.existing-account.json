@@ -1,0 +1,34 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "folh-facebook-live-discovery",
+  "main": "photos-entry.ts",
+  "compatibility_date": "2025-09-15",
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": {
+    "crons": []
+  },
+  "vars": {
+    "FB_AUTOMATION_ENABLED": "false",
+    "FB_VIDEO_PROBE_ENABLED": "false",
+    "FB_GRAPH_PAGE_ID": "144051422124740",
+    "FB_PUBLIC_PAGE_ID": "61552199315213",
+    "FB_RAFFLE_MARKER": "#LakeHenryRaffle",
+    "FB_POLL_INTERVAL_SECONDS": "300",
+    "FB_ACCESS_REVISION": "1",
+    "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
+    "FB_SEASON_END": "2026-12-01T00:00:00-06:00",
+    "FB_PHOTO_IMPORT_ENABLED": "false",
+    "FB_VISION_MODEL_LICENSE_ACCEPTED": "false"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CONFIG",
+      "id": "b70df87ff3db4230a621d4a39ab24ff7"
+    }
+  ],
+  "account_id": "aa86268490e681cccb3a41a62093e2aa",
+  "ai": {
+    "binding": "AI"
+  }
+}
