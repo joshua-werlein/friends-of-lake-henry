@@ -1,7 +1,9 @@
 ---
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, parseLiveConfig, RAFFLE_LIVE_KEY, type LiveConfig } from "../lib/facebook";
+import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, type LiveConfig } from "../lib/facebook";
+import { loadRaffleSelection } from "../lib/server/raffle-selection";
+import type { SeasonEnv } from "../lib/server/raffle-season";
 export const prerender = false;
 
 const facebookPageLiveUrl = FACEBOOK_PAGE_VIDEOS_URL;
@@ -23,7 +25,7 @@ type WinnerRow = {
     prize: string | null;
 };
 
-type Env = { DB?: D1Database; CONFIG?: KVNamespace };
+type Env = SeasonEnv & { DB?: D1Database; CONFIG?: KVNamespace; RAFFLE_AUTOMATIC_SELECTION_ENABLED?: string };
 
 const env = (Astro.locals as any).runtime?.env as Env | undefined;
 const DB = env?.DB;
@@ -162,7 +164,7 @@ if (DB) {
 let liveConfig: LiveConfig = { latestVideoUrl: null, updatedAt: null };
 
 try {
-    liveConfig = parseLiveConfig(await env?.CONFIG?.get(RAFFLE_LIVE_KEY));
+    if (env?.CONFIG) liveConfig = (await loadRaffleSelection(env.CONFIG, env.RAFFLE_AUTOMATIC_SELECTION_ENABLED === 'true', new Date(), env)).config;
 } catch {
     // ignore bad KV / parse
 }

@@ -46,6 +46,16 @@ export const prerender = false;
                         <button class="btn" id="saveLive" type="button">Save broadcast</button>
                         <a class="pill" href="/raffle">View public raffle page</a>
                     </div>
+                    <div class="field span2">
+                        <label class="label" for="videoSelectionMode">Video selection</label>
+                        <select class="input" id="videoSelectionMode" aria-describedby="videoModeHelp">
+                            <option value="manual">Manual</option>
+                            <option value="automatic" disabled>Automatic</option>
+                        </select>
+                        <p class="muted" id="videoModeHelp">Manual is the default. Saving a broadcast always returns to Manual. Automatic requires verified detection and falls back to your saved manual video if detection is unavailable or stale.</p>
+                        <button class="btn" id="saveVideoMode" type="button">Save selection mode</button>
+                        <p class="muted" id="videoModeStatus" aria-live="polite"></p>
+                    </div>
                     <div class="span2">
                         <div id="liveStatus" class="status status--empty status--center" aria-live="polite"></div>
                     </div>
@@ -222,6 +232,9 @@ export const prerender = false;
         const input = document.getElementById("latestVideoUrl");
         const btn = document.getElementById("saveLive");
         const liveStatus = document.getElementById("liveStatus");
+        const videoMode = document.getElementById("videoSelectionMode");
+        const saveVideoMode = document.getElementById("saveVideoMode");
+        const videoModeStatus = document.getElementById("videoModeStatus");
         const posterStatus = document.getElementById("posterStatus");
 
 
@@ -262,6 +275,13 @@ export const prerender = false;
                     const data = await res.json().catch(() => ({}));
                     if (res.ok && data?.ok) {
                         input.value = data.config?.latestVideoUrl ?? "";
+                        if (videoMode instanceof HTMLSelectElement) {
+                            videoMode.value = data.selectionMode === 'automatic' ? 'automatic' : 'manual';
+                            videoMode.querySelector('option[value="automatic"]').disabled = !data.automaticAllowed;
+                        }
+                        if (videoModeStatus) videoModeStatus.textContent = data.selectionMode === 'automatic'
+                            ? (data.source === 'automatic' ? 'Automatic: verified broadcast selected.' : 'Automatic: using the saved manual fallback.')
+                            : (data.automaticAllowed ? 'Manual selection active.' : 'Manual selection active. Automatic is unavailable until deployment and real-broadcast verification are complete.');
                         setLiveStatus("info", "Loaded current video settings.");
                     } else {
                         setLiveStatus("error", data?.error ?? "Failed to load live config.");
@@ -274,6 +294,7 @@ export const prerender = false;
             btn.addEventListener("click", async () => {
                 setLiveStatus("success", "Saving...");
                 btn.disabled = true;
+                if (saveVideoMode instanceof HTMLButtonElement) saveVideoMode.disabled = true;
                 btn.setAttribute("aria-disabled", "true");
 
                 try {
@@ -286,6 +307,8 @@ export const prerender = false;
                     const data = await res.json().catch(() => ({}));
 
                     if (res.ok && data?.ok) {
+                        if (videoMode instanceof HTMLSelectElement) videoMode.value = 'manual';
+                        if (videoModeStatus) videoModeStatus.textContent = 'Manual selection active.';
                         const v = data.config?.latestVideoUrl;
                         setLiveStatus("info", v ? "Saved. The public raffle page will show this video." : "Cleared. The public raffle page will show the “Watch on Facebook” button.");
                     } else {
@@ -295,9 +318,26 @@ export const prerender = false;
                     setLiveStatus("error", "Save failed.");
                 } finally {
                     btn.disabled = false;
+                    if (saveVideoMode instanceof HTMLButtonElement) saveVideoMode.disabled = false;
                     btn.setAttribute("aria-disabled", "false");
                 }
             });
+
+            if (saveVideoMode instanceof HTMLButtonElement && videoMode instanceof HTMLSelectElement) {
+                saveVideoMode.addEventListener('click', async () => {
+                    saveVideoMode.disabled = true;
+                    btn.disabled = true;
+                    try {
+                        const res = await fetch('/api/admin/raffle/live', { method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ action: 'setMode', selectionMode: videoMode.value }) });
+                        const data = await res.json();
+                        if (!res.ok || !data.ok) throw new Error(data.error || 'Mode change failed.');
+                        await load();
+                    } catch (error) { setLiveStatus('error', error.message || 'Mode change failed.'); }
+                    finally { saveVideoMode.disabled = false; btn.disabled = false; }
+                });
+            }
 
             load();
         }

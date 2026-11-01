@@ -1,3 +1,10 @@
+> November 1 Worker update: a separate disabled Graph v26.0 discovery Worker is
+> implemented in [workers/facebook-live](../workers/facebook-live/README.md).
+> That document is authoritative for current Page IDs, FB_PAGE_ACCESS_TOKEN,
+> experimental metadata limits, verification gates and activation steps. Historical
+> notes below describe the earlier scaffold; they do not imply current API proof.
+> Public production selection remains manual. Cron and API polling remain disabled; see the Worker deployment record for initial deployment status.
+
 > November 1 launch update: public refresh and daily prize display are now implemented.
 > The Page ID and replay playback were verified in-browser, and Meta's embedded
 > video documentation was readable there. Earlier 429/unverified notes below describe
