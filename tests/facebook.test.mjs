@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { runInNewContext } from 'node:vm';
+import { fileURLToPath } from 'node:url';
 import { FACEBOOK_PAGE_ID, RAFFLE_LIVE_KEY, normalizeFacebookVideoUrl, parseLiveConfig, facebookEmbedSrc } from '../src/lib/facebook.ts';
 import { AUTOMATIC_KEY, FUNDRAISER_START, FUNDRAISER_END, pollBroadcasts, validateBroadcast } from '../src/lib/server/facebook-automation.ts';
 import worker from '../workers/facebook-live/index.ts';
@@ -18,6 +21,26 @@ const options = extra => ({ enabled: true, now: new Date('2026-11-03T20:00:00Z')
     source: async () => ({ ok: true, broadcasts: [broadcast()] }), ...extra });
 const context = (kv, body) => ({ locals: { runtime: { env: { CONFIG: kv } } },
     request: new Request('https://example.test/api/admin/raffle/live', { method: 'POST', body: JSON.stringify(body) }) });
+
+test('public video timestamp matches SSR formatting after initial load and the 15-second poll', async () => {
+    const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/scripts/raffle-live.ts', import.meta.url))],
+        bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022' });
+    class Anchor { href = ''; }
+    const url = 'https://www.facebook.com/reel/123';
+    const nodes = { livePlayer: { dataset: { videoUrl: url } }, facebookFallback: new Anchor(), liveMessage: {}, liveUpdated: {} };
+    let poll, interval;
+    runInNewContext(compiled.outputFiles[0].text, {
+        URL, Intl, Date, AbortSignal, HTMLAnchorElement: Anchor,
+        document: { hidden: false, getElementById: id => nodes[id], addEventListener() {} },
+        window: { setInterval(callback, ms) { poll = callback; interval = ms; } },
+        fetch: async () => Response.json({ ok: true, config: { latestVideoUrl: url, updatedAt: '2026-02-02T19:30:38.607Z' } }),
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes.liveUpdated.textContent, 'Video selected: Feb 2, 2026, 1:30 PM Central');
+    assert.equal(interval, 15000);
+    await poll();
+    assert.equal(nodes.liveUpdated.textContent, 'Video selected: Feb 2, 2026, 1:30 PM Central');
+});
 
 test('normalizes full video, watch, mobile, tracking, reel and local redirect-wrapper URLs without fetch', () => {
     for (const input of ['https://facebook.com/page/videos/123/?tracking=1', 'http://m.facebook.com/watch/?v=123&x=1',

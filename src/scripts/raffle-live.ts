@@ -39,7 +39,10 @@ async function refreshLive() {
             ? 'Latest selected drawing. If the player is unavailable, watch directly on Facebook.'
             : 'No broadcast selected yet. This page checks for updates automatically.';
         if (updated) updated.textContent = config.updatedAt
-            ? `Video selected: ${new Date(config.updatedAt).toLocaleString('en-US', { timeZone: 'America/Chicago' })} Central` : '';
+            ? `Video selected: ${new Date(config.updatedAt).toLocaleString('en-US', {
+                timeZone: 'America/Chicago', year: 'numeric', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit',
+            })} Central` : '';
     } catch {
         // Preserve the current video and direct link on transient failures.
         if (message) message.textContent = 'Unable to check for a newer drawing. Retrying automatically; you can still watch on Facebook.';
