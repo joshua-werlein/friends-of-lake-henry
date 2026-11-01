@@ -250,6 +250,12 @@ const description =
             <h2 class="sectionTitle">Live Drawings & Latest Replay</h2>
 
             <div class="panel livePanel enter-block delay-4">
+                <label class="liveLayoutControl" for="liveVideoLayout">Video layout
+                    <select id="liveVideoLayout" class="input">
+                        <option value="portrait">Portrait</option>
+                        <option value="landscape">Landscape</option>
+                    </select>
+                </label>
                 <div id="livePlayer" data-video-url={effectiveVideoUrl ?? ""}>
                     {embedSrc && <div class="liveFrame"><iframe class="fbFrame" src={embedSrc}
                         title="Friends of Lake Henry — Facebook video" loading="lazy"
@@ -772,10 +778,12 @@ const description =
         }
 
         .liveFrame{
-            aspect-ratio: 16 / 9;
+            aspect-ratio: var(--live-frame-ratio, 9 / 16);
             width: 100%;
+            max-width: var(--live-frame-width, 440px);
+            margin-inline: auto;
             border-radius: 14px;
-            overflow: hidden;
+            overflow: visible;
             border: 1px solid var(--border);
             background: rgba(0,0,0,0.20);
         }
@@ -963,7 +971,10 @@ const description =
     </style>
     <script src="../scripts/raffle-live.ts"></script>
     <style is:global>
-        .rafflePage #livePlayer .liveFrame { aspect-ratio: 16 / 9; width: 100%; border-radius: 14px; overflow: hidden; }
+        .rafflePage #livePlayer .liveFrame { aspect-ratio: var(--live-frame-ratio, 9 / 16); width: 100%; max-width: var(--live-frame-width, 440px); margin-inline: auto; border-radius: 14px; overflow: visible; }
+        .rafflePage #livePlayer[data-video-layout="landscape"] { --live-frame-ratio: 16 / 9; --live-frame-width: 960px; }
+        .rafflePage .liveLayoutControl { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+        .rafflePage .liveLayoutControl select { width: auto; max-width: 100%; }
         .rafflePage #livePlayer .fbFrame { width: 100%; height: 100%; border: 0; display: block; }
         .rafflePage .winnersTable col.colPrize { width: 10rem; }
         .rafflePage .winnersTable .tdPrize { white-space: normal; overflow-wrap: anywhere; min-width: 8rem; }

@@ -5,6 +5,11 @@ const fallback = document.getElementById('facebookFallback');
 const message = document.getElementById('liveMessage');
 const updated = document.getElementById('liveUpdated');
 let checking = false;
+// Viewer-only layout: no KV writes, URL changes or iframe reloads.
+const layout = document.getElementById('liveVideoLayout') as HTMLSelectElement | null;
+layout?.addEventListener('change', () => {
+    if (player) player.dataset.videoLayout = layout.value === 'landscape' ? 'landscape' : 'portrait';
+});
 
 async function refreshLive() {
     if (document.hidden || checking || !player) return;
