@@ -42,6 +42,15 @@ export const prerender = false;
                         </div>
                     </div>
 
+                    <div class="field span2">
+                        <label class="label" for="videoOrientation">Video orientation</label>
+                        <select id="videoOrientation" class="input"><option value="auto">Automatic (portrait if unknown)</option><option value="portrait">Portrait override</option><option value="landscape">Landscape override</option></select>
+                        <label class="label" for="videoDimensions">Verified dimensions (optional)</label>
+                        <textarea id="videoDimensions" class="input" rows="3" placeholder='{"id":"VIDEO_ID","format":[{"width":720,"height":1280}]}'></textarea>
+                        <p class="muted">Paste only sanitized Graph format dimensions for this video, or matching attachment media.image dimensions. Never paste a token, embed HTML or image URL. Layout settings do not change the saved broadcast.</p>
+                        <button class="btn" id="saveOrientation" type="button">Save video layout</button>
+                        <p id="orientationStatus" class="muted" aria-live="polite"></p>
+                    </div>
                     <div class="actions span2 enter-block delay-3">
                         <button class="btn" id="saveLive" type="button">Save broadcast</button>
                         <a class="pill" href="/raffle">View public raffle page</a>
@@ -194,6 +203,7 @@ export const prerender = false;
         </section>
     </div>
 
+    <script>import "../../scripts/raffle-orientation-admin";</script>
     <script type="module">
         function currentMonthKeyChicago() {
             // en-CA => YYYY-MM formatting is easy to slice
@@ -276,13 +286,14 @@ export const prerender = false;
                     const data = await res.json().catch(() => ({}));
                     if (res.ok && data?.ok) {
                         input.value = data.config?.latestVideoUrl ?? "";
+                        input.dispatchEvent(new Event("change"));
                         if (videoMode instanceof HTMLSelectElement) {
                             videoMode.value = data.selectionMode === 'automatic' ? 'automatic' : 'manual';
                             videoMode.querySelector('option[value="automatic"]').disabled = !data.automaticAllowed;
                         }
                         if (videoModeStatus) videoModeStatus.textContent = data.selectionMode === 'automatic'
                             ? (data.source === 'automatic' ? 'Automatic: tagged raffle video selected.' : 'Automatic: using the saved manual fallback.')
-                            : (data.automaticAllowed ? 'Manual selection active.' : 'Manual selection active. Automatic is unavailable until deployment and real-broadcast verification are complete.');
+                            : (data.automaticAllowed ? 'Manual selection active.' : 'Manual selection active. Automatic is unavailable until deployment and tagged-video policy approval are complete.');
                         setLiveStatus("info", "Loaded current video settings.");
                     } else {
                         setLiveStatus("error", data?.error ?? "Failed to load live config.");

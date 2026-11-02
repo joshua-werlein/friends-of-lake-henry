@@ -33,11 +33,13 @@ test('public video timestamp matches SSR formatting after initial load and the 1
         URL, Intl, Date, AbortSignal, HTMLAnchorElement: Anchor,
         document: { hidden: false, getElementById: id => nodes[id], addEventListener() {} },
         window: { setInterval(callback, ms) { poll = callback; interval = ms; } },
-        fetch: async () => Response.json({ ok: true, config: { latestVideoUrl: url, updatedAt: '2026-02-02T19:30:38.607Z' } }),
+        fetch: async () => Response.json({ ok: true, presentation: { orientation: 'landscape' }, config: { latestVideoUrl: url, updatedAt: '2026-02-02T19:30:38.607Z' } }),
     });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(nodes.liveUpdated.textContent, 'Video selected: Feb 2, 2026, 1:30 PM Central');
     assert.equal(interval, 15000);
+    assert.equal(nodes.livePlayer.dataset.videoLayout, 'landscape');
+    // No DOM replacement methods exist on this mock: an unchanged URL must not reload.
     await poll();
     assert.equal(nodes.liveUpdated.textContent, 'Video selected: Feb 2, 2026, 1:30 PM Central');
 });
