@@ -202,6 +202,20 @@ export const prerender = false;
         </section>
     </div>
 
+    <dialog id="winnerPrizeDialog" aria-labelledby="winnerPrizeHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;background:#16202b;color:#fff;padding:1.5rem;">
+        <h2 id="winnerPrizeHeading">Edit winner prize</h2>
+        <p id="editPrizeWinner"></p>
+        <form id="winnerPrizeForm" class="formGrid">
+            <div class="field span2"><label for="editPrizeCategory">Prize category</label><select id="editPrizeCategory" class="input"><option value="">Not specified</option><option>Firearm</option><option>Gift card</option><option>Cash</option><option>Other</option></select></div>
+            <div class="field span2"><label for="editPrizeDescription">Prize description</label><textarea id="editPrizeDescription" class="input" rows="3" maxlength="250" required></textarea></div>
+            <div class="field span2"><label for="editPrizePosition">Verified place</label><select id="editPrizePosition" class="input"><option value="">Unknown / not confirmed</option><option value="1">First place</option><option value="2">Second place</option><option value="3">Third place</option></select></div>
+            <label class="span2"><input type="checkbox" id="editPrizePositionConfirmed" /> If a numeric place is selected, I verified it from an independent source.</label>
+            <label class="span2"><input type="checkbox" id="editPrizeApproved" required /> I reviewed and approve this prize description for publication.</label>
+            <p id="editPrizeStatus" class="span2" role="status"></p>
+            <div class="actions span2"><button class="btn" type="submit">Approve and save prize</button><button class="btn" type="button" id="cancelPrizeEdit">Cancel</button></div>
+        </form>
+    </dialog>
+    <script>import "../../scripts/raffle-prize-editor";</script>
     <script>import "../../scripts/raffle-orientation-admin";</script>
     <script type="module">
         function currentMonthKeyChicago() {
@@ -479,7 +493,13 @@ export const prerender = false;
                     btn.setAttribute("data-del", String(r.id ?? ""));
                     btn.textContent = "Remove";
 
-                    tdActions.appendChild(btn);
+                    const edit = document.createElement("button");
+                    edit.type = "button";
+                    edit.className = "pill";
+                    edit.textContent = "Edit prize";
+                    edit.setAttribute("aria-label", `Edit prize for ticket ${r.ticketNumber}, ${r.name}`);
+                    edit.addEventListener("click", () => window.dispatchEvent(new CustomEvent("raffle:edit-prize", {detail:r})));
+                    tdActions.append(edit, btn);
 
                     const tdPrize = document.createElement("td");
                     tdPrize.textContent = String(r.prize ?? "Not recorded");
@@ -517,6 +537,7 @@ export const prerender = false;
                 }
             }
 
+            window.addEventListener("raffle:prize-saved", loadWinners);
             const params = new URLSearchParams(location.search);
 
             function setPosterStatus(type, msg) {
