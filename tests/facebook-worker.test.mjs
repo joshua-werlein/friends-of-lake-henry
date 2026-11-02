@@ -270,6 +270,19 @@ test('five-minute state and duplicate suppression across LIVE/VOD; empty scan pr
     assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'video');
 });
 
+test('healthy five-minute polling tolerates cron ticks a few seconds early; backoff stays exact', async () => {
+    const kv = store([[VERIFICATION_KEY, receipt()]]), env = envFor(kv);
+    const at = ms => new Date(now.getTime() + ms);
+    assert.equal((await runPoll(env, { now: at(3891), fetcher: api().fetcher })).status, 'staged'); // like 01:30:03.891
+    // Next tick fires at :35:00.2, just before lastAttempt+300s; it must still run (2026-11-02 01:40 skip).
+    assert.equal((await runPoll(env, { now: at(300200), fetcher: api().fetcher })).status, 'unchanged');
+    assert.equal((await runPoll(env, { now: at(300200 + 239000), fetcher() { throw Error('must not call'); } })).status, 'not-due');
+    const rateStore = store([[VERIFICATION_KEY, receipt()]]);
+    const limited = api({ failure: () => Response.json({ error: { code: 80001 } }, { status: 429, headers: { 'Retry-After': '1800' } }) });
+    assert.equal((await runPoll(envFor(rateStore), { now, fetcher: limited.fetcher, random: () => 0 })).status, 'rate-limited');
+    assert.equal((await runPoll(envFor(rateStore), { now: at(1800000 - 5000), fetcher() { throw Error('must not call'); } })).status, 'not-due');
+});
+
 test('permissions/expiry pause until access revision changes; rate limits persist Retry-After backoff', async () => {
     const kv = store([[VERIFICATION_KEY, receipt()]]), env = envFor(kv);
     const denied = api({ failure: () => Response.json({ error: { code: 190 } }, { status: 400 }) });

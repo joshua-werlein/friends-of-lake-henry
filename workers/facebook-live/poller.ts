@@ -3,6 +3,7 @@ import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTR
 
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
+const CRON_EARLY_SLACK_MS = 60_000; // well under the 300-second minimum interval
 export { STATE_KEY, VERIFICATION_KEY, verificationValid };
 type Store = { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
 export type Env = SeasonEnv & {
@@ -68,7 +69,12 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         let previousState = parseState(await store.get(STATE_KEY));
         if (previousState?.accessRevision !== accessRevision) previousState = null;
         if (previousState?.paused) return { status: 'access-paused' };
-        if (previousState && time < previousState.nextAttemptAt) return { status: 'not-due' };
+        // Cron ticks land a few seconds either side of the minute. Without slack, a tick that arrives
+        // just before lastAttempt+interval is skipped and healthy polling silently halves (observed
+        // 2026-11-02: 01:35:04 then 01:45:03), letting public health age past its 10-minute window.
+        // Backoff/Retry-After schedules (failures > 0) are honored exactly.
+        const slack = previousState && previousState.failures === 0 ? CRON_EARLY_SLACK_MS : 0;
+        if (previousState && time + slack < previousState.nextAttemptAt) return { status: 'not-due' };
         const state: State = { version: 1, accessRevision, lastAttemptAt: time, nextAttemptAt: time + interval * 1000,
             failures: previousState?.failures ?? 0, status: 'checking', paused: false,
             lastVerifiedVideoId: previousState?.lastVerifiedVideoId, lastVerifiedAt: previousState?.lastVerifiedAt };
