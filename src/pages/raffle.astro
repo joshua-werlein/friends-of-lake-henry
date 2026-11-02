@@ -1113,13 +1113,16 @@ const description =
     .prizeCalendar,
     .prizeCalendar + .rules{ margin-top: var(--raffle-stack-gap); }
 
-    /* Dark translucent panel over the Lake Henry background for strong contrast. */
+    /* Match the existing winners-table panel's glass surface and rounded corners. */
+    .rafflePage .winnersCard,
+    .rafflePage .prizeCalendar{
+        background: var(--panel-bg-strong);
+        border-radius: 14px;
+        -webkit-backdrop-filter: blur(2px);
+        backdrop-filter: blur(2px);
+    }
     .prizeCalendar{
         padding: clamp(1.25rem, 3vw, 1.75rem);
-        background: rgba(7, 15, 23, .78);
-        border: 1px solid rgba(255, 255, 255, .14);
-        -webkit-backdrop-filter: blur(6px);
-        backdrop-filter: blur(6px);
         color: #f4f7fa;
     }
     .prizeCalendar p{ color: rgba(244, 247, 250, .86); margin: 0 0 .5rem; line-height: 1.55; }
