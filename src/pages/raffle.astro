@@ -276,11 +276,6 @@ const description =
             </div>
         </section>
 
-        <section id="prizeCalendar" class="card" hidden style="padding:clamp(1rem,3vw,2rem)">
-            <h2>Scheduled prizes — <span id="prizeCalendarMonth"></span></h2>
-            <p>Published raffle events supply the main prizes. Supplemental prizes appear after administrator approval. Prizes do not imply a winner’s numeric placement.</p>
-            <ul id="publicPrizeList" class="publicPrizeList"></ul>
-        </section>
         <section class="card winnersCard enter-block delay-6">
             <h2 class="sectionTitle">Daily Winners</h2>
             <p>November 1–30, 2026: drawings every day at 6:00 PM Central. Two prizes daily; a third on Fridays, Saturdays, Sundays and Thanksgiving (November 26). Winners appear after each drawing.</p>
@@ -360,6 +355,11 @@ const description =
                     No winners posted for {monthLabel} yet.
                 </p>
             </div>
+        </section>
+        <section id="prizeCalendar" class="card" hidden style="padding:clamp(1rem,3vw,2rem)">
+            <h2>Scheduled prizes — <span id="prizeCalendarMonth"></span></h2>
+            <p>Prizes scheduled for upcoming drawings. After each drawing, winners and the prizes they received appear in Daily Winners above.</p>
+            <ul id="publicPrizeList" class="publicPrizeList"></ul>
         </section>
 
         <section class="card rules  enter-block delay-8">
@@ -1091,7 +1091,7 @@ const description =
 
 
 <script>import "../scripts/raffle-prize-calendar";</script>
-<style>.publicPrizeList{list-style:none;padding:0}.publicPrizeList :global(li){display:grid;grid-template-columns:7rem 1fr;gap:1rem;padding:.75rem 0;border-bottom:1px solid rgba(255,255,255,.16)}@media(max-width:550px){.publicPrizeList :global(li){grid-template-columns:1fr;gap:.25rem}}</style>
+<style>.publicPrizeList{list-style:none;padding:0}.publicPrizeList>:global(li){display:grid;grid-template-columns:7rem 1fr;gap:1rem;padding:.75rem 0;border-bottom:1px solid rgba(255,255,255,.16)}.publicPrizeList :global(.prizeLines){list-style:none;margin:0;padding:0;display:grid;gap:.3rem}.publicPrizeList :global(time){font-weight:700}@media(max-width:550px){.publicPrizeList>:global(li){grid-template-columns:1fr;gap:.25rem}}</style>
 <style is:global>
 #publicWinnersTableWrap{width:100%;padding:0;display:block;box-sizing:border-box}
 #publicWinnersTable{width:100%;min-width:960px;table-layout:fixed;transform:none}

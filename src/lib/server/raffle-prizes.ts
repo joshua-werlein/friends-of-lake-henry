@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { chicagoDatetimeLocalToUtcIso } from '../datetime';
+import { cleanPrizeDescription } from '../winner-prize';
 export type ScheduledPrize = { id:string; drawDate:string; category:string; position:number|null; description:string;
     source:'event'|'supplement'; status:'approved'|'draft'|'rejected'; eventId?:string; notes:string; version?:number };
 export const validMonth = (v:unknown):v is string => typeof v==='string' && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(v);
@@ -22,12 +23,19 @@ export async function prizeSchedule(db:D1Database,month:string,includeDrafts=fal
         if(!validDrawDate(date,month)) continue;
         main.push({id:'event:'+e.id,eventId:e.id,drawDate:date,category:'Main prize',position:null,
             description:String(e.title).replace(/^Day\s+\d+\s*[-—:]\s*/i,'').trim(),source:'event',status:'approved',notes:String(e.summary??'')});
+        // Published summaries already announce weekend/holiday bonus drawings ("2nd drawing: Gun Safe").
+        // Derive them read-only instead of re-entering them as supplements.
+        const bonus=String(e.summary??'').match(/2nd drawing\s*:\s*([^\r\n]{2,250})/i)?.[1].trim();
+        if(bonus) main.push({id:'event-bonus:'+e.id,eventId:e.id,drawDate:date,category:'Bonus drawing',position:null,
+            description:bonus,source:'event',status:'approved',notes:String(e.summary)});
     }
     const supplement=await db.prepare(`SELECT id,draw_date AS drawDate,category,position,description,notes,status,version FROM raffle_prize_supplements
         WHERE raffle_key=? ${includeDrafts?'':"AND status='approved'"} ORDER BY draw_date,category,position`).bind(month).all<any>();
     return [...main,...supplement.results.map(v=>({...v,source:'supplement' as const}))]
-        .sort((a,b)=>a.drawDate.localeCompare(b.drawDate)||a.category.localeCompare(b.category)||(a.position??99)-(b.position??99));
+        .sort((a,b)=>a.drawDate.localeCompare(b.drawDate)||rank(a)-rank(b)||a.category.localeCompare(b.category)||(a.position??99)-(b.position??99));
 }
+// Same-day order: published main prize, published bonus drawing, then approved supplements.
+const rank=(p:ScheduledPrize)=>p.category==='Main prize'?0:p.category==='Bonus drawing'?1:2;
 export function suggestPrizes(prizes:ScheduledPrize[],drawDate:string,position:number|null=null) {
     const options=prizes.filter(p=>p.status==='approved' && p.drawDate===drawDate && (position===null || p.position===null || p.position===position));
     return { status:options.length===0?'unavailable':options.length===1?'review-suggestion':'selection-required',options,
@@ -39,7 +47,9 @@ export function supplementDraft(value:unknown,month:string) {
     if(!validDrawDate(v.drawDate,month) || typeof v.category!=='string' || !['Firearm','Gift card','Cash','Other'].includes(v.category)
         || (v.position!==null && (typeof v.position!=='number'||![1,2,3].includes(v.position)))
         || typeof v.description!=='string' || v.description.trim().length<2 || v.description.length>250) throw Error('Review the date, category, description and optional verified position.');
-    return {drawDate:v.drawDate,category:v.category,position:v.position as number|null,description:v.description.trim(),notes:typeof v.notes==='string'?v.notes.trim().slice(0,500):''};
+    const description=cleanPrizeDescription(v.description);
+    if(description.length<2) throw Error('Review the date, category, description and optional verified position.');
+    return {drawDate:v.drawDate,category:v.category,position:v.position as number|null,description,notes:typeof v.notes==='string'?v.notes.trim().slice(0,500):''};
 }
 export async function saveSupplement(db:D1Database,month:string,value:unknown,source?:{key:string;hash:string}) {
     const row=supplementDraft(value,month), id=crypto.randomUUID();
@@ -70,4 +80,19 @@ export async function reviewSupplement(db:D1Database,id:string,version:number,ac
             .bind(crypto.randomUUID(),id,action,JSON.stringify(current),JSON.stringify({...row,status})),
     ]);
     if(results[0].meta.changes!==1) throw Error('This prize changed. Reload before reviewing.');
+}
+// Approve several reviewed drafts exactly as stored. Each needs its current version; any draft with a
+// numeric position must be approved individually with explicit position confirmation.
+export async function approveDrafts(db:D1Database,month:string,items:unknown) {
+    if(!Array.isArray(items)||items.length<1||items.length>100) throw Error('Review the date, category, description and optional verified position.');
+    let approved=0;
+    for(const item of items) {
+        if(!item||typeof item.id!=='string'||!Number.isInteger(item.version)) throw Error('This prize changed. Reload before reviewing.');
+        const row=await db.prepare("SELECT * FROM raffle_prize_supplements WHERE id=? AND raffle_key=? AND status='draft'").bind(item.id,month).first<any>();
+        if(!row||row.version!==item.version) throw Error('This prize changed. Reload before reviewing.');
+        if(row.position!==null) throw Error('Independently confirm the numeric position or leave it unknown.');
+        await reviewSupplement(db,row.id,row.version,'approve',{drawDate:row.draw_date,category:row.category,position:null,description:row.description,notes:row.notes},false);
+        approved++;
+    }
+    return approved;
 }

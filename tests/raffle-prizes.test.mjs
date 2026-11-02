@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
-import { prizeSchedule,saveSupplement,reviewSupplement,suggestPrizes } from '../src/lib/server/raffle-prizes.ts';
+import { prizeSchedule,saveSupplement,reviewSupplement,suggestPrizes,approveDrafts } from '../src/lib/server/raffle-prizes.ts';
 import { readPosterPrizes } from '../src/lib/server/raffle-poster-prizes.ts';
 import { POST } from '../src/pages/api/admin/raffle/prizes.ts';
 import { GET } from '../src/pages/api/raffle/prizes.ts';
@@ -21,8 +21,14 @@ async function setup(t) {
 }
 test('30 real published event prizes match Central drawing dates; no event copying or prize placements',async t=>{
     const {DB}=await setup(t),rows=await prizeSchedule(DB,'2026-11');
-    assert.equal(rows.length,30);assert.equal(rows[0].drawDate,'2026-11-01');assert.equal(rows.at(-1).drawDate,'2026-11-30');
+    const main=rows.filter(v=>v.category==='Main prize'),bonus=rows.filter(v=>v.category==='Bonus drawing');
+    assert.equal(main.length,30);assert.equal(main[0].drawDate,'2026-11-01');assert.equal(main.at(-1).drawDate,'2026-11-30');
+    assert.equal(new Set(main.map(v=>v.drawDate)).size,30); // one main prize per Central drawing date
     assert.ok(rows.every(v=>v.source==='event'&&v.position===null));
+    // Bonus drawings come from published summaries, read-only, never from supplements.
+    assert.equal(bonus.length,13);
+    assert.deepEqual(bonus.find(v=>v.drawDate==='2026-11-26'),{...bonus.find(v=>v.drawDate==='2026-11-26'),description:'Gun Safe',eventId:main.find(v=>v.drawDate==='2026-11-26').eventId});
+    assert.equal(rows.find(v=>v.drawDate==='2026-11-15'&&v.category==='Bonus drawing').description,'Black Stone 28" Griddle'); // id says 11-05; date_start wins
     assert.match(rows[0].description,/Thompson/);
     assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_prize_supplements').first()).n,0);
     await DB.prepare("INSERT INTO events(id,title,kind,status,date_start) VALUES('future','Future November prize','Raffle','published','2027-12-01T00:00:00Z')").run();
@@ -32,18 +38,20 @@ test('supplements remain private until approved, deduplicate and never alter eve
     const {DB,ctx}=await setup(t),before=(await DB.prepare('SELECT * FROM events ORDER BY id').all()).results;
     const value={drawDate:'2026-11-01',category:'Gift card',position:null,description:'Verified supplemental gift certificate',notes:''};
     const saved=await saveSupplement(DB,'2026-11',value);
-    assert.equal((await prizeSchedule(DB,'2026-11')).length,30);
+    const base=(await prizeSchedule(DB,'2026-11')).length;assert.equal(base,43); // 30 main + 13 bonus; drafts stay private
     assert.equal((await saveSupplement(DB,'2026-11',value)).duplicate,true);
+    assert.equal((await saveSupplement(DB,'2026-11',{...value,category:'Other',description:'gun safe'})).duplicate,false); // different date
+    assert.equal((await saveSupplement(DB,'2026-11',{...value,drawDate:'2026-11-26',category:'Other',description:' GUN SAFE '})).duplicate,true); // already a published bonus
     assert.equal((await POST(ctx({action:'approve',month:'2026-11',id:saved.id,version:1,row:value,approved:false}))).status,400);
     await reviewSupplement(DB,saved.id,1,'approve',value,false);
-    const approved=await prizeSchedule(DB,'2026-11');assert.equal(approved.length,31);
+    const approved=await prizeSchedule(DB,'2026-11');assert.equal(approved.length,base+1);
     const suggestion=suggestPrizes(approved,'2026-11-01');assert.equal(suggestion.status,'selection-required');assert.equal(suggestion.position,null);assert.equal(suggestion.requiresApproval,true);
     await assert.rejects(reviewSupplement(DB,saved.id,1,'correct',{...value,description:'Stale overwrite'},false));
     await assert.rejects(reviewSupplement(DB,saved.id,2,'correct',{...value,position:1},false));
     await reviewSupplement(DB,saved.id,2,'correct',{...value,description:'Reviewed corrected certificate'},false);
-    assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_prize_review_log').first()).n,3);
+    assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_prize_review_log').first()).n,4); // 2 drafts + approve + correct
     await reviewSupplement(DB,saved.id,3,'reject',value,false);
-    assert.equal((await prizeSchedule(DB,'2026-11')).length,30);
+    assert.equal((await prizeSchedule(DB,'2026-11')).length,base);
     assert.deepEqual((await DB.prepare('SELECT * FROM events ORDER BY id').all()).results,before); // rows only; meta.last_row_id is connection state
     assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_winners').first()).n,0);
 });
@@ -66,4 +74,33 @@ test('existing R2 poster extraction excludes event main prizes, forces unknown p
 test('calendar deployment gate avoids all D1 reads until explicitly enabled',async()=>{
     const res=await GET({locals:{runtime:{env:{DB:{prepare(){throw Error('must not query')}}}}},url:new URL('https://example.test/api/raffle/prizes?month=2026-11')});
     assert.deepEqual(await res.json(),{ok:true,enabled:false,prizes:[]});
+});
+test('bulk approval publishes only reviewed, unchanged, placement-free drafts; descriptions lose trailing periods',async t=>{
+    const {DB,ctx}=await setup(t);
+    const dates=['2026-11-02','2026-11-03','2026-11-04'];
+    const ids=[];for(const drawDate of dates) ids.push((await saveSupplement(DB,'2026-11',{drawDate,category:'Gift card',position:null,description:'$100 gift certificate.',notes:''})).id);
+    const stored=await DB.prepare('SELECT description FROM raffle_prize_supplements').all();
+    assert.ok(stored.results.every(r=>r.description==='$100 gift certificate'));
+    const base=(await prizeSchedule(DB,'2026-11')).length;
+    const items=ids.map(id=>({id,version:1}));
+    assert.equal((await POST(ctx({action:'approveDrafts',month:'2026-11',items}))).status,400); // explicit approval required
+    await assert.rejects(approveDrafts(DB,'2026-11',[{id:ids[0],version:7}])); // stale version
+    await assert.rejects(approveDrafts(DB,'2026-12',items)); // wrong month
+    const res=await POST(ctx({action:'approveDrafts',month:'2026-11',items,approved:true}));
+    assert.equal(res.status,200);assert.equal((await res.json()).approved,3);
+    assert.equal((await prizeSchedule(DB,'2026-11')).length,base+3);
+    assert.equal((await POST(ctx({action:'approveDrafts',month:'2026-11',items,approved:true}))).status,409); // already approved
+    const positioned=await saveSupplement(DB,'2026-11',{drawDate:'2026-11-05',category:'Other',position:3,description:'Positioned prize',notes:''});
+    await assert.rejects(approveDrafts(DB,'2026-11',[{id:positioned.id,version:1}])); // numeric place needs individual confirmation
+    assert.equal((await DB.prepare("SELECT count(*) AS n FROM raffle_prize_supplements WHERE status='approved'").first()).n,3);
+});
+test('prize review endpoints require an admin session and same-origin requests',async()=>{
+    const { onRequest }=await import('../src/middleware.ts');
+    for(const path of ['/api/admin/raffle/prizes','/api/admin/raffle/prizes?month=2026-11']) {
+        const url=new URL('https://example.test'+path),locals={runtime:{env:{SESSION:{get:async()=>null}}}};
+        for(const [method,headers,status] of [['POST',{},403],['POST',{Origin:'https://foreign.test'},403],['POST',{Origin:'https://example.test'},401],['GET',{},401]]) {
+            const response=await onRequest({url,locals,request:new Request(url,{method,headers,body:method==='POST'?'{}':undefined})},()=>{throw Error('must not run')});
+            assert.equal(response.status,status,`${method} ${path}`);
+        }
+    }
 });

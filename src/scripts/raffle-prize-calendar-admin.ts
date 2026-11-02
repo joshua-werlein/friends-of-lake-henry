@@ -38,7 +38,9 @@ async function load() {
     get<HTMLImageElement>('calendarPoster').src=data.posterUrl;get<HTMLAnchorElement>('calendarPosterLink').href=data.posterUrl;
     get<HTMLButtonElement>('recognizePoster').disabled=!data.aiAvailable;
     get('posterAiStatus').textContent=data.aiAvailable?'Recognition proposes private rows only.':'AI binding and owner-confirmed model access/terms are needed for optional poster recognition. Events and manual drafts remain available.';
-    status.textContent=`${rows.filter(r=>r.source==='event').length} published event prizes · ${rows.filter(r=>r.source==='supplement').length} supplemental rows. No event records were copied.`;
+    const drafts=rows.filter(r=>r.source==='supplement'&&r.status==='draft'&&r.position===null);
+    get('bulkApprove').hidden=drafts.length===0;get('bulkApproveCount').textContent=String(drafts.length);get<HTMLInputElement>('bulkApproveConfirm').checked=false;
+    status.textContent=`${rows.filter(r=>r.category==='Main prize').length} main prizes and ${rows.filter(r=>r.category==='Bonus drawing').length} bonus drawings from published events · ${rows.filter(r=>r.source==='supplement').length} supplemental rows (${drafts.length} awaiting approval). No event records were copied.`;
 }
 month.value=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit'}).format(new Date()).slice(0,7);
 get('loadPrizeMonth').addEventListener('click',()=>run(load));month.addEventListener('change',()=>run(load));
@@ -47,6 +49,12 @@ get('supplementForm').addEventListener('submit',event=>{event.preventDefault();v
     await api({action:'draft',month:month.value,rows:dates.map(drawDate=>({drawDate,category:get<HTMLSelectElement>('supplementCategory').value,description:get<HTMLTextAreaElement>('supplementDescription').value,position:null,notes:''}))});
     await load();status.textContent='Private supplemental drafts saved. Review and approve each before publication.';
 });});
+get('bulkApproveButton').addEventListener('click',()=>run(async()=>{
+    if(!get<HTMLInputElement>('bulkApproveConfirm').checked)throw Error('Confirm that you reviewed every listed draft before approving them together.');
+    const items=rows.filter(r=>r.source==='supplement'&&r.status==='draft'&&r.position===null).map(r=>({id:r.id,version:r.version}));
+    const data=await api({action:'approveDrafts',month:month.value,items,approved:true});
+    await load();status.textContent=`${data.approved} reviewed drafts approved and published.`;
+}));
 get('recognizePoster').addEventListener('click',()=>run(async()=>{
     const button=get<HTMLButtonElement>('recognizePoster');button.disabled=true;
     try{const data=await api({action:'extractPoster',month:month.value});get('posterProposals').replaceChildren(...data.proposals.map((v:any)=>card(v,true)));status.textContent=`${data.proposals.length} unapproved proposals. ${data.warnings.join(' ')}`;}finally{button.disabled=false;}

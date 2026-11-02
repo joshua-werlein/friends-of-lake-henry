@@ -11,6 +11,10 @@ export const prerender=false;
         <label>Raffle month <input class="input" id="prizeMonth" type="month" /></label>
         <button class="btn" id="loadPrizeMonth" type="button">Load calendar</button>
         <p id="calendarStatus" role="status"></p>
+        <div id="bulkApprove" class="panel" hidden>
+            <label><input type="checkbox" id="bulkApproveConfirm" /> I reviewed all <span id="bulkApproveCount">0</span> drafts below (date, category and description). None states a numeric place.</label>
+            <button class="btn" id="bulkApproveButton" type="button">Approve reviewed drafts</button>
+        </div>
         <div class="calendarGrid">
             <div>
                 <h2>Published events and supplemental prizes</h2>

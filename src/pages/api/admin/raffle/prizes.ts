@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import type { D1Database,R2Bucket } from '@cloudflare/workers-types';
 import { json } from '../../../../lib/http';
-import { prizeSchedule,validMonth,saveSupplement,reviewSupplement,supplementDraft } from '../../../../lib/server/raffle-prizes';
+import { prizeSchedule,validMonth,saveSupplement,reviewSupplement,supplementDraft,approveDrafts } from '../../../../lib/server/raffle-prizes';
 import { readPosterPrizes } from '../../../../lib/server/raffle-poster-prizes';
 type Env={DB?:D1Database;PHOTOS_BUCKET?:R2Bucket;AI?:{run(model:string,input:unknown):Promise<unknown>};RAFFLE_PRIZE_CALENDAR_ENABLED?:string;RAFFLE_POSTER_AI_LICENSE_ACCEPTED?:string};
 export const GET:APIRoute=async({locals,url})=>{
@@ -30,6 +30,10 @@ export const POST:APIRoute=async({locals,request})=>{
             const results=[];
             for(const row of body.rows) results.push(await saveSupplement(env.DB,body.month,row));
             return json({ok:true,results,published:false});
+        }
+        if(body.action==='approveDrafts') {
+            if(body.approved!==true) return json({ok:false,error:'Explicit review approval and the current row version are required.'},400);
+            return json({ok:true,approved:await approveDrafts(env.DB,body.month,body.items)});
         }
         if(!['approve','reject','correct'].includes(body.action)||typeof body.id!=='string'||!/^[a-f0-9-]{36}$/.test(body.id)||!Number.isInteger(body.version)||body.approved!==true) return json({ok:false,error:'Explicit review approval and the current row version are required.'},400);
         await reviewSupplement(env.DB,body.id,body.version,body.action,body.row,body.positionConfirmed===true);
