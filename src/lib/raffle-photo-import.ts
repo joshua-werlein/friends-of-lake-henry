@@ -1,6 +1,10 @@
 import { FACEBOOK_GRAPH_PAGE_ID, FACEBOOK_PAGE_ID } from './facebook';
 
-export const PHOTO_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
+// Mistral Small 3.1 (Apache-2.0) needs no click-through license on Workers AI and scored 120/120 fields on the
+// November 2025 winner table (2026-11-02). Llama 3.2 Vision stays supported but requires the account owner's
+// one-time Meta license acceptance (Workers AI error 5016 until then).
+export const PHOTO_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
+export const LLAMA_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 export const MAX_IMPORT_ROWS = 100;
 export type PhotoCandidate = { photoId: string; postId: string | null; sourceUrl: string; publishedAt: string | null };
 export type DraftWinner = { drawDate: string; position: number | null; ticketNumber: string; name: string; town: string; notes: string };
@@ -41,11 +45,14 @@ export function draftRows(value: unknown): DraftWinner[] {
     });
 }
 export function parseExtraction(response: unknown): Extraction {
-    if (!response || typeof response !== 'object' || !('response' in response) || typeof response.response !== 'string'
-        || response.response.length > 120000) throw Error('invalid-extraction');
-    const raw = response.response.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+    if (!response || typeof response !== 'object' || !('response' in response)) throw Error('invalid-extraction');
+    // Llama returns JSON text; chat models on Workers AI (e.g. Mistral Small 3.1) return it already parsed.
+    // Both take the same size bound and the same strict validation below.
+    const body = response.response;
+    const raw = typeof body === 'string' ? body : body && typeof body === 'object' ? JSON.stringify(body) : null;
+    if (raw === null || raw.length > 120000) throw Error('invalid-extraction');
     let value;
-    try { value = JSON.parse(raw); } catch { throw Error('invalid-extraction'); }
+    try { value = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')); } catch { throw Error('invalid-extraction'); }
     if (!value || typeof value.containsWinners !== 'boolean' || !Array.isArray(value.warnings) || value.warnings.length > 30) throw Error('invalid-extraction');
     const rows = draftRows(value.rows);
     if (!value.containsWinners && rows.length) throw Error('invalid-extraction');

@@ -360,8 +360,8 @@ const description =
                 </p>
             </div>
         </section>
-        <section id="prizeCalendar" class="card" hidden style="padding:clamp(1rem,3vw,2rem)">
-            <h2>Scheduled prizes — <span id="prizeCalendarMonth"></span></h2>
+        <section id="prizeCalendar" class="card prizeCalendar" hidden aria-labelledby="prizeCalendarHeading">
+            <h2 class="sectionTitle" id="prizeCalendarHeading">Scheduled prizes — <span id="prizeCalendarMonth"></span></h2>
             <p>Prizes scheduled for upcoming drawings. After each drawing, winners and the prizes they received appear in Daily Winners above.</p>
             <ul id="publicPrizeList" class="publicPrizeList"></ul>
         </section>
@@ -1106,7 +1106,42 @@ const description =
 
 
 <script>import "../scripts/raffle-prize-calendar";</script>
-<style>.publicPrizeList{list-style:none;padding:0}.publicPrizeList>:global(li){display:grid;grid-template-columns:7rem 1fr;gap:1rem;padding:.75rem 0;border-bottom:1px solid rgba(255,255,255,.16)}.publicPrizeList :global(.prizeLines){list-style:none;margin:0;padding:0;display:grid;gap:.3rem}.publicPrizeList :global(time){font-weight:700}@media(max-width:550px){.publicPrizeList>:global(li){grid-template-columns:1fr;gap:.25rem}}</style>
+<style>
+    /* One vertical rhythm between the stacked raffle cards (24–32px). A [hidden] calendar
+       is display:none, so it leaves no gap behind. */
+    .rafflePage{ --raffle-stack-gap: clamp(1.5rem, 1rem + 1.5vw, 2rem); }
+    .prizeCalendar,
+    .prizeCalendar + .rules{ margin-top: var(--raffle-stack-gap); }
+
+    /* Dark translucent panel over the Lake Henry background for strong contrast. */
+    .prizeCalendar{
+        padding: clamp(1.25rem, 3vw, 1.75rem);
+        background: rgba(7, 15, 23, .78);
+        border: 1px solid rgba(255, 255, 255, .14);
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        color: #f4f7fa;
+    }
+    .prizeCalendar p{ color: rgba(244, 247, 250, .86); margin: 0 0 .5rem; line-height: 1.55; }
+
+    .publicPrizeList{ list-style: none; margin: 0; padding: 0; }
+    .publicPrizeList > :global(li){
+        display: grid;
+        grid-template-columns: 7.5rem 1fr;
+        gap: 1rem;
+        padding: .85rem 0;
+        border-top: 1px solid rgba(255, 255, 255, .12);
+        line-height: 1.5;
+    }
+    .publicPrizeList > :global(li:first-child){ border-top: 0; }
+    .publicPrizeList :global(time){ font-weight: 700; color: #fff; white-space: nowrap; }
+    .publicPrizeList :global(.prizeLines){ list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+    .publicPrizeList :global(.prizeLines li){ overflow-wrap: break-word; }
+
+    @media (max-width: 550px){
+        .publicPrizeList > :global(li){ grid-template-columns: 1fr; gap: .3rem; padding: .75rem 0; }
+    }
+</style>
 <style is:global>
 #publicWinnersTableWrap{width:100%;padding:0;display:block;box-sizing:border-box}
 #publicWinnersTable{width:100%;min-width:960px;table-layout:fixed;transform:none}

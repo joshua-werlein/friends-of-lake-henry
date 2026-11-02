@@ -28,11 +28,24 @@
     {
       "binding": "PHOTOS_BUCKET",
       "bucket_name": "folh-photos"
+    },
+    {
+      "binding": "IMPORT_IMAGES",
+      "bucket_name": "folh-photos"
     }
   ],
   "vars": {
     "RAFFLE_AUTOMATIC_SELECTION_ENABLED": "true",
+    "RAFFLE_PRIZE_CALENDAR_ENABLED": "true",
+    "RAFFLE_PHOTO_IMPORT_ENABLED": "false",
     "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
     "FB_SEASON_END": "2026-12-01T00:00:00-06:00"
-  }
+  },
+  "services": [
+    {
+      "binding": "FACEBOOK_PHOTOS",
+      "service": "folh-facebook-live-discovery",
+      "entrypoint": "PhotoImports"
+    }
+  ]
 }

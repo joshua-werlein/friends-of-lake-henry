@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
-import { parsePhotoSource, parseExtraction, compareWinner, approvalRows, PHOTO_MODEL, hashBytes } from '../src/lib/raffle-photo-import.ts';
+import { parsePhotoSource, parseExtraction, compareWinner, approvalRows, PHOTO_MODEL, LLAMA_VISION_MODEL, hashBytes } from '../src/lib/raffle-photo-import.ts';
 import { extractPhotoCandidates, largestImage, photoService } from '../workers/facebook-live/photos.ts';
 import { GRAPH_PAGE_ID, PUBLIC_PAGE_ID } from '../workers/facebook-live/graph.ts';
 import { approveImport } from '../src/lib/server/raffle-photo-review.ts';
@@ -151,7 +151,7 @@ test('full-resolution download refreshes an expired URL; AI sees bytes and the o
     assert.equal(mock.calls.filter(v=>v.url.hostname==='graph.facebook.com'&&v.url.pathname.endsWith(fakeId)).length,2);
     assert.ok(mock.calls.filter(v=>v.url.hostname!=='graph.facebook.com').every(v=>v.url.pathname==='/large'));
     assert.equal(mock.aiCalls.length,1);assert.equal(mock.aiCalls[0].model,PHOTO_MODEL);
-    assert.ok(mock.aiCalls[0].input.image.startsWith('data:image/png;base64,'));
+    assert.ok(mock.aiCalls[0].input.messages[0].content[1].image_url.url.startsWith('data:image/png;base64,'));
     assert.equal(JSON.stringify(capture).includes('signed='),false);assert.equal(JSON.stringify(mock.aiCalls).includes('SIMULATED_TEST_TOKEN'),false);
 });
 test('single-day announcements and unrelated photos use the same review-only extraction path',async()=>{
@@ -255,4 +255,28 @@ test('private PhotoImports RPC runs in workerd, fails closed disabled, and publi
     ]});t.after(()=>mf.dispose());
     const r=await mf.dispatchFetch('https://example.test');assert.equal(r.status,503);assert.match(await r.text(),/discovery unavailable/);
     assert.equal((await (await mf.getWorker('photos')).fetch('https://example.test')).status,404);
+});
+
+test('vision requests match each model and parsed-object responses get the same strict validation',async()=>{
+    const { visionRequest } = await import('../workers/facebook-live/photos.ts');
+    const llama=visionRequest(LLAMA_VISION_MODEL,'p','data:image/png;base64,AA');
+    assert.deepEqual([llama.prompt,llama.image,'messages' in llama],['p','data:image/png;base64,AA',false]);
+    const chat=visionRequest(PHOTO_MODEL,'p','data:image/png;base64,AA');
+    assert.deepEqual(chat.messages[0].content,[{type:'text',text:'p'},{type:'image_url',image_url:{url:'data:image/png;base64,AA'}}]);
+    assert.equal(chat.temperature,0);
+    const value={containsWinners:true,rows:[{drawDate:'2026-11-01',position:null,ticketNumber:'360',name:'Tim Hartley',town:'La Crosse',notes:''}],warnings:[]};
+    assert.deepEqual(parseExtraction({response:value}),parseExtraction({response:JSON.stringify(value)}));
+    assert.throws(()=>parseExtraction({response:{containsWinners:false,rows:value.rows,warnings:[]}}));
+    assert.throws(()=>parseExtraction({response:{containsWinners:true,rows:'x'.repeat(130000),warnings:[]}}));
+    assert.throws(()=>parseExtraction({response:42}));
+});
+
+test('Pages config keeps live features on, photo imports off, and binds only the private photo RPC and import bucket',async()=>{
+    const config=JSON.parse(await readFile(new URL('../wrangler.json',import.meta.url),'utf8'));
+    assert.equal(config.vars.RAFFLE_PRIZE_CALENDAR_ENABLED,'true'); // dropping it would hide the live prize calendar
+    assert.equal(config.vars.RAFFLE_AUTOMATIC_SELECTION_ENABLED,'true');
+    assert.equal(config.vars.RAFFLE_PHOTO_IMPORT_ENABLED,'false'); // enable only after the real-photo lifecycle check
+    assert.deepEqual(config.services,[{binding:'FACEBOOK_PHOTOS',service:'folh-facebook-live-discovery',entrypoint:'PhotoImports'}]);
+    assert.deepEqual(config.r2_buckets.find(b=>b.binding==='IMPORT_IMAGES'),{binding:'IMPORT_IMAGES',bucket_name:'folh-photos'}); // r2.dev + custom domains verified off
+    assert.deepEqual(config.d1_databases.map(d=>d.database_id),['527df871-e876-4924-81d0-5d0572b4dd7b']);
 });
