@@ -5,7 +5,7 @@ import { Miniflare } from 'miniflare';
 import { POST } from '../src/pages/api/admin/raffle/winner-prize.ts';
 import { GET } from '../src/pages/api/raffle/month.ts';
 import { onRequest } from '../src/middleware.ts';
-import { composeWinnerPrize, parseWinnerPrize, prizeCells } from '../src/lib/winner-prize.ts';
+import { cleanPrizeDescription, composeWinnerPrize, parseWinnerPrize, prizeCells } from '../src/lib/winner-prize.ts';
 const cases = [
     { id:'2026-11-2026-11-01-360', ticket:360, name:'Tim Hartley', town:'La Crosse', category:'Firearm', description:'Auto-Ordnance Thompson 1927A-1, .45 ACP.' },
     { id:'2026-11-2026-11-01-894', ticket:894, name:'Troy Zigler', town:'Cashton', category:'Gift card', description:'$100 gift certificate from Safe & Secure Firearms.' },
@@ -24,14 +24,14 @@ test('editing existing prizes preserves every identity field and publishes descr
         const body={id:row.id,expectedPrize:null,category:row.category,description:row.description,position:null,approved:true};
         assert.equal((await POST(ctx(body))).status,200);
         const after=await DB.prepare('SELECT * FROM raffle_winners WHERE id=?').bind(row.id).first();
-        assert.deepEqual(after,{...before,prize:`${row.category}: ${row.description}`});
+        assert.deepEqual(after,{...before,prize:`${row.category}: ${row.description.slice(0,-1)}`}); // trailing period normalized
         assert.equal(parseWinnerPrize(after.prize).position,null);
         assert.equal((await POST(ctx(body))).status,409); // stale edit cannot overwrite the saved value
     }
     assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_winners').first()).n,2);
     const response=await GET({locals:{runtime:{env:{DB}}},request:new Request('https://example.test/api/raffle/month?month=2026-11')});
     const data=await response.json();
-    for(const row of cases) assert.equal(data.winners.find(v=>v.ticketNumber===row.ticket).prize,`${row.category}: ${row.description}`);
+    for(const row of cases) assert.equal(data.winners.find(v=>v.ticketNumber===row.ticket).prize,`${row.category}: ${row.description.slice(0,-1)}`);
 });
 test('prize edits require approval and independent confirmation for any numeric position',()=>{
     const body={category:'Firearm',description:'Verified description',position:null,approved:true};
@@ -55,4 +55,23 @@ test('public prize cells hide category prefixes and separate verified placement 
     assert.deepEqual(prizeCells('Gift card: $100 gift certificate'),{place:'—',prize:'$100 gift certificate'});
     assert.deepEqual(prizeCells('2nd place — Gift card: Verified certificate'),{place:'2nd',prize:'Verified certificate'});
     assert.deepEqual(prizeCells(null),{place:'—',prize:'Not recorded'});
+});
+
+test('confirmed November 1 placements encode and display as 1st/2nd with clean descriptions',()=>{
+    const first=composeWinnerPrize({category:'Firearm',description:'Auto-Ordnance Thompson 1927A-1, .45 ACP.',position:1,positionConfirmed:true,approved:true});
+    const second=composeWinnerPrize({category:'Gift card',description:'$100 gift certificate from Safe & Secure Firearms.',position:2,positionConfirmed:true,approved:true});
+    assert.equal(first,'1st place — Firearm: Auto-Ordnance Thompson 1927A-1, .45 ACP');
+    assert.equal(second,'2nd place — Gift card: $100 gift certificate from Safe & Secure Firearms');
+    assert.deepEqual(prizeCells(first),{place:'1st',prize:'Auto-Ordnance Thompson 1927A-1, .45 ACP'});
+    assert.deepEqual(prizeCells(second),{place:'2nd',prize:'$100 gift certificate from Safe & Secure Firearms'});
+    // Legacy stored values with trailing periods still display cleanly without a data change.
+    assert.deepEqual(prizeCells('Firearm: Auto-Ordnance Thompson 1927A-1, .45 ACP.'),{place:'—',prize:'Auto-Ordnance Thompson 1927A-1, .45 ACP'});
+});
+test('trailing-period cleanup keeps internal punctuation and real abbreviations',()=>{
+    assert.equal(cleanPrizeDescription('Ruger 10/22, .22 LR...  '),'Ruger 10/22, .22 LR');
+    assert.equal(cleanPrizeDescription('.45 ACP'),'.45 ACP');
+    assert.equal(cleanPrizeDescription('Gift card from Smith Bros.'),'Gift card from Smith Bros.');
+    assert.equal(cleanPrizeDescription('Made in the U.S.A.'),'Made in the U.S.A.');
+    assert.equal(cleanPrizeDescription('Sturm, Ruger & Co.'),'Sturm, Ruger & Co.');
+    assert.throws(()=>composeWinnerPrize({category:'',description:'..',position:null,approved:true}));
 });

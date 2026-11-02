@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import type { D1Database } from "@cloudflare/workers-types";
 import { json } from "../../../../lib/http";
+import { cleanPrizeDescription } from "../../../../lib/winner-prize";
 
 function mustBeIsoDate(s: string): boolean {
     return /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -139,7 +140,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const ticketNumberRaw = (data?.ticketNumber ?? "").toString().trim();
     const name = (data?.name ?? "").toString().trim();
     const town = (data?.town ?? "").toString().trim();
-    const prize = (data?.prize ?? "").toString().trim() || null;
+    const prize = cleanPrizeDescription((data?.prize ?? "").toString()) || null;
 
     if (!drawDate) return json({ ok: false, error: "drawDate required" }, 400);
     if (!raffleKey) return json({ ok: false, error: "raffleKey required" }, 400);
