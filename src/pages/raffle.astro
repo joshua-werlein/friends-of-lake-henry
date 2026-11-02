@@ -363,7 +363,9 @@ const description =
         <section id="prizeCalendar" class="card prizeCalendar enter-block delay-7" hidden aria-labelledby="prizeCalendarHeading">
             <h2 class="sectionTitle" id="prizeCalendarHeading">Scheduled prizes — <span id="prizeCalendarMonth"></span></h2>
             <p>Prizes scheduled for upcoming drawings. After each drawing, winners and the prizes they received appear in Daily Winners above.</p>
-            <ul id="publicPrizeList" class="publicPrizeList"></ul>
+            <div class="panel prizeCalendarPanel">
+                <ul id="publicPrizeList" class="publicPrizeList"></ul>
+            </div>
         </section>
 
         <section class="card rules  enter-block delay-8">
@@ -1113,9 +1115,9 @@ const description =
     .prizeCalendar,
     .prizeCalendar + .rules{ margin-top: var(--raffle-stack-gap); }
 
-    /* Match the existing winners-table panel's glass surface and rounded corners. */
-    .rafflePage .winnersCard,
-    .rafflePage .prizeCalendar{
+    /* Keep the shared light .card outside and the darker winners-style panel inside. */
+    .rafflePage .prizeCalendarPanel{
+        padding: 1rem;
         background: var(--panel-bg-strong);
         border-radius: 14px;
         -webkit-backdrop-filter: blur(2px);
