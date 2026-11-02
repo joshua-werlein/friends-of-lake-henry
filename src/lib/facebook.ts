@@ -2,7 +2,7 @@
 export const FACEBOOK_PAGE_ID = "61552199315213";
 export const FACEBOOK_GRAPH_PAGE_ID = '144051422124740';
 export const FACEBOOK_API_VERSION = 'v26.0';
-export const FACEBOOK_LIVE_CONTRACT = 'video-live-status-v1';
+export const FACEBOOK_LIVE_CONTRACT = 'video-observed-live-v2';
 export const FACEBOOK_PAGE_VIDEOS_URL = `https://www.facebook.com/${FACEBOOK_PAGE_ID}/videos/`;
 export type LiveConfig = { latestVideoUrl: string | null; updatedAt: string | null };
 export const RAFFLE_LIVE_KEY = "raffle_live";

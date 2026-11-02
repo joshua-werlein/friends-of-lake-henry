@@ -10,13 +10,15 @@ import { checkDeployment } from '../workers/facebook-live/check-deployment.mjs';
 
 // Entirely simulated data and fetch. These are NOT captured or verified real Live responses.
 const fixture = JSON.parse(await readFile(new URL('./fixtures/facebook-page-posts.json', import.meta.url), 'utf8'));
+const realEndedLive = JSON.parse(await readFile(new URL('./fixtures/facebook-live-real-2026-11-01.json', import.meta.url), 'utf8'));
 const clone = x => structuredClone(x);
 const now = new Date('2026-11-02T00:05:00Z');
 const marker = '#LakeHenryRaffle';
 const candidate = extractCandidates(fixture.data, marker, now)[0];
 const metadata = (id = candidate.videoId, extra = {}) => ({ id, from: { id: GRAPH_PAGE_ID }, live_status: id === candidate.videoId ? 'LIVE' : 'VOD', published: true, embeddable: true, ...extra });
-const receipt = extra => JSON.stringify({ schemaVersion: 1, graphPageId: GRAPH_PAGE_ID, publicPageId: PUBLIC_PAGE_ID,
+const receipt = extra => JSON.stringify({ schemaVersion: 2, graphPageId: GRAPH_PAGE_ID, publicPageId: PUBLIC_PAGE_ID,
     apiVersion: GRAPH_VERSION, contract: LIVE_CONTRACT, verifiedVideoId: candidate.videoId,
+    evidence: 'active-live-and-ordinary-upload-control', ordinaryUploadVideoId: '730000000000002', ordinaryUploadStatus: 'VOD', liveObservedAt: '2026-11-02T00:00:00Z',
     verifiedAt: '2026-11-02T00:00:00Z', expiresAt: '2026-12-01T06:00:00Z', ...extra });
 function store(entries = []) {
     const data = new Map(entries), writes = [];
@@ -67,7 +69,35 @@ test('metadata probe requires positive ownership, explicit Live state and public
         { id: '999' }, { published: false }, { embeddable: false }, { embeddable: undefined }]) {
         assert.equal(verifyVideo(candidate, metadata(candidate.videoId, changes)), null);
     }
-    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: 'LIVE_STOPPED' })).status, 'replay');
+    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: 'LIVE_STOPPED' })), null);
+});
+
+test('sanitized real ended Live returns VOD and cannot prove origin or create an automatic selection', async () => {
+    const video = realEndedLive.videoResponse;
+    assert.deepEqual(video, { id: '39756815320632328', from: { id: GRAPH_PAGE_ID },
+        live_status: 'VOD', published: true, embeddable: true });
+    // Adapter harness only: the administrator did NOT provide created_time/attachments.
+    // These two fields are simulated and must not be mistaken for captured API evidence.
+    const harnessCandidate = { postId: realEndedLive.postId, videoId: video.id, publishedAt: now.toISOString() };
+    assert.equal(verifyVideo(harnessCandidate, video), null);
+    const syntheticPost = { id: realEndedLive.postId, message: realEndedLive.caption, created_time: now.toISOString(),
+        attachments: { data: [{ type: 'video_inline', target: { id: video.id,
+            url: `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${video.id}/` } }] } };
+    const kv = store([[VERIFICATION_KEY, receipt()], ['raffle_live', 'saved manual URL']]);
+    const mock = api({ posts: { data: [syntheticPost] }, video: () => video });
+    assert.equal((await runPoll(envFor(kv), { now, fetcher: mock.fetcher })).status, 'no-verified-live');
+    assert.equal(kv.data.has('raffle_live_automatic'), false);
+    assert.equal(kv.data.get('raffle_live'), 'saved manual URL');
+    assert.equal(verifyVideo(harnessCandidate, { ...video, id: '999' }), null);
+});
+
+test('ordinary-upload VOD control is rejected just like ended-Live VOD; an old assumed replay receipt is invalid', () => {
+    // Synthetic negative control until the administrator supplies an actual ordinary upload response.
+    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: 'VOD' })), null);
+    assert.equal(verificationValid(receipt({ schemaVersion: 1, contract: 'video-live-status-v1' }), now), false);
+    assert.equal(verificationValid(receipt({ evidence: undefined }), now), false);
+    assert.equal(verificationValid(receipt({ ordinaryUploadVideoId: candidate.videoId }), now), false);
+    assert.equal(verificationValid(receipt({ ordinaryUploadStatus: 'LIVE' }), now), false);
 });
 
 test('rejects unrelated, foreign-page, future, invalid-date, reel, share and foreign-host candidates', () => {
@@ -169,20 +199,20 @@ test('verified simulation stages only automatic key, preserving manual URL, deli
     }
 });
 
-test('five-minute state, duplicate writes, live-to-replay transition and stale response protection', async () => {
+test('five-minute state, duplicate writes, VOD fallback and fresh LIVE recovery', async () => {
     const kv = store([[VERIFICATION_KEY, receipt()]]), env = envFor(kv);
     assert.equal((await runPoll(env, { now, fetcher: api().fetcher })).status, 'staged');
     assert.equal((await runPoll(env, { now, fetcher() { throw Error('must not call'); } })).status, 'not-due');
     const later = minutes => new Date(now.getTime() + minutes * 60000);
     assert.equal((await runPoll(env, { now: later(5), fetcher: api().fetcher })).status, 'unchanged');
     assert.equal(kv.writes.filter(k => k === 'raffle_live_automatic').length, 1);
-    const replay = api({ video: id => metadata(id, { live_status: id === candidate.videoId ? 'LIVE_STOPPED' : 'VOD' }) });
-    assert.equal((await runPoll(env, { now: later(10), fetcher: replay.fetcher })).status, 'staged');
-    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'replay');
+    const replay = api({ video: id => metadata(id, { live_status: 'VOD' }) });
+    assert.equal((await runPoll(env, { now: later(10), fetcher: replay.fetcher })).status, 'no-verified-live');
+    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'live');
     assert.equal((await runPoll(env, { now: later(15), fetcher: api().fetcher })).status, 'unchanged');
     const old = clone(fixture); old.data[0].created_time = '2026-10-30T18:00:00-0500';
     assert.equal((await runPoll(env, { now: later(20), fetcher: api({ posts: old }).fetcher })).status, 'no-verified-live');
-    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'replay');
+    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'live');
 });
 
 test('permissions/expiry pause until access revision changes; rate limits persist Retry-After backoff', async () => {
@@ -252,7 +282,7 @@ test('future-year season can poll with the reusable hashtag; invalid/outside sea
     const season = { FB_SEASON_START: '2027-11-01T00:00:00-05:00', FB_SEASON_END: '2027-12-01T00:00:00-06:00' };
     const posts = clone(fixture);
     for (const post of posts.data) if (post.created_time) post.created_time = post.created_time.replace('2026-', '2027-');
-    const kv = store([[VERIFICATION_KEY, receipt({ verifiedAt: '2027-11-02T00:00:00Z', expiresAt: '2027-12-01T06:00:00Z' })]]);
+    const kv = store([[VERIFICATION_KEY, receipt({ verifiedAt: '2027-11-02T00:00:00Z', liveObservedAt: '2027-11-02T00:00:00Z', expiresAt: '2027-12-01T06:00:00Z' })]]);
     const futureNow = new Date('2027-11-02T00:05:00Z');
     assert.equal((await runPoll({ ...envFor(kv), ...season }, { now: futureNow, fetcher: api({ posts }).fetcher })).status, 'staged');
     assert.equal((await runPoll({ ...envFor(store()), ...season, FB_SEASON_START: 'bad' }, { now, fetcher() { throw Error('must not call'); } })).status, 'configuration-error');

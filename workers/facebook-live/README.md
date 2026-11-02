@@ -5,6 +5,14 @@ Implemented on `codex/facebook-live-worker`. Polling, probes, Cron and public ro
 This is a working candidate collector with a provisional, gated metadata probe.
 **Automatic livestream detection has NOT been verified against a real broadcast.**
 
+November 1 real-response update: the administrator confirmed that post
+`144051422124740_39756815320632328` / video `39756815320632328` was a public
+Live test recording. Its v26.0 response reported `from.id=144051422124740`,
+`live_status=VOD`, `published=true`, `embeddable=true`. The sanitized fixture is
+`tests/fixtures/facebook-live-real-2026-11-01.json`. This verifies readable metadata
+for that recording, **not a Live-origin discriminator**. Active-LIVE evidence and
+an ordinary-upload negative control are still missing. No receipt was issued.
+
 ## Verified access and API blockers
 
 The user verified v26.0 `pages_show_list`, `pages_read_engagement`, and current
@@ -20,8 +28,8 @@ Official references inspected in the browser:
 
 `graph.ts` reads documented published-post fields. Optional video probing requests
 `id,from,live_status,published,embeddable` from `GET /v26.0/{video-id}`. These exact
-fields/permissions/enum semantics are **provisional**, not verified for this token
-and Page. Probing defaults OFF. A positive metadata result still cannot stage
+fields returned successfully for the ended test above; their ability to distinguish
+an active Live from ordinary uploads is still **provisional**. Probing defaults OFF. A positive metadata result still cannot stage
 anything without a time-limited real-broadcast verification receipt. Unsupported
 fields (#100), object unavailability and permission errors preserve the last stage
 and pause calls; do not weaken checks to bypass those errors.
@@ -44,9 +52,13 @@ IDs, invalid/future dates and unsupported attachment shapes are ignored.
 
 The provisional metadata verifier requires matching video ID, `from.id` equal to
 the Graph Page ID, `published === true`, `embeddable === true`, and exact state
-`LIVE` or `LIVE_STOPPED`. `VOD`, missing fields and unknown values are rejected.
-Shared external videos cannot pass ownership validation. The real-broadcast test
-must establish that these fields can actually distinguish a Live and its replay.
+`LIVE` only. `VOD`, `LIVE_STOPPED`, missing fields and unknown values are rejected.
+Shared external videos cannot pass ownership validation. Human confirmation that
+one VOD was formerly Live is not permission to classify other VODs. No accessible
+current reference established a general read-only broadcast-origin field; the
+Video reference carries a legacy removal warning, and SDK enums alone do not
+establish supported read semantics. The permission-blocked Live Video API remains
+a separate review path. Automatic replay selection is unsupported by this contract.
 
 ## Isolation, bounds and state
 
@@ -75,11 +87,12 @@ reads, overwrites, clears or deletes **`raffle_live`**. A manual save racing a p
 survives. Empty/unavailable/error responses preserve the previous stage. The deployed website does not read the automatic key. The prepared website consumer reads it only behind a default-off deployment flag and explicit authenticated admin mode.
 
 Schema 2 includes both Page IDs, video/post IDs, API/contract version, canonical
-URL, observed time, explicit live/replay evidence and **publishedAt**. Post publication
+URL, observed time, explicit active-LIVE evidence and **publishedAt**. Post publication
 time is not mislabeled as broadcast start time. Old staged `startedAt` records are
 recognized only to preserve ordering. Corrupt staged records are retained. Sequential
-runs avoid duplicate writes/older drawings; live-to-replay updates once and replay
-never regresses to live from stale metadata.
+runs avoid duplicate writes/older drawings. VOD responses cannot stage or renew
+verified health; public selection returns to the saved manual URL. A future replay
+feature would need its own verified origin evidence, tests and contract review.
 
 Persisted due-state enforces a minimum 300-second interval. Failures back off
 exponentially with jitter; rate limits honor Retry-After (bounded to one day).
@@ -161,7 +174,7 @@ Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/) priva
    ```
 
    The second request is a **provisional contract test**, not a claim those fields are supported on v26.0. Our current verifier requires matching video ID, `from.id=144051422124740`, `live_status=LIVE`, and boolean `published=true`, `embeddable=true`. Missing fields, #100, #10, VOD or ambiguous semantics mean STOP; do not create a receipt or enable polling. If one field is rejected, probe it individually only to diagnose and report which field/code failed. Never remove ownership or Live-proof checks merely to get success.
-5. After the Live ends, repeat the same metadata request. Verify a replay-specific Live-origin state (`LIVE_STOPPED` for the proposed contract), and compare an ordinary Page-uploaded video, which must not pass. Also check an unrelated/shared video cannot pass Page ownership. Confirm the canonical `https://www.facebook.com/61552199315213/videos/VIDEO_ID/` points to that exact broadcast, and test the embedded player plus direct link on desktop/mobile while logged out. API eligibility does not guarantee browser embedding succeeds.
+5. During the next actual Live, repeat the request and record whether `live_status=LIVE` is returned alongside ownership and both true booleans. Run the identical request against a known ordinary Page-uploaded video; record its distinct ID and status (the proposed control expects VOD). No actual ordinary-upload response has been supplied yet; the test control is explicitly simulated. After the Live ends, repeat the request and retain the observed VOD as a rejected case. Do not substitute the previously assumed LIVE_STOPPED state. Also check an unrelated/shared video cannot pass Page ownership. Confirm the canonical `https://www.facebook.com/61552199315213/videos/VIDEO_ID/` points to that exact broadcast, and test the embedded player plus direct link on desktop/mobile while logged out. API eligibility does not guarantee browser embedding succeeds.
 6. Optional read-only diagnostic if posts omit the video:
 
    ```text
@@ -180,17 +193,22 @@ If the exact contract fails, retain Manual; supported Live evidence or Meta revi
 
    ```json
    {
-     "schemaVersion": 1,
+     "schemaVersion": 2,
      "graphPageId": "144051422124740",
      "publicPageId": "61552199315213",
      "apiVersion": "v26.0",
-     "contract": "video-live-status-v1",
+     "contract": "video-observed-live-v2",
+     "evidence": "active-live-and-ordinary-upload-control",
      "verifiedVideoId": "ACTUAL_NUMERIC_VIDEO_ID",
+     "liveObservedAt": "ACTUAL_LIVE_OBSERVATION_ISO_UTC_TIMESTAMP",
+     "ordinaryUploadVideoId": "DISTINCT_ACTUAL_ORDINARY_UPLOAD_VIDEO_ID",
+     "ordinaryUploadStatus": "VOD",
      "verifiedAt": "ACTUAL_VERIFICATION_ISO_UTC_TIMESTAMP",
      "expiresAt": "2026-12-01T06:00:00Z"
    }
    ```
 
+   These placeholders are not a usable receipt. Version-1 receipts are invalid.
    Revoke only this record to stop staging/automatic selection. Never delete the manual key.
 3. Deploy the reviewed Worker with `FB_AUTOMATION_ENABLED=true`, `FB_VIDEO_PROBE_ENABLED=true`, `triggers.crons=["*/5 * * * *"]`; observe sanitized state/logs and the staged broadcast. Increment `FB_ACCESS_REVISION` only after resolving a permission/token/contract pause. The initial-deployment guard intentionally rejects activated configs; activation needs its own evidence/review, not bypassing the initial guard.
 4. Publish the reviewed website selection change with `RAFFLE_AUTOMATIC_SELECTION_ENABLED` absent/false first. Verify manual behavior; then explicitly enable that deployment flag with the same season dates. The admin must explicitly choose Automatic. No implicit opt-in from an existing manual record.
@@ -200,7 +218,7 @@ If the exact contract fails, retain Manual; supported Live evidence or Meta revi
 
 Authenticated mode control uses existing session middleware and same-origin CSRF enforcement. Missing/unknown mode stays Manual. Both mode and the saved manual URL remain in `raffle_live`; mode changes preserve URL/timestamp/extra fields. Every manual save or clear, including same-value saves, restores Manual. An explicit blank remains a valid saved fallback.
 
-The public API and server-rendered page share a read-only resolver. Default-off deployments read only the manual key. Automatic requires a valid receipt, active season, schema-2 Page/API/contract identity, explicit Live evidence, and a matching successful health check no older than ten minutes. Errors, missing permissions, paused state, stale/corrupt data or extra KV read failures return the saved manual configuration. Verified duplicate polls renew health without changing the video-selection timestamp or iframe. Replays additionally expire after 24 hours. Public refresh stays 15 seconds and retains Watch on Facebook. Unchanged URLs do not reset playback.
+The public API and server-rendered page share a read-only resolver. Default-off deployments read only the manual key. Automatic requires a version-2 receipt, active season, schema-2 Page/API/contract identity, explicit active-LIVE evidence, and a matching successful health check no older than ten minutes. Errors, missing permissions, paused state, stale/corrupt data or extra KV read failures return the saved manual configuration. Verified duplicate polls renew health without changing the video-selection timestamp or iframe. Unproven replays fall back to Manual. Public refresh stays 15 seconds and retains Watch on Facebook. Unchanged URLs do not reset playback.
 
 KV is eventually consistent: immediate manual override means the same admin operation writes Manual, subject to ordinary KV propagation. It cannot promise instantaneous global consistency. The Worker never writes `raffle_live`, so it cannot overwrite an operator's URL/mode.
 

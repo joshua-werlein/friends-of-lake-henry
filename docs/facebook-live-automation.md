@@ -4,6 +4,13 @@
 > experimental metadata limits, verification gates and activation steps. Historical
 > notes below describe the earlier scaffold; they do not imply current API proof.
 > Public production selection remains manual. Cron and API polling remain disabled; see the Worker deployment record for initial deployment status.
+>
+> Real November 1 test: the confirmed ended Live video `39756815320632328`
+> returned VOD, published=true and embeddable=true with correct Page ownership.
+> This proves metadata access, not automated Live-origin classification. The
+> current prepared verifier rejects VOD and LIVE_STOPPED; active LIVE plus an
+> ordinary-upload negative control must be verified before activation. See the
+> Worker README for the version-2 evidence contract and exact Explorer requests.
 
 > November 1 launch update: public refresh and daily prize display are now implemented.
 > The Page ID and replay playback were verified in-browser, and Meta's embedded

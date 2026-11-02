@@ -1,0 +1,17 @@
+{
+  "provenance": "Sanitized fields supplied by the Page administrator after a confirmed public Facebook Live test. No token, API timestamps, attachments or other fields have been invented.",
+  "apiVersion": "v26.0",
+  "postId": "144051422124740_39756815320632328",
+  "caption": "#LakeHenryRaffle",
+  "publicPageId": "61552199315213",
+  "administratorConfirmedLiveOrigin": true,
+  "videoResponse": {
+    "id": "39756815320632328",
+    "from": {
+      "id": "144051422124740"
+    },
+    "live_status": "VOD",
+    "published": true,
+    "embeddable": true
+  }
+}

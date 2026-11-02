@@ -14,8 +14,9 @@ const stage = { schemaVersion: 2, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPag
     observedAt: '2026-11-02T00:00:00Z', status: 'live', liveStatus: 'LIVE' };
 const state = { version: 1, paused: false, failures: 0, status: 'staged', lastVerifiedVideoId: '222',
     lastVerifiedAt: now.toISOString(), lastAttemptAt: now.getTime() };
-const receipt = { schemaVersion: 1, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
+const receipt = { schemaVersion: 2, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
     apiVersion: FACEBOOK_API_VERSION, contract: FACEBOOK_LIVE_CONTRACT, verifiedVideoId: '222',
+    evidence: 'active-live-and-ordinary-upload-control', ordinaryUploadVideoId: '999', ordinaryUploadStatus: 'VOD', liveObservedAt: '2026-11-01T23:00:00Z',
     verifiedAt: '2026-11-01T23:00:00Z', expiresAt: '2026-12-01T06:00:00Z' };
 const input = extra => ({ enabled: true, now, manualRaw: JSON.stringify(manual), automaticRaw: JSON.stringify(stage),
     stateRaw: JSON.stringify(state), verificationRaw: JSON.stringify(receipt), ...extra });
@@ -49,12 +50,12 @@ test('automatic requires explicit opt-in, verification and fresh matching health
     assert.equal(selectRaffleVideo(input()).source, 'automatic'); // recovery
 });
 
-test('long Live uses fresh health without timestamp churn; stale replay falls back', () => {
+test('long Live uses fresh health without timestamp churn; unproven replay falls back', () => {
     const later = new Date('2026-11-03T02:05:00Z');
     const freshState = JSON.stringify({ ...state, lastVerifiedAt: later.toISOString(), lastAttemptAt: later.getTime() });
     assert.equal(selectRaffleVideo(input({ now: later, stateRaw: freshState })).config.updatedAt, stage.observedAt);
     assert.equal(selectRaffleVideo(input({ now: later, stateRaw: freshState,
-        automaticRaw: JSON.stringify({ ...stage, status: 'replay', liveStatus: 'LIVE_STOPPED' }) })).reason, 'stale-discovery');
+        automaticRaw: JSON.stringify({ ...stage, status: 'replay', liveStatus: 'LIVE_STOPPED' }) })).reason, 'invalid-discovery');
 });
 
 test('season is configurable for future years, validates dates, and never activates outside season', () => {

@@ -6,12 +6,12 @@ export const GRAPH_VERSION = FACEBOOK_API_VERSION;
 export const LIVE_CONTRACT = FACEBOOK_LIVE_CONTRACT;
 export const POST_FIELDS = 'id,message,created_time,permalink_url,attachments{type,target,url,subattachments{type,target,url}}';
 // Provisional field contract: explicitly opt in to probing, then verify a REAL Live.
-// The current Video reference is inconsistent/legacy. This is NOT a verified v26 contract.
+// Ended Live recordings have been observed as VOD, also used by uploads. Only a real active LIVE observation is eligible; replay origin remains unverified.
 export const PROBE_FIELDS = 'id,from,live_status,published,embeddable';
 export type Failure = 'permission-denied' | 'token-expired' | 'rate-limited' | 'unsupported-contract'
     | 'api-failure' | 'invalid-response' | 'identity-mismatch';
 export type Candidate = { postId: string; videoId: string; publishedAt: string };
-export type Discovery = Candidate & { url: string; status: 'live' | 'replay'; liveStatus: 'LIVE' | 'LIVE_STOPPED' };
+export type Discovery = Candidate & { url: string; status: 'live'; liveStatus: 'LIVE' };
 export type GraphResult = { ok: true; candidates: number; postsExamined: number; discoveries: Discovery[] }
     | { ok: false; reason: Failure; retryAfterSeconds?: number };
 type RecordValue = Record<string, unknown>;
@@ -100,9 +100,9 @@ export function extractCandidates(posts: unknown[], marker: string, now: Date): 
 export function verifyVideo(candidate: Candidate, metadata: unknown): Discovery | null {
     if (!record(metadata) || metadata.id !== candidate.videoId || !record(metadata.from)
         || metadata.from.id !== GRAPH_PAGE_ID || metadata.published !== true || metadata.embeddable !== true
-        || !['LIVE', 'LIVE_STOPPED'].includes(String(metadata.live_status))) return null;
+        || metadata.live_status !== 'LIVE') return null;
     return { ...candidate, url: `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${candidate.videoId}/`,
-        status: metadata.live_status === 'LIVE' ? 'live' : 'replay', liveStatus: metadata.live_status as Discovery['liveStatus'] };
+        status: 'live', liveStatus: 'LIVE' };
 }
 
 /** Shared read-only Graph transport for video and photo paths. Errors never expose API bodies. */
