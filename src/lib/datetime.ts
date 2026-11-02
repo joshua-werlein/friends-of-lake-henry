@@ -8,7 +8,7 @@ function partsInTZ(d: Date, timeZone = TZ) {
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
-        hour12: false,
+        hourCycle: 'h23', // Midnight must be 00, not Intl's locale-dependent 24.
     });
 
     const parts = fmt.formatToParts(d);
