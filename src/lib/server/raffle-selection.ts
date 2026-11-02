@@ -7,7 +7,7 @@ export const VERIFICATION_KEY = 'raffle_live_verification';
 export const STATE_KEY = 'raffle_live_automation_state';
 export type SelectionMode = 'manual' | 'automatic';
 export type Selection = { manualConfig: LiveConfig; config: LiveConfig; selectionMode: SelectionMode;
-    source: 'manual' | 'automatic'; reason: string; automaticAllowed: boolean };
+    source: 'manual' | 'automatic'; reason: string; automaticAllowed: boolean; videoMetadata?: unknown };
 export function readRecord(raw: string | null | undefined): Record<string, unknown> | null {
     try { const v: unknown = JSON.parse(raw ?? 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null; }
     catch { return null; }
@@ -66,7 +66,7 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         || Date.parse(state.lastVerifiedAt) > time || time - Date.parse(state.lastVerifiedAt) > 10 * 60 * 1000
         || !Number.isSafeInteger(state.lastAttemptAt) || Number(state.lastAttemptAt) > time
         || time - Number(state.lastAttemptAt) > 10 * 60 * 1000) return fallback('detection-unavailable');
-    return { ...base, config: { latestVideoUrl: stage.url, updatedAt: stage.observedAt }, source: 'automatic', reason: 'verified-discovery' };
+    return { ...base, config: { latestVideoUrl: stage.url, updatedAt: stage.observedAt }, source: 'automatic', reason: 'verified-discovery', videoMetadata: stage };
 }
 
 export async function loadRaffleSelection(store: { get(key: string): Promise<string | null> }, enabled: boolean, now = new Date(), seasonEnv: SeasonEnv = {}): Promise<Selection> {

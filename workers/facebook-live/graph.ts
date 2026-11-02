@@ -1,4 +1,5 @@
 import { normalizeFacebookVideoUrl, FACEBOOK_GRAPH_PAGE_ID, FACEBOOK_PAGE_ID, FACEBOOK_API_VERSION, FACEBOOK_LIVE_CONTRACT } from '../../src/lib/facebook';
+import { dimensions, type Dimensions } from '../../src/lib/video-presentation';
 
 export const GRAPH_PAGE_ID = FACEBOOK_GRAPH_PAGE_ID;
 export const PUBLIC_PAGE_ID = FACEBOOK_PAGE_ID;
@@ -10,7 +11,7 @@ export const PROBE_FIELDS = 'id,from,live_status,published,embeddable';
 export type Failure = 'permission-denied' | 'token-expired' | 'rate-limited' | 'unsupported-contract'
     | 'api-failure' | 'invalid-response' | 'identity-mismatch';
 export type Candidate = { postId: string; videoId: string; publishedAt: string };
-export type Discovery = Candidate & { url: string; status: 'video'; liveStatus: 'LIVE' | 'VOD' | 'UNKNOWN' };
+export type Discovery = Candidate & Partial<Dimensions> & { url: string; status: 'video'; liveStatus: 'LIVE' | 'VOD' | 'UNKNOWN' };
 export type GraphResult = { ok: true; candidates: number; postsExamined: number; discoveries: Discovery[] }
     | { ok: false; reason: Failure; retryAfterSeconds?: number };
 type RecordValue = Record<string, unknown>;
@@ -164,7 +165,34 @@ export async function discoverPosts(options: {
         if (options.probeVideoMetadata) {
             for (const candidate of candidates) {
                 const video = verifyVideo(candidate, await get(candidate.videoId, { fields: PROBE_FIELDS }));
-                if (video) discoveries.push(video);
+                if (video) {
+                    // Optional presentation reads must never weaken or block eligibility.
+                    let d: Dimensions | null = null;
+                    try {
+                        const format = await get(candidate.videoId, { fields: 'id,format' });
+                        if (format.id === candidate.videoId) d = dimensions(format);
+                    } catch { /* Format may be unavailable on other videos. */ }
+                    if (!d) {
+                        try {
+                            const post = await get(candidate.postId, { fields: 'id,attachments{type,target,media,subattachments{type,target,media}}' });
+                            const find = (attachments: unknown, depth = 0): Dimensions | null => {
+                                if (depth > 2 || !record(attachments) || !Array.isArray(attachments.data)) return null;
+                                for (const a of attachments.data.slice(0, 50)) {
+                                    if (!record(a)) continue;
+                                    if (['video', 'video_inline', 'video_autoplay'].includes(String(a.type)) && record(a.target) && a.target.id === candidate.videoId) {
+                                        const image = dimensions({ media: a.media });
+                                        if (image) return image;
+                                    }
+                                    const nested = find(a.subattachments, depth + 1);
+                                    if (nested) return nested;
+                                }
+                                return null;
+                            };
+                            if (post.id === candidate.postId) d = find(post.attachments);
+                        } catch { /* Use portrait-safe fallback, not an arbitrary thumbnail. */ }
+                    }
+                    discoveries.push({ ...video, ...(d ?? {}) });
+                }
             }
         }
         return { ok: true, candidates: candidates.length, postsExamined: posts.length, discoveries };

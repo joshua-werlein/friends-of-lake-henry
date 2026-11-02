@@ -105,6 +105,33 @@ test('36-hour recency and exact hashtag exclude old and unrelated ordinary video
     assert.equal(extractCandidates([{ ...post, created_time: new Date(now.getTime() - 36 * 3600000).toISOString() }], marker, now).length, 1);
 });
 
+test('real format dimensions are read server-side; optional failures use only a matching attachment thumbnail', async () => {
+    const post = clone(fixture.data[0]);
+    const id = candidate.videoId;
+    async function scan(format, targetId = id) {
+        const base = api({ posts: { data: [post] } }).fetcher;
+        return discover({ probeVideoMetadata: true, fetcher: async (url, init) => {
+            const parsed = new URL(url), fields = parsed.searchParams.get('fields');
+            if (fields === 'id,format') return format === 'unavailable'
+                ? Response.json({ error: { code: 100 } }, { status: 400 })
+                : Response.json({ id, format: realDrawing.formatResponse.format });
+            if (fields?.startsWith('id,attachments')) return Response.json({ id: post.id,
+                attachments: { data: [{ type: 'video_autoplay', target: { id: targetId }, media: { image: { width: 1920, height: 1080 } } }] } });
+            return base(url, init);
+        } });
+    }
+    const native = await scan('available');
+    assert.equal(native.discoveries[0].width, 720);
+    assert.equal(native.discoveries[0].height, 1280);
+    assert.equal(native.discoveries[0].source, 'format');
+    const thumbnail = await scan('unavailable');
+    assert.equal(thumbnail.discoveries[0].width, 1920);
+    assert.equal(thumbnail.discoveries[0].source, 'thumbnail');
+    const unmatched = await scan('unavailable', '999');
+    assert.equal(unmatched.discoveries[0].width, undefined);
+    assert.equal(unmatched.discoveries[0].status, 'video');
+});
+
 test('separate activation guard requires explicit policy approval, valid receipt and unchanged existing account/KV', async () => {
     const disabled = JSON.parse(await readFile(new URL('../workers/facebook-live/wrangler.existing-account.json', import.meta.url), 'utf8'));
     const config = { ...disabled, triggers: { crons: ['*/5 * * * *'] }, vars: { ...disabled.vars, FB_AUTOMATION_ENABLED: 'true', FB_VIDEO_PROBE_ENABLED: 'true' } };

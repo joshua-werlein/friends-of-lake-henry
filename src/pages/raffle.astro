@@ -163,10 +163,15 @@ if (DB) {
 
 import { loadPresentation } from '../lib/video-presentation';
 
+let liveMetadata: unknown;
 let liveConfig: LiveConfig = { latestVideoUrl: null, updatedAt: null };
 
 try {
-    if (env?.CONFIG) liveConfig = (await loadRaffleSelection(env.CONFIG, env.RAFFLE_AUTOMATIC_SELECTION_ENABLED === 'true', new Date(), env)).config;
+    if (env?.CONFIG) {
+        const selected = await loadRaffleSelection(env.CONFIG, env.RAFFLE_AUTOMATIC_SELECTION_ENABLED === 'true', new Date(), env);
+        liveConfig = selected.config;
+        liveMetadata = selected.videoMetadata;
+    }
 } catch {
     // ignore bad KV / parse
 }
@@ -178,7 +183,7 @@ const initial = {
 
 const effectiveVideoUrl = liveConfig.latestVideoUrl ?? null;
 
-const videoPresentation = env?.CONFIG ? await loadPresentation(env.CONFIG, effectiveVideoUrl) : { orientation: 'portrait' };
+const videoPresentation = env?.CONFIG ? await loadPresentation(env.CONFIG, effectiveVideoUrl, liveMetadata) : { orientation: 'portrait' };
 const embedSrc = facebookEmbedSrc(effectiveVideoUrl);
 
 const updatedAtDate = liveConfig.updatedAt ? new Date(liveConfig.updatedAt) : null;

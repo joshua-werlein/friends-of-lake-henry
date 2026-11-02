@@ -13,7 +13,7 @@ export const GET: APIRoute = async ({ locals }) => {
     try {
         const selection = await loadRaffleSelection(env.CONFIG, env.RAFFLE_AUTOMATIC_SELECTION_ENABLED === 'true', new Date(), env);
         return json({ ok: true, config: selection.config, selectionMode: selection.selectionMode,
-            source: selection.source, reason: selection.reason, presentation: await loadPresentation(env.CONFIG, selection.config.latestVideoUrl) });
+            source: selection.source, reason: selection.reason, presentation: await loadPresentation(env.CONFIG, selection.config.latestVideoUrl, selection.videoMetadata) });
     } catch {
         return json({ ok: false, error: 'Live settings unavailable' }, 503);
     }

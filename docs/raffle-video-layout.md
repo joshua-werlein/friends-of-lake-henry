@@ -30,3 +30,8 @@ admin override. No Worker, Cron, binding or database changes are part of this re
 
 Rollback: restore the previous successful Pages deployment b7f33bb (deployment
 80c3c81f-4bbc-4dc0-80c3-9da89d7119c4). Layout keys are harmless to that version.
+
+Automation branch integration: eligible staged videos can provide validated numeric
+dimensions to the shared presentation resolver. This is not deployed with the UI.
+Per-video admin overrides still take priority. Thumbnail fallback is simulated;
+Graph format was verified on the two real videos.

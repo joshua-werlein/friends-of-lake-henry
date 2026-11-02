@@ -18,7 +18,10 @@ Sanitized fixtures retain only supplied fields; missing post IDs/times in test
 harnesses are explicitly simulated, not claimed as captured responses.
 
 `GET /VIDEO_ID?fields=id,format` also succeeded for both: 130x231, 480x853,
-and native 720x1280. Embed HTML and temporary image URLs are discarded.
+and native 720x1280. Embed HTML and temporary image URLs are discarded. Optional server-side format
+reads stage numeric dimensions; if unavailable a matching video attachment media.image
+can supply validated thumbnail dimensions. The fallback attachment expansion is
+covered by simulated tests but still needs real API validation.
 Page token permissions pages_show_list/pages_read_engagement and published_posts
 work. The Live Video API edge is still permission-blocked (#10); it is not used.
 An ordinary-upload real negative control has not been supplied. It is no longer
@@ -60,7 +63,9 @@ playback. KV propagation is eventually consistent, not instantaneous worldwide.
 
 GET-only Graph v26.0 requests use the Authorization header, fixed Graph host,
 no redirects, 512 KiB response cap, 30-second deadline, at most three post pages
-of 25 and eight metadata probes. Paging.next URLs are never followed; cursor
+of 25 and eight eligibility probes. Each eligible video can add one optional format
+read and one matching-post thumbnail read, all under the same deadline. These
+presentation reads cannot relax eligibility or block manual playback. Paging.next URLs are never followed; cursor
 requests are reconstructed. No tokens, signed URLs, raw API bodies/errors,
 captions or paging URLs are logged. Only sanitized status/counts are logged.
 Token/permission/identity/unsupported-contract failures pause until the operator

@@ -58,6 +58,12 @@ test('long Live uses fresh health without timestamp churn; unproven replay falls
         automaticRaw: JSON.stringify({ ...stage, status: 'replay', liveStatus: 'LIVE_STOPPED' }) })).reason, 'invalid-discovery');
 });
 
+test('fresh polling cannot keep an old tagged replay eligible beyond 36 hours', () => {
+    const later = new Date('2026-11-03T13:00:01Z');
+    const fresh = JSON.stringify({ ...state, lastVerifiedAt: later.toISOString(), lastAttemptAt: later.getTime() });
+    assert.equal(selectRaffleVideo(input({ now: later, stateRaw: fresh })).source, 'manual');
+});
+
 test('season is configurable for future years, validates dates, and never activates outside season', () => {
     const future = raffleSeason({ FB_SEASON_START: '2027-11-01T00:00:00-05:00', FB_SEASON_END: '2027-12-01T00:00:00-06:00' });
     assert.ok(future);
