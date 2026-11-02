@@ -41,7 +41,7 @@ async function refreshLive() {
         }
         if (fallback instanceof HTMLAnchorElement) fallback.href = videoUrl || FACEBOOK_PAGE_VIDEOS_URL;
         if (message) message.textContent = data.source === 'automatic'
-            ? 'Automatically selected verified drawing. If the player is unavailable, watch directly on Facebook.'
+            ? 'Automatically selected tagged raffle video. If the player is unavailable, watch directly on Facebook.'
             : data.selectionMode === 'automatic'
                 ? 'Using the saved manual selection while automatic detection is unavailable. You can also watch directly on Facebook.'
                 : videoUrl ? 'Latest selected drawing. If the player is unavailable, watch directly on Facebook.'

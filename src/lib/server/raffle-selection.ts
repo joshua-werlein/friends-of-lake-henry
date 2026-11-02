@@ -18,14 +18,12 @@ function iso(value: unknown): value is string {
 }
 export function verificationValid(raw: string | null, now: Date, season: Season | null = raffleSeason()): boolean {
     const v = readRecord(raw);
-    return !!season && !!v && v.schemaVersion === 2 && v.graphPageId === FACEBOOK_GRAPH_PAGE_ID && v.publicPageId === FACEBOOK_PAGE_ID
+    return !!season && !!v && v.schemaVersion === 3 && v.graphPageId === FACEBOOK_GRAPH_PAGE_ID && v.publicPageId === FACEBOOK_PAGE_ID
         && v.apiVersion === FACEBOOK_API_VERSION && v.contract === FACEBOOK_LIVE_CONTRACT
-        && v.evidence === 'active-live-and-ordinary-upload-control'
-        && typeof v.ordinaryUploadVideoId === 'string' && /^\d{1,40}$/.test(v.ordinaryUploadVideoId)
-        && v.ordinaryUploadVideoId !== v.verifiedVideoId && v.ordinaryUploadStatus === 'VOD'
+        && v.evidence === 'tagged-page-video-policy-reviewed' && v.marker === '#LakeHenryRaffle'
+        && v.publicPlaybackVerified === true && v.rollbackTested === true
         && typeof v.verifiedVideoId === 'string' && /^\d{1,40}$/.test(v.verifiedVideoId)
-        && iso(v.liveObservedAt) && iso(v.verifiedAt) && iso(v.expiresAt)
-        && Date.parse(v.liveObservedAt) <= Date.parse(v.verifiedAt) && Date.parse(v.liveObservedAt) >= (season?.start ?? Infinity) && Date.parse(v.verifiedAt) <= now.getTime()
+        && iso(v.verifiedAt) && iso(v.expiresAt) && Date.parse(v.verifiedAt) <= now.getTime()
         && Date.parse(v.expiresAt) > now.getTime() && Date.parse(v.expiresAt) <= season.end && Date.parse(v.verifiedAt) >= season.start;
 }
 export function selectionMode(raw: string | null): SelectionMode {
@@ -59,7 +57,8 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         || !iso(stage.publishedAt) || !iso(stage.observedAt) || Date.parse(stage.publishedAt) < season.start
         || Date.parse(stage.publishedAt) > time || Date.parse(stage.observedAt) < Date.parse(stage.publishedAt)
         || Date.parse(stage.observedAt) > time
-        || stage.status !== 'live' || stage.liveStatus !== 'LIVE') return fallback('invalid-discovery');
+        || stage.status !== 'video' || !['LIVE', 'VOD', 'UNKNOWN'].includes(String(stage.liveStatus))
+        || time - Date.parse(stage.publishedAt) > 36 * 60 * 60 * 1000) return fallback('invalid-discovery');
     // Reconfirm the SAME video each poll without rewriting stage/selection timestamps.
     if (!state || state.version !== 1 || state.paused !== false || state.failures !== 0
         || !['staged', 'unchanged', 'checking'].includes(String(state.status))

@@ -11,12 +11,12 @@ const manual = { latestVideoUrl: url('111'), updatedAt: '2026-11-01T22:00:00Z', 
 const stage = { schemaVersion: 2, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
     apiVersion: FACEBOOK_API_VERSION, contract: FACEBOOK_LIVE_CONTRACT, id: '222', videoId: '222',
     postId: `${FACEBOOK_GRAPH_PAGE_ID}_333`, url: url('222'), publishedAt: '2026-11-02T00:00:00Z',
-    observedAt: '2026-11-02T00:00:00Z', status: 'live', liveStatus: 'LIVE' };
+    observedAt: '2026-11-02T00:00:00Z', status: 'video', liveStatus: 'VOD' };
 const state = { version: 1, paused: false, failures: 0, status: 'staged', lastVerifiedVideoId: '222',
     lastVerifiedAt: now.toISOString(), lastAttemptAt: now.getTime() };
-const receipt = { schemaVersion: 2, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
+const receipt = { schemaVersion: 3, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
     apiVersion: FACEBOOK_API_VERSION, contract: FACEBOOK_LIVE_CONTRACT, verifiedVideoId: '222',
-    evidence: 'active-live-and-ordinary-upload-control', ordinaryUploadVideoId: '999', ordinaryUploadStatus: 'VOD', liveObservedAt: '2026-11-01T23:00:00Z',
+    evidence: 'tagged-page-video-policy-reviewed', marker: '#LakeHenryRaffle', publicPlaybackVerified: true, rollbackTested: true,
     verifiedAt: '2026-11-01T23:00:00Z', expiresAt: '2026-12-01T06:00:00Z' };
 const input = extra => ({ enabled: true, now, manualRaw: JSON.stringify(manual), automaticRaw: JSON.stringify(stage),
     stateRaw: JSON.stringify(state), verificationRaw: JSON.stringify(receipt), ...extra });
@@ -37,7 +37,7 @@ test('automatic requires explicit opt-in, verification and fresh matching health
     }
     for (const extra of [{ verificationRaw: null }, { automaticRaw: '{}' }, { stateRaw: '{}' },
         { verificationRaw: JSON.stringify({ ...receipt, expiresAt: now.toISOString() }) },
-        { automaticRaw: JSON.stringify({ ...stage, liveStatus: 'VOD' }) },
+        { automaticRaw: JSON.stringify({ ...stage, status: 'live' }) },
         { automaticRaw: JSON.stringify({ ...stage, graphPageId: FACEBOOK_PAGE_ID }) },
         { automaticRaw: JSON.stringify({ ...stage, observedAt: '2026-11-03T00:00:00Z' }) },
         ...[{ paused: true }, { failures: 1 }, { status: 'permission-denied' }, { status: 'no-verified-live' },
@@ -51,7 +51,7 @@ test('automatic requires explicit opt-in, verification and fresh matching health
 });
 
 test('long Live uses fresh health without timestamp churn; unproven replay falls back', () => {
-    const later = new Date('2026-11-03T02:05:00Z');
+    const later = new Date('2026-11-02T02:05:00Z');
     const freshState = JSON.stringify({ ...state, lastVerifiedAt: later.toISOString(), lastAttemptAt: later.getTime() });
     assert.equal(selectRaffleVideo(input({ now: later, stateRaw: freshState })).config.updatedAt, stage.observedAt);
     assert.equal(selectRaffleVideo(input({ now: later, stateRaw: freshState,

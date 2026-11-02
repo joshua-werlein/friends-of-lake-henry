@@ -1,3 +1,9 @@
+> Current policy update: automatic **tagged Page video** selection, not Live-origin
+> classification. VOD is eligible when Page ownership, hashtag, recency, published
+> and embeddable checks pass. The latest [Worker README](../workers/facebook-live/README.md)
+> replaces the historical Live-proof/receipt instructions below. Both flags and Cron
+> remain disabled. No additional livestream test is required for this revised policy.
+
 > November 1 Worker update: a separate disabled Graph v26.0 discovery Worker is
 > implemented in [workers/facebook-live](../workers/facebook-live/README.md).
 > That document is authoritative for current Page IDs, FB_PAGE_ACCESS_TOKEN,

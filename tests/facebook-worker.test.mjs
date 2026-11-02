@@ -7,18 +7,20 @@ import worker from '../workers/facebook-live/index.ts';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { checkDeployment } from '../workers/facebook-live/check-deployment.mjs';
+import { checkActivation } from '../workers/facebook-live/check-activation.mjs';
 
 // Entirely simulated data and fetch. These are NOT captured or verified real Live responses.
 const fixture = JSON.parse(await readFile(new URL('./fixtures/facebook-page-posts.json', import.meta.url), 'utf8'));
 const realEndedLive = JSON.parse(await readFile(new URL('./fixtures/facebook-live-real-2026-11-01.json', import.meta.url), 'utf8'));
+const realDrawing = JSON.parse(await readFile(new URL('./fixtures/facebook-raffle-broadcast-2026-11-01.json', import.meta.url), 'utf8'));
 const clone = x => structuredClone(x);
 const now = new Date('2026-11-02T00:05:00Z');
 const marker = '#LakeHenryRaffle';
 const candidate = extractCandidates(fixture.data, marker, now)[0];
 const metadata = (id = candidate.videoId, extra = {}) => ({ id, from: { id: GRAPH_PAGE_ID }, live_status: id === candidate.videoId ? 'LIVE' : 'VOD', published: true, embeddable: true, ...extra });
-const receipt = extra => JSON.stringify({ schemaVersion: 2, graphPageId: GRAPH_PAGE_ID, publicPageId: PUBLIC_PAGE_ID,
+const receipt = extra => JSON.stringify({ schemaVersion: 3, graphPageId: GRAPH_PAGE_ID, publicPageId: PUBLIC_PAGE_ID,
     apiVersion: GRAPH_VERSION, contract: LIVE_CONTRACT, verifiedVideoId: candidate.videoId,
-    evidence: 'active-live-and-ordinary-upload-control', ordinaryUploadVideoId: '730000000000002', ordinaryUploadStatus: 'VOD', liveObservedAt: '2026-11-02T00:00:00Z',
+    evidence: 'tagged-page-video-policy-reviewed', marker: '#LakeHenryRaffle', publicPlaybackVerified: true, rollbackTested: true,
     verifiedAt: '2026-11-02T00:00:00Z', expiresAt: '2026-12-01T06:00:00Z', ...extra });
 function store(entries = []) {
     const data = new Map(entries), writes = [];
@@ -58,46 +60,61 @@ test('realistic Page posts produce candidates, never infer Live from caption/typ
     assert.equal(mock.calls.some(c => c.url.pathname.includes('live_videos')), false);
 });
 
-test('metadata probe requires positive ownership, explicit Live state and public embed eligibility', async () => {
-    const mock = api();
-    const result = await discover({ fetcher: mock.fetcher, probeVideoMetadata: true });
+test('metadata requires positive Page ownership and public eligibility; VOD is eligible without a LIVE claim', async () => {
+    const result = await discover({ fetcher: api().fetcher, probeVideoMetadata: true });
     assert.equal(result.ok, true);
-    assert.equal(result.discoveries.length, 1);
-    assert.equal(result.discoveries[0].url, `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${candidate.videoId}/`);
-    for (const changes of [{ live_status: 'VOD' }, { live_status: 'live' }, { live_status: null },
-        { from: { id: PUBLIC_PAGE_ID } }, { from: { id: '999' } }, { from: null },
+    assert.ok(result.discoveries.length >= 1);
+    for (const changes of [{ from: { id: PUBLIC_PAGE_ID } }, { from: { id: '999' } }, { from: null },
         { id: '999' }, { published: false }, { embeddable: false }, { embeddable: undefined }]) {
         assert.equal(verifyVideo(candidate, metadata(candidate.videoId, changes)), null);
     }
-    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: 'LIVE_STOPPED' })), null);
+    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: 'VOD' })).status, 'video');
+    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: null })).liveStatus, 'UNKNOWN');
 });
 
-test('sanitized real ended Live returns VOD and cannot prove origin or create an automatic selection', async () => {
-    const video = realEndedLive.videoResponse;
-    assert.deepEqual(video, { id: '39756815320632328', from: { id: GRAPH_PAGE_ID },
-        live_status: 'VOD', published: true, embeddable: true });
-    // Adapter harness only: the administrator did NOT provide created_time/attachments.
-    // These two fields are simulated and must not be mistaken for captured API evidence.
-    const harnessCandidate = { postId: realEndedLive.postId, videoId: video.id, publishedAt: now.toISOString() };
-    assert.equal(verifyVideo(harnessCandidate, video), null);
-    const syntheticPost = { id: realEndedLive.postId, message: realEndedLive.caption, created_time: now.toISOString(),
-        attachments: { data: [{ type: 'video_inline', target: { id: video.id,
-            url: `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${video.id}/` } }] } };
-    const kv = store([[VERIFICATION_KEY, receipt()], ['raffle_live', 'saved manual URL']]);
-    const mock = api({ posts: { data: [syntheticPost] }, video: () => video });
-    assert.equal((await runPoll(envFor(kv), { now, fetcher: mock.fetcher })).status, 'no-verified-live');
-    assert.equal(kv.data.has('raffle_live_automatic'), false);
-    assert.equal(kv.data.get('raffle_live'), 'saved manual URL');
-    assert.equal(verifyVideo(harnessCandidate, { ...video, id: '999' }), null);
+test('sanitized real VOD recordings satisfy the tagged-video policy, never prove active Live', async () => {
+    for (const id of ['39756815320632328', '1706736221227932']) {
+        const video = id === realDrawing.videoResponse.id ? realDrawing.videoResponse : realEndedLive.videoResponse;
+        // Post IDs, timestamps and URL wrapper are simulated where not supplied by the administrator.
+        const postId = id === realEndedLive.videoResponse.id ? realEndedLive.postId : `${GRAPH_PAGE_ID}_SIMULATED`.replace('SIMULATED', '123456789');
+        const syntheticPost = { id: postId, message: '#LakeHenryRaffle', created_time: now.toISOString(),
+            attachments: { data: [{ type: 'video_autoplay', target: { id,
+                url: `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${id}/` } }] } };
+        const kv = store([[VERIFICATION_KEY, receipt()], ['raffle_live', 'saved manual URL']]);
+        const mock = api({ posts: { data: [syntheticPost] }, video: () => video });
+        assert.equal((await runPoll(envFor(kv), { now, fetcher: mock.fetcher })).status, 'staged');
+        assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'video');
+        assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).liveStatus, 'VOD');
+        assert.equal(kv.data.get('raffle_live'), 'saved manual URL');
+    }
 });
 
-test('ordinary-upload VOD control is rejected just like ended-Live VOD; an old assumed replay receipt is invalid', () => {
-    // Synthetic negative control until the administrator supplies an actual ordinary upload response.
-    assert.equal(verifyVideo(candidate, metadata(candidate.videoId, { live_status: 'VOD' })), null);
-    assert.equal(verificationValid(receipt({ schemaVersion: 1, contract: 'video-live-status-v1' }), now), false);
+test('old Live-proof receipts do not authorize the revised hashtag policy; explicit rollback review is required', () => {
+    assert.equal(verificationValid(receipt({ schemaVersion: 2, contract: 'video-observed-live-v2' }), now), false);
     assert.equal(verificationValid(receipt({ evidence: undefined }), now), false);
-    assert.equal(verificationValid(receipt({ ordinaryUploadVideoId: candidate.videoId }), now), false);
-    assert.equal(verificationValid(receipt({ ordinaryUploadStatus: 'LIVE' }), now), false);
+    assert.equal(verificationValid(receipt({ rollbackTested: false }), now), false);
+    assert.equal(verificationValid(receipt({ publicPlaybackVerified: false }), now), false);
+});
+
+test('36-hour recency and exact hashtag exclude old and unrelated ordinary videos', () => {
+    const post = clone(fixture.data[0]);
+    for (const change of [{ message: 'Ordinary uploaded video' }, { message: '#LakeHenryRaffle2026' },
+        { message: '#lakehenryraffle' }, { created_time: new Date(now.getTime() - 36 * 3600000 - 1).toISOString() }]) {
+        assert.equal(extractCandidates([{ ...post, ...change }], marker, now).length, 0);
+    }
+    assert.equal(extractCandidates([{ ...post, created_time: new Date(now.getTime() - 36 * 3600000).toISOString() }], marker, now).length, 1);
+});
+
+test('separate activation guard requires explicit policy approval, valid receipt and unchanged existing account/KV', async () => {
+    const disabled = JSON.parse(await readFile(new URL('../workers/facebook-live/wrangler.existing-account.json', import.meta.url), 'utf8'));
+    const config = { ...disabled, triggers: { crons: ['*/5 * * * *'] }, vars: { ...disabled.vars, FB_AUTOMATION_ENABLED: 'true', FB_VIDEO_PROBE_ENABLED: 'true' } };
+    const account = disabled.account_id, record = JSON.parse(receipt());
+    assert.equal(checkActivation(config, record, account, LIVE_CONTRACT, now), true);
+    assert.throws(() => checkActivation(config, record, account, undefined, now));
+    assert.throws(() => checkActivation(config, { ...record, rollbackTested: false }, account, LIVE_CONTRACT, now));
+    assert.throws(() => checkActivation({ ...config, account_id: '1'.repeat(32) }, record, account, LIVE_CONTRACT, now));
+    assert.throws(() => checkActivation({ ...config, triggers: { crons: ['* * * * *'] } }, record, account, LIVE_CONTRACT, now));
+    assert.throws(() => checkDeployment(config, account, 'existing-approved'));
 });
 
 test('rejects unrelated, foreign-page, future, invalid-date, reel, share and foreign-host candidates', () => {
@@ -199,7 +216,7 @@ test('verified simulation stages only automatic key, preserving manual URL, deli
     }
 });
 
-test('five-minute state, duplicate writes, VOD fallback and fresh LIVE recovery', async () => {
+test('five-minute state and duplicate suppression across LIVE/VOD; empty scan preserves stage', async () => {
     const kv = store([[VERIFICATION_KEY, receipt()]]), env = envFor(kv);
     assert.equal((await runPoll(env, { now, fetcher: api().fetcher })).status, 'staged');
     assert.equal((await runPoll(env, { now, fetcher() { throw Error('must not call'); } })).status, 'not-due');
@@ -207,12 +224,12 @@ test('five-minute state, duplicate writes, VOD fallback and fresh LIVE recovery'
     assert.equal((await runPoll(env, { now: later(5), fetcher: api().fetcher })).status, 'unchanged');
     assert.equal(kv.writes.filter(k => k === 'raffle_live_automatic').length, 1);
     const replay = api({ video: id => metadata(id, { live_status: 'VOD' }) });
-    assert.equal((await runPoll(env, { now: later(10), fetcher: replay.fetcher })).status, 'no-verified-live');
-    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'live');
+    assert.equal((await runPoll(env, { now: later(10), fetcher: replay.fetcher })).status, 'unchanged');
+    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'video');
     assert.equal((await runPoll(env, { now: later(15), fetcher: api().fetcher })).status, 'unchanged');
     const old = clone(fixture); old.data[0].created_time = '2026-10-30T18:00:00-0500';
-    assert.equal((await runPoll(env, { now: later(20), fetcher: api({ posts: old }).fetcher })).status, 'no-verified-live');
-    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'live');
+    assert.equal((await runPoll(env, { now: later(20), fetcher: api({ posts: { data: [] } }).fetcher })).status, 'no-eligible-video');
+    assert.equal(JSON.parse(kv.data.get('raffle_live_automatic')).status, 'video');
 });
 
 test('permissions/expiry pause until access revision changes; rate limits persist Retry-After backoff', async () => {

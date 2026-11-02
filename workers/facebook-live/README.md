@@ -1,244 +1,162 @@
-# Facebook Live discovery Worker — disabled, staging only
+# Facebook raffle video selection — disabled pending approval
 
-Implemented on `codex/facebook-live-worker`. Polling, probes, Cron and public routes remain disabled. The isolated timestamp fix is production commit `f765908` (Pages deployment `485191c1-5399-49c2-b36c-12c3785f5a4a`, November 1 at 4:14 PM Central). Selection changes are prepared separately and have not been published to Pages. See the deployment record below for Worker status.
+The revised policy selects the newest **eligible tagged Page video**. It does not
+prove that a video originated as Live or is currently streaming. Ordinary uploaded
+videos intentionally tagged by the Page are eligible under this policy too.
+Mike must reserve `#LakeHenryRaffle` on video posts for raffle broadcasts/replays.
+Photo posts use the same discovery marker but follow the separate review-required
+[photo import workflow](../../docs/raffle-photo-imports.md).
 
-This is a working candidate collector with a provisional, gated metadata probe.
-**Automatic livestream detection has NOT been verified against a real broadcast.**
+## Actual November 1 findings
 
-November 1 real-response update: the administrator confirmed that post
-`144051422124740_39756815320632328` / video `39756815320632328` was a public
-Live test recording. Its v26.0 response reported `from.id=144051422124740`,
-`live_status=VOD`, `published=true`, `embeddable=true`. The sanitized fixture is
-`tests/fixtures/facebook-live-real-2026-11-01.json`. This verifies readable metadata
-for that recording, **not a Live-origin discriminator**. Active-LIVE evidence and
-an ordinary-upload negative control are still missing. No receipt was issued.
+Graph v26.0 returned Page ownership `144051422124740`, `live_status=VOD`,
+`published=true`, `embeddable=true` for both test video `39756815320632328`
+and actual 6 PM drawing `1706736221227932`. Facebook displayed LIVE during
+viewing of the actual drawing, while the API reported VOD. Both have now ended.
+The actual post contained `#LakeHenryRaffle` and attachment type `video_autoplay`.
+Sanitized fixtures retain only supplied fields; missing post IDs/times in test
+harnesses are explicitly simulated, not claimed as captured responses.
 
-## Verified access and API blockers
+`GET /VIDEO_ID?fields=id,format` also succeeded for both: 130x231, 480x853,
+and native 720x1280. Embed HTML and temporary image URLs are discarded.
+Page token permissions pages_show_list/pages_read_engagement and published_posts
+work. The Live Video API edge is still permission-blocked (#10); it is not used.
+An ordinary-upload real negative control has not been supplied. It is no longer
+a blocker to establishing Live origin because this policy makes no such claim;
+untagged ordinary uploads are regression-tested exclusions. Any tagged ordinary
+video is eligible by design, which needs explicit policy approval.
 
-The user verified v26.0 `pages_show_list`, `pages_read_engagement`, and current
-`published_posts` with attachments. `live_videos` returns OAuth #10 requiring
-Live Video API review. This Worker never calls that edge or bypasses its review.
+## Selection contract: tagged-page-video-v1
 
-Official references inspected in the browser:
+- Required exact, case-sensitive standalone token `#LakeHenryRaffle` (whitespace
+  delimited; hashtag suffixes, prefixes and attached punctuation do not match).
+- Page post ID prefix must match Graph Page `144051422124740`.
+- Only video/video_inline/video_autoplay attachment targets with numeric IDs and
+  valid Facebook video URLs are candidates. Photo/album processing is separate.
+- GET video metadata requires exact video ID, from.id equal to that Graph Page,
+  published=true and embeddable=true. VOD does not disqualify it. Missing/unknown
+  live_status is stored as UNKNOWN; neither UNKNOWN nor VOD is labeled LIVE.
+- Canonical public URL uses Page `61552199315213`. IDs are an explicit verified
+  mapping, not inferred from Meta embed HTML or interchangeable Graph identities.
+- Publication must be within the configured season, not future and at most
+  **36 hours old**. This supports daily replays without cycling through old months.
+  Public selection repeats the age validation; healthy polling cannot keep an old
+  drawing eligible forever. Operators can keep any replay manually as long as needed.
+- Choose newest post publication time; stable video-ID tie break. Duplicate polls
+  renew health without rewriting the staged selection or iframe. Older discoveries
+  never replace a newer stage. LIVE/VOD changes do not churn playback.
 
-- [published_posts](https://developers.facebook.com/docs/graph-api/reference/page/published_posts/): documented PagePost list, including New Pages Experience.
-- [PagePost](https://developers.facebook.com/docs/graph-api/reference/page-post/): attachments, publication time, message, permalink and status_type. Generic video attachments and captions do not prove Live. The reference also notes a Reels limitation.
-- [Get Videos guide](https://developers.facebook.com/documentation/video-api/guides/get-videos) describes Page video reads with a Page token, but the linked [v26 Page Videos reference](https://developers.facebook.com/docs/graph-api/reference/page/videos/) says reading is unavailable. This documentation conflict is an additional reason to require actual supported API verification rather than assume a working video-read contract.
-- [Video API reference index](https://developers.facebook.com/documentation/video-api/reference) links the Video read endpoint, but its [linked Graph reference](https://developers.facebook.com/docs/graph-api/reference/video/) displays a removal-after-v3.2 warning. It does not establish a usable current Live field contract. Historical SDK fields are insufficient evidence.
+The Worker writes only `raffle_live_automatic` and `raffle_live_automation_state`.
+It never reads, changes or deletes the manual `raffle_live`. Mode and saved manual
+URL live together in that manual record; every manual save returns to Manual.
+Admin mode changes use existing authentication and same-origin CSRF checks.
+Automatic selection additionally needs the Pages deployment flag, explicit admin
+Automatic mode, a reviewed receipt and matching successful health <=10 minutes.
+Errors, expiry, permission loss, empty scans, stale data or KV failure fall back
+to the saved manual URL. Public polling is 15 seconds and unchanged URLs retain
+playback. KV propagation is eventually consistent, not instantaneous worldwide.
 
-`graph.ts` reads documented published-post fields. Optional video probing requests
-`id,from,live_status,published,embeddable` from `GET /v26.0/{video-id}`. These exact
-fields returned successfully for the ended test above; their ability to distinguish
-an active Live from ordinary uploads is still **provisional**. Probing defaults OFF. A positive metadata result still cannot stage
-anything without a time-limited real-broadcast verification receipt. Unsupported
-fields (#100), object unavailability and permission errors preserve the last stage
-and pause calls; do not weaken checks to bypass those errors.
+## Bounds and errors
 
-## Identity and classification
+GET-only Graph v26.0 requests use the Authorization header, fixed Graph host,
+no redirects, 512 KiB response cap, 30-second deadline, at most three post pages
+of 25 and eight metadata probes. Paging.next URLs are never followed; cursor
+requests are reconstructed. No tokens, signed URLs, raw API bodies/errors,
+captions or paging URLs are logged. Only sanitized status/counts are logged.
+Token/permission/identity/unsupported-contract failures pause until the operator
+fixes access and increments FB_ACCESS_REVISION. Rate limits/backoff respect
+Retry-After. Empty/error scans preserve the stored stage but cannot select it
+while health is unavailable. One Worker and one Cron only; KV is not a lock.
 
-- Graph Page ID `144051422124740`: API paths, identity check, post ID prefix, video ownership.
-- Public Page ID `61552199315213`: canonical public URL and embed source.
-- Output URL: `https://www.facebook.com/61552199315213/videos/{video-id}/`.
+## Deployment status and isolation
 
-This is an explicit mapping supplied by the user, not interchangeable IDs. Before
-activation verify an actual returned video permalink and its public playback.
+Existing account: aa86268490e681cccb3a41a62093e2aa.
+Worker: folh-facebook-live-discovery. CONFIG: b70df87ff3db4230a621d4a39ab24ff7.
+Previously deployed version f685b083-36e2-42ba-b5d7-b5d1dc465372 has encrypted
+FB_PAGE_ACCESS_TOKEN, both flags false, no routes/public URL and empty Cron.
+The revised policy is LOCAL ONLY until approved deployment. No credential value
+is read or needed in this repository. Generic wrangler.json remains a disabled
+new-account template; wrangler.existing-account.json pins this existing account.
+The initial check-deployment.mjs remains disabled-only, with account/KV checks.
 
-The configured exact caption token `#LakeHenryRaffle` identifies raffle posts.
-Put it on its own line; attached punctuation does not match. The token, captions
-like “live now,” status_type, thumbnails and attachment types never prove Live.
-Only video-shaped attachments with matching numeric target/video URL are candidates.
-The video path ignores photos, reels, short/share links, foreign hosts, unrelated posts, foreign Page post
-IDs, invalid/future dates and unsupported attachment shapes are ignored.
+## Remaining activation steps — explicit approval required
 
-The provisional metadata verifier requires matching video ID, `from.id` equal to
-the Graph Page ID, `published === true`, `embeddable === true`, and exact state
-`LIVE` only. `VOD`, `LIVE_STOPPED`, missing fields and unknown values are rejected.
-Shared external videos cannot pass ownership validation. Human confirmation that
-one VOD was formerly Live is not permission to classify other VODs. No accessible
-current reference established a general read-only broadcast-origin field; the
-Video reference carries a legacy removal warning, and SDK enums alone do not
-establish supported read semantics. The permission-blocked Live Video API remains
-a separate review path. Automatic replay selection is unsupported by this contract.
+1. Approve the tagged-video policy, including ordinary tagged uploads being eligible
+   and the 36-hour recency limit. No additional livestream test is requested.
+2. Deploy only the reviewed video Worker with existing-approved config and both
+   flags false/Cron empty. Verify existing CONFIG ownership, encrypted secret,
+   correct Page IDs/marker and one polling owner. No D1/R2 migration is needed.
+3. Run one controlled read-only Graph scan against the real Page using the stored
+   Worker secret through the normal authorized Worker test surface. Verify the
+   actual post ID/time/attachment URL passes candidate extraction and stages video
+   1706736221227932 in a disposable test store first. Existing Explorer results
+   prove metadata eligibility, but the missing actual wrapper fields must not be
+   invented. The Worker currently has no public HTTP test trigger; add a reviewed
+   private test invocation or use the dashboard scheduled-handler test with Cron
+   empty, the controlled flags and staging consumer kept off. This still needs
+   approval because it calls Meta and can write automation state.
+4. Exercise fallback/rollback with real staged data while Pages remains Manual:
+   revoke receipt/disable Worker flags, stale health, denied token, empty feed and
+   manual-save override. Simulated versions already pass; production rollback
+   readiness must be reviewed before receipt creation. Never clear manual data.
+5. Create the non-secret CONFIG receipt raffle_live_verification only after review:
 
-## Isolation, bounds and state
-
-`wrangler.json` is a separate Worker config: separate name/main, no account ID,
-all-zero placeholder CONFIG namespace, no routes, workers.dev or preview URL,
-empty Cron list and both flags false. No D1/R2/SESSION bindings. Root Pages config
-is unchanged. `index.ts` exposes no polling/admin HTTP endpoint; HTTP always 404.
-
-Graph requests are GET-only to the fixed HTTPS v26.0 Graph host, with Authorization
-header and redirects refused. Never log raw errors, API bodies, tokens, messages,
-paging URLs or credential-bearing URLs. Only sanitized status/counts are logged.
-Maximum: 3 post pages, limit 25 (absolute cap 100 returned per page), 8 video probes,
-512 KiB per response, 30 seconds total. Cursor requests are rebuilt on the fixed
-host; paging.next URLs are never followed. Bounded/ranked scans can miss a broadcast;
-a successful empty scan does not prove the Page is offline.
-
-The Worker can write only these two KV keys:
-
-| Key | Content |
-| --- | --- |
-| `raffle_live_automation_state` | Last/next attempt, status, failure count, pause, access revision and scan counts |
-| `raffle_live_automatic` | Verified staged discovery, schema 2 |
-
-The receipt key `raffle_live_verification` is read-only to the Worker. It never
-reads, overwrites, clears or deletes **`raffle_live`**. A manual save racing a poll
-survives. Empty/unavailable/error responses preserve the previous stage. The deployed website does not read the automatic key. The prepared website consumer reads it only behind a default-off deployment flag and explicit authenticated admin mode.
-
-Schema 2 includes both Page IDs, video/post IDs, API/contract version, canonical
-URL, observed time, explicit active-LIVE evidence and **publishedAt**. Post publication
-time is not mislabeled as broadcast start time. Old staged `startedAt` records are
-recognized only to preserve ordering. Corrupt staged records are retained. Sequential
-runs avoid duplicate writes/older drawings. VOD responses cannot stage or renew
-verified health; public selection returns to the saved manual URL. A future replay
-feature would need its own verified origin evidence, tests and contract review.
-
-Persisted due-state enforces a minimum 300-second interval. Failures back off
-exponentially with jitter; rate limits honor Retry-After (bounded to one day).
-Expired token, permission/identity failure and unsupported contract pause calls.
-After resolving actual access/contract problems, increment non-secret
-`FB_ACCESS_REVISION` to allow another attempt. Do not clear the manual selection.
-
-KV is eventually consistent, not a lock/CAS: due-state and sequential ordering do
-not guarantee globally serialized concurrent writers. Keep one Worker/one Cron,
-no alternate trigger. Future public selection needs freshness validation and, if
-instant global manual overrides are required, stronger coordination.
-
-The season is configured with `FB_SEASON_START` and `FB_SEASON_END`, explicit ISO instants with offsets, end exclusive. Defaults preserve November 1 midnight CDT to December 1 midnight CST, 2026. Set the SAME dates on the Worker and Pages when changing seasons; `#LakeHenryRaffle` stays unchanged. Invalid/reversed/over-one-year windows fail closed. The real-broadcast receipt must be issued within that season and expire by its end; reverify API access each new season. Old-season discoveries cannot be selected. Remove Cron when the season ends even though the date guard also stops API requests.
-
-## Local validation — no token
-
-Use project-compatible Node 20:
-
-```powershell
-npm test
-npm run typecheck
-npm run typecheck:facebook-worker
-npm run build:facebook-worker
-npm run build
-node node_modules/wrangler/bin/wrangler.js deploy --dry-run --config workers/facebook-live/wrangler.json --outdir .wrangler/facebook-live-dry-run
+```json
+{
+  "schemaVersion": 3,
+  "graphPageId": "144051422124740",
+  "publicPageId": "61552199315213",
+  "apiVersion": "v26.0",
+  "contract": "tagged-page-video-v1",
+  "evidence": "tagged-page-video-policy-reviewed",
+  "marker": "#LakeHenryRaffle",
+  "verifiedVideoId": "1706736221227932",
+  "publicPlaybackVerified": true,
+  "rollbackTested": true,
+  "verifiedAt": "ACTUAL_REVIEW_ISO_UTC_TIMESTAMP",
+  "expiresAt": "2026-12-01T06:00:00Z"
+}
 ```
 
-The last command builds locally and uploads nothing. Tests inject fetch and use
-disposable in-memory services. Page-post fixtures are realistic **simulations**;
-metadata and receipts test a proposed contract, not captured real Meta evidence.
-A bundled Worker test runs the disabled scheduled handler in workerd and verifies
-HTTP 404/no KV writes. No token is requested, retrieved or stored for these checks.
+Placeholders are not a usable receipt. Schema 1/2 receipts cannot authorize this
+new policy. No receipt is created during development.
 
-## Existing-account initial deployment (explicitly authorized)
-
-`wrangler.existing-account.json` pins account `aa86268490e681cccb3a41a62093e2aa` and CONFIG `b70df87ff3db4230a621d4a39ab24ff7`. Read-only Wrangler checks confirmed account access and namespace title `folh-config`. The Worker has a distinct name and no D1/R2/SESSION bindings, routes, workers.dev, preview URL or Cron. Disabled execution returns before reading KV or calling Graph.
+6. Prepare a separate reviewed activation manifest derived from existing-approved:
+   both flags true; exactly triggers.crons=["*/5 * * * *"]. Run the separate offline
+   guard with Node 20 and the TS loader:
 
 ```powershell
 $env:FB_TARGET_ACCOUNT_ID = 'aa86268490e681cccb3a41a62093e2aa'
-node workers/facebook-live/check-deployment.mjs existing-approved
-node node_modules/wrangler/bin/wrangler.js deploy --dry-run --config workers/facebook-live/wrangler.existing-account.json
-node node_modules/wrangler/bin/wrangler.js deploy --config workers/facebook-live/wrangler.existing-account.json
+$env:FB_ACTIVATION_APPROVAL = 'tagged-page-video-v1'
+node --import ./tests/register.mjs workers/facebook-live/check-activation.mjs REVIEWED_CONFIG_PATH REVIEWED_RECEIPT_PATH
 ```
 
-The guard requires the exact account/namespace pair, Page identities, hashtag, season, interval and disabled flags/Cron/routes. It rejects plaintext token variables and D1/R2. The generic `wrangler.json` remains a migration template with placeholder KV and no account. The default `new-account` guard still rejects the existing account and old namespace. Neither guard proves remote ownership: independently list the target account's namespaces before deployment. Never deploy using an unqualified root config.
+This does not deploy and does not bypass the initial guard. Do not set approval
+variables or deploy activated settings until the administrator explicitly approves.
+7. Publish a reviewed **video-only** Pages selection release with
+   RAFFLE_AUTOMATIC_SELECTION_ENABLED=false first; no photo-import migration or
+   AI binding is required for video. After approval enable that deployment flag,
+   keep Manual until a healthy fresh stage exists, then admin explicitly chooses
+   Automatic. Confirm /api/raffle/live source, correct iframe/link on mobile and
+   desktop. Observe at least two five-minute polls and a manual-save rollback.
 
-After the disabled Worker exists, the owner enters the Page token directly into Cloudflare as an encrypted **Secret**, name `FB_PAGE_ACCESS_TOKEN`. Do not use a plaintext variable, KV, shell argument, committed file or chat message. An owner-operated interactive CLI alternative is:
+Immediate rollback: admin choose Manual or save the desired manual URL; disable
+both Worker flags and remove Cron, revoke only the verification receipt if needed.
+Keep raffle_live and the selected recording. Restore the previous successful Pages
+release if the website consumer fails. Do not rotate secrets or reset KV.
 
-```powershell
-node node_modules/wrangler/bin/wrangler.js secret put FB_PAGE_ACCESS_TOKEN --config workers/facebook-live/wrangler.existing-account.json
-```
+## Seasons and migration
 
-Do not share terminal output containing credentials. Adding the secret must leave polling, probes and Cron disabled.
+FB_SEASON_START/END are explicit ISO instants, end exclusive; configure the same
+values on Worker and Pages. Current season is November 2026; future years update
+configuration, never hashtags/code. Invalid/reversed/>366-day windows fail closed.
+Review a new receipt each season. Disable Cron after the raffle month.
 
-## Real-broadcast Graph API Explorer verification — owner action required
-
-Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/) privately. Select the existing app, Graph API **v26.0**, method **GET**, and the existing **Page access token**. Never send a token, token-panel screenshot, generated cURL, complete request URL or `paging.next` here. No publishing or additional permissions are needed for these read probes. If Meta requires more permissions, stop and report the error code.
-
-1. Mike starts a real public **Page Live**, with embedding allowed and the standalone `#LakeHenryRaffle` caption token (own line recommended). A tagged prerecorded upload is a negative control, never a substitute. Keep the website in Manual and save the real video URL using the existing admin control for tonight.
-2. Confirm API identity using:
-
-   ```text
-   /144051422124740?fields=id,name,link
-   ```
-
-   `id` must be `144051422124740`. Confirm its Page link is Friends of Lake Henry and the public Page is `61552199315213`. If the name/link fields error, retry `fields=id` to isolate identity; do not bypass an ID mismatch.
-3. During the actual broadcast, discover its tagged Page post with the exact adapter field expansion:
-
-   ```text
-   /144051422124740/published_posts?fields=id,message,created_time,permalink_url,attachments{type,target,url,subattachments{type,target,url}}&limit=25
-   ```
-
-   Locate the real Live by attachment/video ID and public permalink. Record whether the hashtag and numeric `attachments.data[].target.id` appear, attachment type, post ID prefix and created time. A video attachment alone is only a candidate. Reels/missing posts/unsupported attachment shapes are blockers for this adapter, even when playback works manually.
-4. Replace `VIDEO_ID` with that attachment target ID and run these separately to isolate field permissions:
-
-   ```text
-   /VIDEO_ID?fields=id
-   /VIDEO_ID?fields=id,from,live_status,published,embeddable
-   ```
-
-   The second request is a **provisional contract test**, not a claim those fields are supported on v26.0. Our current verifier requires matching video ID, `from.id=144051422124740`, `live_status=LIVE`, and boolean `published=true`, `embeddable=true`. Missing fields, #100, #10, VOD or ambiguous semantics mean STOP; do not create a receipt or enable polling. If one field is rejected, probe it individually only to diagnose and report which field/code failed. Never remove ownership or Live-proof checks merely to get success.
-5. During the next actual Live, repeat the request and record whether `live_status=LIVE` is returned alongside ownership and both true booleans. Run the identical request against a known ordinary Page-uploaded video; record its distinct ID and status (the proposed control expects VOD). No actual ordinary-upload response has been supplied yet; the test control is explicitly simulated. After the Live ends, repeat the request and retain the observed VOD as a rejected case. Do not substitute the previously assumed LIVE_STOPPED state. Also check an unrelated/shared video cannot pass Page ownership. Confirm the canonical `https://www.facebook.com/61552199315213/videos/VIDEO_ID/` points to that exact broadcast, and test the embedded player plus direct link on desktop/mobile while logged out. API eligibility does not guarantee browser embedding succeeds.
-6. Optional read-only diagnostic if posts omit the video:
-
-   ```text
-   /144051422124740/videos?fields=id,description,updated_time&limit=25
-   ```
-
-   Meta's [Get Videos guide](https://developers.facebook.com/documentation/video-api/guides/get-videos) describes this read with a Page token and `pages_read_engagement`, but its linked v26 reference says reading is unavailable. Treat this as an optional diagnostic with conflicting documentation, not a guaranteed supported path. A successful list is **not proof of Live origin**. It is not a second production scanner. Do not call the blocked `/live_videos` edge repeatedly.
-7. Share only this manually copied whitelist: test time, API version, public post/video IDs, attachment type, created time, ownership ID, the three boolean/state values, live/replay/ordinary-upload comparison, public playback result; for errors share only code/subcode and failed field name. Redact names/captions if unnecessary. Do not share full error objects, trace IDs, paging, image signed URLs or tokens. No simulated fixture is a real-verification receipt.
-
-If the exact contract fails, retain Manual; supported Live evidence or Meta review is still required. This procedure does not grant or bypass API access.
-
-## Activation gates after real verification
-
-1. Review sanitized real responses against current documentation, add sanitized fixtures and rerun regression tests. Adapt the verifier only to a proven supported contract. Confirm CONFIG ownership and encrypted secret exist, and only one Worker is responsible for polling.
-2. Store a reviewed non-secret verification record in CONFIG key `raffle_live_verification` only AFTER evidence is verified:
-
-   ```json
-   {
-     "schemaVersion": 2,
-     "graphPageId": "144051422124740",
-     "publicPageId": "61552199315213",
-     "apiVersion": "v26.0",
-     "contract": "video-observed-live-v2",
-     "evidence": "active-live-and-ordinary-upload-control",
-     "verifiedVideoId": "ACTUAL_NUMERIC_VIDEO_ID",
-     "liveObservedAt": "ACTUAL_LIVE_OBSERVATION_ISO_UTC_TIMESTAMP",
-     "ordinaryUploadVideoId": "DISTINCT_ACTUAL_ORDINARY_UPLOAD_VIDEO_ID",
-     "ordinaryUploadStatus": "VOD",
-     "verifiedAt": "ACTUAL_VERIFICATION_ISO_UTC_TIMESTAMP",
-     "expiresAt": "2026-12-01T06:00:00Z"
-   }
-   ```
-
-   These placeholders are not a usable receipt. Version-1 receipts are invalid.
-   Revoke only this record to stop staging/automatic selection. Never delete the manual key.
-3. Deploy the reviewed Worker with `FB_AUTOMATION_ENABLED=true`, `FB_VIDEO_PROBE_ENABLED=true`, `triggers.crons=["*/5 * * * *"]`; observe sanitized state/logs and the staged broadcast. Increment `FB_ACCESS_REVISION` only after resolving a permission/token/contract pause. The initial-deployment guard intentionally rejects activated configs; activation needs its own evidence/review, not bypassing the initial guard.
-4. Publish the reviewed website selection change with `RAFFLE_AUTOMATIC_SELECTION_ENABLED` absent/false first. Verify manual behavior; then explicitly enable that deployment flag with the same season dates. The admin must explicitly choose Automatic. No implicit opt-in from an existing manual record.
-5. Verify public `/api/raffle/live` reports source automatic for fresh verified staged data and the iframe/direct link play the correct broadcast. Confirm a manual save returns to Manual, then test fallback/recovery without deleting any live data. Keep an operator ready to use Manual during the first drawing. Do not rush activation to meet a deadline.
-
-## Website selection implementation (prepared; not published)
-
-Authenticated mode control uses existing session middleware and same-origin CSRF enforcement. Missing/unknown mode stays Manual. Both mode and the saved manual URL remain in `raffle_live`; mode changes preserve URL/timestamp/extra fields. Every manual save or clear, including same-value saves, restores Manual. An explicit blank remains a valid saved fallback.
-
-The public API and server-rendered page share a read-only resolver. Default-off deployments read only the manual key. Automatic requires a version-2 receipt, active season, schema-2 Page/API/contract identity, explicit active-LIVE evidence, and a matching successful health check no older than ten minutes. Errors, missing permissions, paused state, stale/corrupt data or extra KV read failures return the saved manual configuration. Verified duplicate polls renew health without changing the video-selection timestamp or iframe. Unproven replays fall back to Manual. Public refresh stays 15 seconds and retains Watch on Facebook. Unchanged URLs do not reset playback.
-
-KV is eventually consistent: immediate manual override means the same admin operation writes Manual, subject to ordinary KV propagation. It cannot promise instantaneous global consistency. The Worker never writes `raffle_live`, so it cannot overwrite an operator's URL/mode.
-
-## Migration handoff (no migration performed here)
-
-Coordinate with the migration owner; do not edit their runbook or change DNS here.
-
-1. Choose Manual on the old website. Disable old Worker polling/probes and remove its Cron. Verify no pending poll is writing before moving authority. Keep the old manual site operating during preparation.
-2. Owner verifies new account and new website CONFIG namespace. Copy required manual config and separately owned website data using the migration process; do not clear old KV/D1/R2. Copy automatic stage/state only as diagnostic state, not proof of freshness. Reverify season/receipt eligibility. A stale receipt/discovery must not become fresh by copying it.
-3. Set new account/new namespace in the isolated migration config. Keep all flags/Cron disabled. Run default `new-account` guard, tests and dry run; independently verify namespace ownership. Redeploy this same Worker code to the new account, and enter the encrypted Page secret there separately. Never copy tokens through config exports/chat.
-4. Validate new site's Manual workflow, correct CONFIG ownership and API identity. Reconfirm real Live contract and obtain fresh verified state before enabling new Automatic. Reset scheduling state or increment access revision only deliberately after old Cron is confirmed stopped; preserve manual data.
-5. Enable ONLY new Cron, then new website gate/admin Automatic after staged playback checks. Never have old and new pollers acting on authoritative state concurrently. Roll back by choosing Manual and stopping new Cron; re-enable old polling only if old account is explicitly authoritative and access/receipt remain valid. Domain migration is a separate owner action.
-
-## Photo/OCR path — implemented separately, disabled and not deployed
-
-The review-required photo importer, private RPC/AI profile, protected original-image storage, historical URL support, additive staging/audit migration and November 2025 regression results are documented in [the photo-import design and validation report](../../docs/raffle-photo-imports.md). It reuses the shared bounded published-post reader with `#LakeHenryRaffle`. It does not change Live classification or enable Cron/automatic publication. Production remains read-only for this development. A real Workers AI accuracy test and owner-approved bindings/model terms remain activation blockers.
-
-## Validation and deployment record
-
-November 1 validation on Node 20.19.6: **47 tests passed**, both root/Worker TypeScript checks, Worker esbuild, isolated Wrangler dry run and Astro production build passed. Browser validation of built Pages at `127.0.0.1:8788` used synthetic local KV/D1: Manual → Automatic → same-URL manual save → Manual updated the open public page on its existing 15-second poll. A simulated permission-denied state also made Automatic use its saved manual fallback. Three daily prize winners rendered; the admin layout fit a 390-pixel viewport. Source and deployment guard review found no D1, R2, DNS, root binding or dependency-version changes. Initial disabled Worker deployment succeeded November 1 at 4:35 PM Central from commit `3b12151`: version `a68ff9a2-89dc-4b14-a1b9-83fbc3a4f66a`, existing account. Readback confirmed 100% on that version and no secret yet; the dashboard confirmed CONFIG → folh-config, zero invocations, no public URLs. The deployed Settings page also explicitly confirmed both enable flags false and “No cron triggers configured.” Polling/probes/Cron remain off. Tests use simulated Page posts/metadata and disposable local D1/KV/R2; they are not real Meta integration proof. Node 20 is used. The inherited Astro/Sharp warning is unchanged. No production D1 migration, KV reset, R2, DNS, website migration or secret replacement is required.
-
-
-Owner secret-entry follow-up (November 1, 4:55 PM Central): read-only Wrangler verification confirmed `FB_PAGE_ACCESS_TOKEN` exists as `secret_text`. Adding it deployed version `f685b083-36e2-42ba-b5d7-b5d1dc465372` (same application code). Version readback confirmed both enable flags remain `false` and CONFIG remains `b70df87ff3db4230a621d4a39ab24ff7`. The token value was not retrieved. No polling, Cron activation or website deployment was performed. Real-broadcast Explorer verification remains required.
+Coordinate with the migration owner without editing their runbook. Disable old
+Cron and flags first; confirm no old polls. Copy reviewed manual configuration,
+presentation keys and only still-valid automatic state/receipt if appropriate.
+Redeploy disabled with verified new-account CONFIG binding and encrypted Page
+secret. Check IDs/season/eligibility and public playback, run rollback checks,
+then enable the new Cron only after approval. Never run both account schedules.
+No DNS, website migration, account migration or production data changes are
+performed by this work.

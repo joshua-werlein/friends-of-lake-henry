@@ -38,7 +38,7 @@ function previousIdentity(raw: string | null): { id: string; publishedAt: string
     const value: unknown = JSON.parse(raw);
     if (!object(value)) throw Error('stage');
     const date = value.schemaVersion === 2 ? value.publishedAt : value.startedAt;
-    if (!numericId(value.id) || !isoTime(date) || !['live', 'replay'].includes(String(value.status))
+    if (!numericId(value.id) || !isoTime(date) || !['live', 'replay', 'video'].includes(String(value.status))
         || value.url !== `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${value.id}/`) throw Error('stage');
     if (value.schemaVersion === 2) {
         if (value.graphPageId !== GRAPH_PAGE_ID || value.publicPageId !== PUBLIC_PAGE_ID
@@ -89,7 +89,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
             state.failures = 0;
             state.candidates = result.candidates;
             state.postsExamined = result.postsExamined;
-            state.status = !probing ? 'candidates-only' : !verified ? 'verification-required' : 'no-verified-live';
+            state.status = !probing ? 'candidates-only' : !verified ? 'verification-required' : 'no-eligible-video';
             if (probing && verified) {
                 const candidate = result.discoveries
                     .filter(v => Date.parse(v.publishedAt) >= season.start && Date.parse(v.publishedAt) <= time)
@@ -97,9 +97,9 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
                 if (candidate) {
                     const previous = previousIdentity(await store.get(AUTOMATIC_KEY));
                     const older = previous && Date.parse(previous.publishedAt) > Date.parse(candidate.publishedAt);
-                    // Do not regress a replay to live on a stale response, or rewrite duplicates.
-                    const same = previous?.id === candidate.videoId && (previous.status === candidate.status || previous.status === 'replay');
-                    if (!older && !(previous?.status === 'replay' && candidate.status === 'live')) {
+                    // Selection identity is stable across Facebook status changes; do not rewrite playback.
+                    const same = previous?.id === candidate.videoId && previous.status === candidate.status;
+                    if (!older) {
                         state.lastVerifiedVideoId = candidate.videoId;
                         state.lastVerifiedAt = now.toISOString();
                     } else {

@@ -27,7 +27,7 @@ export const POST: APIRoute = async (context) => {
         if (mode !== 'manual' && mode !== 'automatic') return json({ ok: false, error: 'Select Manual or Automatic.' }, 400);
         if (mode === 'automatic') {
             if (env.RAFFLE_AUTOMATIC_SELECTION_ENABLED !== 'true') return json({ ok: false, error: 'Automatic selection is not enabled for this deployment. Manual selection is unchanged.' }, 409);
-            if (!verificationValid(await env.CONFIG.get(VERIFICATION_KEY), new Date(), raffleSeason(env))) return json({ ok: false, error: 'A real broadcast must be verified before Automatic mode is enabled.' }, 409);
+            if (!verificationValid(await env.CONFIG.get(VERIFICATION_KEY), new Date(), raffleSeason(env))) return json({ ok: false, error: 'The tagged-video selection policy and rollback must be approved before Automatic mode is enabled.' }, 409);
         }
         const raw = await env.CONFIG.get(RAFFLE_LIVE_KEY);
         const stored = readRecord(raw);

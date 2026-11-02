@@ -1,0 +1,20 @@
+{
+  "provenance": "Administrator supplied sanitized Graph v26.0 fields for the November 1 actual drawing; no post ID or created_time was supplied. Facebook displayed LIVE during viewing even though API live_status was VOD. Both broadcasts have ended.",
+  "apiVersion": "v26.0",
+  "postEvidence": { "caption": "#LakeHenryRaffle", "attachmentType": "video_autoplay" },
+  "videoResponse": {
+    "id": "1706736221227932",
+    "from": { "id": "144051422124740" },
+    "live_status": "VOD",
+    "published": true,
+    "embeddable": true
+  },
+  "formatResponse": {
+    "id": "1706736221227932",
+    "format": [
+      { "width": 130, "height": 231 },
+      { "width": 480, "height": 853 },
+      { "width": 720, "height": 1280 }
+    ]
+  }
+}

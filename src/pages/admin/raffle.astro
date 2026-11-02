@@ -52,7 +52,7 @@ export const prerender = false;
                             <option value="manual">Manual</option>
                             <option value="automatic" disabled>Automatic</option>
                         </select>
-                        <p class="muted" id="videoModeHelp">Manual is the default. Saving a broadcast always returns to Manual. Automatic requires verified detection and falls back to your saved manual video if detection is unavailable or stale.</p>
+                        <p class="muted" id="videoModeHelp">Manual is the default. Saving a broadcast always returns to Manual. Automatic requires approved tagged-video selection and falls back to your saved manual video if detection is unavailable or stale.</p>
                         <button class="btn" id="saveVideoMode" type="button">Save selection mode</button>
                         <p class="muted" id="videoModeStatus" aria-live="polite"></p>
                     </div>
@@ -281,7 +281,7 @@ export const prerender = false;
                             videoMode.querySelector('option[value="automatic"]').disabled = !data.automaticAllowed;
                         }
                         if (videoModeStatus) videoModeStatus.textContent = data.selectionMode === 'automatic'
-                            ? (data.source === 'automatic' ? 'Automatic: verified broadcast selected.' : 'Automatic: using the saved manual fallback.')
+                            ? (data.source === 'automatic' ? 'Automatic: tagged raffle video selected.' : 'Automatic: using the saved manual fallback.')
                             : (data.automaticAllowed ? 'Manual selection active.' : 'Manual selection active. Automatic is unavailable until deployment and real-broadcast verification are complete.');
                         setLiveStatus("info", "Loaded current video settings.");
                     } else {

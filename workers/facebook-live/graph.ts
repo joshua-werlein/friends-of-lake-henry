@@ -5,13 +5,12 @@ export const PUBLIC_PAGE_ID = FACEBOOK_PAGE_ID;
 export const GRAPH_VERSION = FACEBOOK_API_VERSION;
 export const LIVE_CONTRACT = FACEBOOK_LIVE_CONTRACT;
 export const POST_FIELDS = 'id,message,created_time,permalink_url,attachments{type,target,url,subattachments{type,target,url}}';
-// Provisional field contract: explicitly opt in to probing, then verify a REAL Live.
-// Ended Live recordings have been observed as VOD, also used by uploads. Only a real active LIVE observation is eligible; replay origin remains unverified.
+// Hashtag policy selects eligible Page videos, not proof of broadcast origin or current streaming state.
 export const PROBE_FIELDS = 'id,from,live_status,published,embeddable';
 export type Failure = 'permission-denied' | 'token-expired' | 'rate-limited' | 'unsupported-contract'
     | 'api-failure' | 'invalid-response' | 'identity-mismatch';
 export type Candidate = { postId: string; videoId: string; publishedAt: string };
-export type Discovery = Candidate & { url: string; status: 'live'; liveStatus: 'LIVE' };
+export type Discovery = Candidate & { url: string; status: 'video'; liveStatus: 'LIVE' | 'VOD' | 'UNKNOWN' };
 export type GraphResult = { ok: true; candidates: number; postsExamined: number; discoveries: Discovery[] }
     | { ok: false; reason: Failure; retryAfterSeconds?: number };
 type RecordValue = Record<string, unknown>;
@@ -70,7 +69,7 @@ export function extractCandidates(posts: unknown[], marker: string, now: Date): 
     const unique = new Map<string, Candidate>();
     for (const post of posts) {
         if (!record(post) || typeof post.id !== 'string' || !new RegExp(`^${GRAPH_PAGE_ID}_\\d+$`).test(post.id)
-            || !isoTime(post.created_time) || Date.parse(post.created_time) > now.getTime()
+            || !isoTime(post.created_time) || Date.parse(post.created_time) > now.getTime() || now.getTime() - Date.parse(post.created_time) > 36 * 60 * 60 * 1000
             || typeof post.message !== 'string' || !post.message.split(/\s+/).includes(marker)) continue;
         const postId = post.id;
         const publishedAt = post.created_time;
@@ -100,9 +99,9 @@ export function extractCandidates(posts: unknown[], marker: string, now: Date): 
 export function verifyVideo(candidate: Candidate, metadata: unknown): Discovery | null {
     if (!record(metadata) || metadata.id !== candidate.videoId || !record(metadata.from)
         || metadata.from.id !== GRAPH_PAGE_ID || metadata.published !== true || metadata.embeddable !== true
-        || metadata.live_status !== 'LIVE') return null;
+        ) return null;
     return { ...candidate, url: `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${candidate.videoId}/`,
-        status: 'live', liveStatus: 'LIVE' };
+        status: 'video', liveStatus: metadata.live_status === 'LIVE' ? 'LIVE' : metadata.live_status === 'VOD' ? 'VOD' : 'UNKNOWN' };
 }
 
 /** Shared read-only Graph transport for video and photo paths. Errors never expose API bodies. */
