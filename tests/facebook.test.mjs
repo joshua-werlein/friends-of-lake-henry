@@ -72,12 +72,13 @@ test('legacy KV shape and safe embed URLs for live and replay remain supported',
     }
     assert.equal(facebookEmbedSrc('https://evil.test/videos/123'), null);
 });
-test('admin save preserves raffle_live, clear fallback and skips duplicate writes', async () => {
+test('admin saves preserve manual fallback and explicitly restore Manual even for duplicate URLs', async () => {
     const kv = store();
     assert.equal((await POST(context(kv, { latestVideoUrl: 'https://facebook.com/watch?v=123' }))).status, 200);
     assert.equal((await (await GET(context(kv))).json()).config.latestVideoUrl, canonical('123'));
     await POST(context(kv, { latestVideoUrl: canonical('123') }));
-    assert.deepEqual(kv.writes, [RAFFLE_LIVE_KEY]);
+    assert.deepEqual(kv.writes, [RAFFLE_LIVE_KEY, RAFFLE_LIVE_KEY]);
+    assert.equal(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)).selectionMode, 'manual');
     await POST(context(kv, { latestVideoUrl: '' }));
     assert.equal(parseLiveConfig(kv.data.get(RAFFLE_LIVE_KEY)).latestVideoUrl, null);
     assert.equal(kv.data.has(RAFFLE_LIVE_KEY), true);

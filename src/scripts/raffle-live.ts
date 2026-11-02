@@ -35,9 +35,12 @@ async function refreshLive() {
             player.dataset.videoUrl = videoUrl;
         }
         if (fallback instanceof HTMLAnchorElement) fallback.href = videoUrl || FACEBOOK_PAGE_VIDEOS_URL;
-        if (message) message.textContent = videoUrl
-            ? 'Latest selected drawing. If the player is unavailable, watch directly on Facebook.'
-            : 'No broadcast selected yet. This page checks for updates automatically.';
+        if (message) message.textContent = data.source === 'automatic'
+            ? 'Automatically selected tagged raffle video. If the player is unavailable, watch directly on Facebook.'
+            : data.selectionMode === 'automatic'
+                ? 'Using the saved manual selection while automatic detection is unavailable. You can also watch directly on Facebook.'
+                : videoUrl ? 'Latest selected drawing. If the player is unavailable, watch directly on Facebook.'
+                    : 'No broadcast selected yet. This page checks for updates automatically.';
         if (updated) updated.textContent = config.updatedAt
             ? `Video selected: ${new Date(config.updatedAt).toLocaleString('en-US', {
                 timeZone: 'America/Chicago', year: 'numeric', month: 'short', day: 'numeric',
