@@ -3,21 +3,24 @@ import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 import { json } from '../../../../lib/http';
 import { draftRows, monthValid, numericId, photoUrl, hashBytes, type PhotoService } from '../../../../lib/raffle-photo-import';
 import { approveImport, existingWinners, reviewRows } from '../../../../lib/server/raffle-photo-review';
+import { prizeSchedule, type ScheduledPrize } from '../../../../lib/server/raffle-prizes';
 import { FACEBOOK_GRAPH_PAGE_ID } from '../../../../lib/facebook';
 
-export type ImportEnv = { DB?: D1Database; IMPORT_IMAGES?: R2Bucket; FACEBOOK_PHOTOS?: PhotoService; RAFFLE_PHOTO_IMPORT_ENABLED?: string };
+export type ImportEnv = { DB?: D1Database; IMPORT_IMAGES?: R2Bucket; FACEBOOK_PHOTOS?: PhotoService; RAFFLE_PHOTO_IMPORT_ENABLED?: string; RAFFLE_PRIZE_CALENDAR_ENABLED?: string };
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9-]{36}$/.test(v);
 const ready = (env: ImportEnv | undefined): env is ImportEnv & { DB: D1Database } => env?.RAFFLE_PHOTO_IMPORT_ENABLED === 'true' && !!env.DB;
-async function detail(db: D1Database, id: string) {
+async function detail(db: D1Database, id: string, includePrizes = false) {
     const item = await db.prepare('SELECT * FROM raffle_photo_imports WHERE id=?').bind(id).first<any>();
     if (!item) return null;
     const existing = await existingWinners(db, item.month_hint);
+    let schedule: ScheduledPrize[] = [];
+    if (includePrizes) { try { schedule = await prizeSchedule(db,item.month_hint); } catch { /* Calendar cannot block manual/photo review. */ } }
     return { id: item.id, photoId: item.photo_id, postId: item.post_id, sourceUrl: item.source_url, monthHint: item.month_hint,
         status: item.status, version: item.version, attempts: item.attempts, createdAt: item.created_at,
         imageUrl: item.image_key ? `/api/admin/raffle/import-image?id=${item.id}` : null,
         imageWidth: item.image_width, imageHeight: item.image_height, imageHash: item.image_sha256,
         model: item.model, error: item.error_code, extraction: JSON.parse(item.extraction_json),
-        rows: reviewRows(item.rows_json, existing), existing };
+        rows: reviewRows(item.rows_json, existing), existing, prizeSchedule: schedule };
 }
 export const GET: APIRoute = async ({ locals, url }) => {
     const env = locals.runtime?.env as ImportEnv | undefined;
@@ -26,7 +29,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
         const id = url.searchParams.get('id');
         if (id) {
             if (!uuid(id)) return json({ ok: false, error: 'Invalid import ID.' }, 400);
-            const item = await detail(env.DB, id);
+            const item = await detail(env.DB,id,env.RAFFLE_PRIZE_CALENDAR_ENABLED==='true');
             return item ? json({ ok: true, item }) : json({ ok: false, error: 'Import not found.' }, 404);
         }
         const items = await env.DB.prepare(`SELECT id,photo_id AS photoId,month_hint AS monthHint,status,created_at AS createdAt
@@ -63,7 +66,7 @@ async function extract(env: ImportEnv & { DB: D1Database }, id: string, photoId:
             updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='processing' AND version=?`)
             .bind(key,capture.sha256,capture.mime,capture.width,capture.height,capture.model,JSON.stringify(capture.extraction),JSON.stringify(rows),id,version).run();
         if (update.meta.changes !== 1) throw Error('stale');
-        return json({ ok: true, item: await detail(env.DB,id) });
+        return json({ ok: true, item: await detail(env.DB,id,env.RAFFLE_PRIZE_CALENDAR_ENABLED==='true') });
     } catch {
         await env.DB.prepare(`UPDATE raffle_photo_imports SET status='failed',error_code='Extraction unavailable; check Page access, AI configuration or image availability.',
             version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='processing' AND version=?`).bind(id,version).run();
@@ -87,7 +90,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
             if (!numericId(body.photoId) || !monthValid(body.monthHint)) return json({ ok: false, error: 'Photo ID and correct raffle month are required.' }, 400);
             if (body.postId != null && (typeof body.postId !== 'string' || !new RegExp(`^${FACEBOOK_GRAPH_PAGE_ID}_\\d+$`).test(body.postId))) return json({ ok: false, error: 'Invalid source post.' }, 400);
             const previous = await env.DB.prepare('SELECT id FROM raffle_photo_imports WHERE photo_id=?').bind(body.photoId).first<{ id: string }>();
-            if (previous) return json({ ok: true, existing: true, item: await detail(env.DB,previous.id) });
+            if (previous) return json({ ok: true, existing: true, item: await detail(env.DB,previous.id,env.RAFFLE_PRIZE_CALENDAR_ENABLED==='true') });
             const count = await env.DB.prepare(`SELECT count(*) AS total FROM raffle_photo_imports WHERE created_at>=strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 minutes')`).first<{ total: number }>();
             if ((count?.total ?? 0) >= 12) return json({ ok: false, error: 'Import limit reached. Try again in ten minutes.' }, 429);
             const id = crypto.randomUUID();
@@ -110,7 +113,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
             if (result.meta.changes !== 1) return json({ ok: false, error: 'Draft changed or was already reviewed.' }, 409);
         } else if (body.action === 'approve') {
             if (body.confirmReviewed !== true) return json({ ok: false, error: 'Confirm that the selected rows were checked against the original image.' }, 400);
-            try { const result = await approveImport(env.DB,body.id,body.version,body.rows); return json({ ok: true, ...result, item: await detail(env.DB,body.id) }); }
+            try { const result = await approveImport(env.DB,body.id,body.version,body.rows); return json({ ok: true, ...result, item: await detail(env.DB,body.id,env.RAFFLE_PRIZE_CALENDAR_ENABLED==='true') }); }
             catch { return json({ ok: false, error: 'Approval stopped: an existing, incomplete, conflicting or changed row needs review. Refresh and select only valid new rows or verified blank-field fills. No values were overwritten.' }, 409); }
         } else if (body.action === 'retry') {
             if (!env.FACEBOOK_PHOTOS || !env.IMPORT_IMAGES) return json({ ok: false, error: 'Photo service unavailable.' }, 503);
@@ -122,6 +125,6 @@ export const POST: APIRoute = async ({ locals, request }) => {
             if (!item || result.meta.changes !== 1) return json({ ok: false, error: 'Import is still processing, already reviewed or reached three attempts.' }, 409);
             return await extract(env,body.id,item.photo_id,item.month_hint,body.version+1);
         } else return json({ ok: false, error: 'Unknown import action.' }, 400);
-        return json({ ok: true, item: await detail(env.DB,body.id) });
+        return json({ ok: true, item: await detail(env.DB,body.id,env.RAFFLE_PRIZE_CALENDAR_ENABLED==='true') });
     } catch { return json({ ok: false, error: 'Import service unavailable or draft data invalid. No winners were published.' }, 503); }
 };

@@ -1,0 +1,275 @@
+{
+  "provenance": "Read-only published event audit on November 1, 2026; existing source of main prizes. UTC timestamps must be interpreted in America/Chicago.",
+  "events": [
+    {
+      "id": "2026-11-01-day-1-auto-ordnance-thompson-1927a-1-45-acp",
+      "title": "Day 1 - Auto Ordnance Thompson 1927A-1 45 ACP",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-02T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-02-day-2-savage-110-high-country-30-06",
+      "title": "Day 2 - Savage 110 High Country 30-06",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-03T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-03-day-3-tikka-t3x-hunter-7mm-rem-mag",
+      "title": "Day 3 - Tikka T3X Hunter 7MM Rem Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-04T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-04-day-4-henry-big-boy-all-weather-44-mag",
+      "title": "Day 4 - Henry Big Boy All Weather 44 Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-05T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-05-day-5-bergara-hmr-6-5-creedmoor",
+      "title": "Day 5 - Bergara HMR 6.5 Creedmoor",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-06T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-06-day-6-springfield-armory-1911-emissary-9mm",
+      "title": "Day 6 - Springfield Armory 1911 Emissary 9MM",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-07T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen"
+    },
+    {
+      "id": "2026-11-07-day-7-winchester-1892-carbine-357-mag",
+      "title": "Day 7 - Winchester 1892 Carbine 357 Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-08T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Meat Bundle sponsored by Blair Meat Market"
+    },
+    {
+      "id": "2026-11-08-day-8-kimber-stainless-ii-1911-38-super",
+      "title": "Day 8 - Kimber Stainless II 1911 38 Super",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-09T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Inflatable Paddle Board"
+    },
+    {
+      "id": "2026-11-09-day-9-auto-ordnance-m1-30-carbine",
+      "title": "Day 9 - Auto Ordnance M1 30 Carbine",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-10T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-10-day-10-bergara-hmr-300-win-mag",
+      "title": "Day 10 - Bergara HMR 300 Win Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-11T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-11-day-11-savage-110-long-range-hunter-338-lapua-mag",
+      "title": "Day 11 - Savage 110 Long Range Hunter 338 Lapua Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-12T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-12-day-12-henry-side-gate-410",
+      "title": "Day 12 - Henry Side Gate 410",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-13T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-13-day-13-kimber-k6s-dasa-combat-357-mag",
+      "title": "Day 13 - Kimber K6S DASA Combat 357 Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-14T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: St. Croix Panfish Rod"
+    },
+    {
+      "id": "2026-11-14-day-14-colt-lightweight-officers-model-45-acp",
+      "title": "Day 14 - Colt Lightweight Officers Model 45 ACP",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-15T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: St. Croix Walleye Rod"
+    },
+    {
+      "id": "2026-11-05-day-15-tikka-t3x-lite-roughtech-ember-7mm-rem-mag",
+      "title": "Day 15 - Tikka T3X Lite Roughtech Ember 7MM Rem Mag",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-16T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Black Stone 28\" Griddle"
+    },
+    {
+      "id": "2026-11-16-day-16-colt-python-357-mag-8-ss",
+      "title": "Day 16 - Colt Python 357 Mag 8\" SS",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-17T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-17-day-17-smith-and-wesson-640-357-mag-38-spl",
+      "title": "Day 17 - Smith and Wesson 640 357 Mag/38 Spl",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-18T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-18-day-18-ruger-super-redhawk-22-hornet",
+      "title": "Day 18 - Ruger Super Redhawk 22 Hornet",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-19T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-19-day-19-browning-x-bolt-2-hunter-6-8-western",
+      "title": "Day 19 - Browning X-Bolt 2 Hunter 6.8 Western",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-20T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-20-day-20-smith-and-wesson-500-s-w-magnum",
+      "title": "Day 20 - Smith and Wesson 500 S&W Magnum",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-21T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Bubba Fillet Knife"
+    },
+    {
+      "id": "2026-11-21-day-21-diamondback-dbx-pistol-5-7x28",
+      "title": "Day 21 - Diamondback DBX Pistol 5.7x28",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-22T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Strike Master Ice Augur"
+    },
+    {
+      "id": "2026-11-22-day-22-winchester-m70-ext-spt-6-8-western",
+      "title": "Day 22 - Winchester M70 Ext Spt 6.8 Western",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-23T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Vexilar Fish Finder"
+    },
+    {
+      "id": "2026-11-23-day-23-browning-x-bolt-2-hunter-270-win-2",
+      "title": "Day 23 - Browning X-Bolt 2 Hunter 270 Win",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-24T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-24-day-24-seekins-precision-havak-pro-hunter-7mm-backcountry",
+      "title": "Day 24 - Seekins Precision Havak Pro Hunter 7MM Backcountry",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-25T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-25-day-25-colt-viper-357-magnum-38-spl",
+      "title": "Day 25 - Colt Viper 357 Magnum/38 Spl",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-26T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    },
+    {
+      "id": "2026-11-26-day-26-henry-side-gate-45-70-govt",
+      "title": "Day 26 - Henry Side Gate 45-70 Govt",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-27T00:00:00.000Z",
+      "date_end": null,
+      "summary": "Thanksgiving Special -- 2nd drawing: Gun Safe"
+    },
+    {
+      "id": "2026-11-27-day-27-browning-x-bolt-2-hunter-243-win",
+      "title": "Day 27 - Browning X-Bolt 2 Hunter 243 Win",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-28T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Stihl Chain Saw MS 170"
+    },
+    {
+      "id": "2026-11-28-day-28-springfield-armory-target-stainless-9mm",
+      "title": "Day 28 - Springfield Armory Target Stainless 9MM",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-29T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Inflatable Life Jacket"
+    },
+    {
+      "id": "2026-11-29-day-29-colt-anaconda-44-magnum",
+      "title": "Day 29 - Colt Anaconda 44 Magnum",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-11-30T00:00:00.000Z",
+      "date_end": null,
+      "summary": "2nd drawing: Gun Vise for Hunting"
+    },
+    {
+      "id": "2026-11-30-day-30-triple-crown-20-gauge",
+      "title": "Day 30 - Triple Crown 20 Gauge",
+      "kind": "Raffle",
+      "status": "published",
+      "date_start": "2026-12-01T00:00:00.000Z",
+      "date_end": null,
+      "summary": null
+    }
+  ]
+}

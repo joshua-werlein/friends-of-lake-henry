@@ -112,6 +112,9 @@ const enabled = (Astro.locals.runtime?.env as any)?.RAFFLE_PHOTO_IMPORT_ENABLED 
             const position=document.createElement('select');position.className='input';position.setAttribute('aria-label',`Prize position, row ${index+1}`);
             position.add(new Option('Not shown — leave blank',''));for(const value of [1,2,3]) position.add(new Option(`${value}${value===1?'st':value===2?'nd':'rd'} place`,String(value)));
             position.value=row.position===null?'':String(row.position);position.addEventListener('change',()=>{row.position=position.value?Number(position.value):null;selected.delete(index);get<HTMLInputElement>('confirmImportReview').checked=false;refreshComparisons();updateControls();});label.append(position);fields.append(label);card.append(fields);
+            const suggestion=document.createElement('p');suggestion.className='muted prizeSuggestions';
+            const choices=(current.prizeSchedule??[]).filter((p:any)=>p.drawDate===row.drawDate);
+            suggestion.textContent=choices.length?'Approved date-matched prize suggestions (association requires review; use Edit prize after import): '+choices.map((p:any)=>p.category+': '+p.description).join(' / '):'No approved prize suggestion for this date. Leave placement unknown unless independently confirmed.';card.append(suggestion);
             const details=document.createElement('p');details.className='muted rowDetails';details.textContent=[comparison.missingFields.length?'Missing existing fields: '+comparison.missingFields.join(', '):'',comparison.conflicts.length?'Different existing fields: '+comparison.conflicts.join(', '):'',...comparison.issues].filter(Boolean).join(' · ');card.append(details);
             const old=existing.find(v=>v.id===comparison.existingId);
             const previous=document.createElement('p');previous.className='muted existingWinner';previous.textContent=old?`Existing: ${old.drawDate||'(date missing)'} · ticket ${old.ticketNumber||'(missing)'} · ${old.name||'(name missing)'} · ${old.town||'(hometown missing)'}`:'';card.append(previous);
@@ -130,6 +133,8 @@ const enabled = (Astro.locals.runtime?.env as any)?.RAFFLE_PHOTO_IMPORT_ENABLED 
             choice.checked=selected.has(index)&&!choice.disabled;
             if(choice.disabled)selected.delete(index);
             card.querySelector<HTMLElement>('.rowDetails')!.textContent=[comparison.missingFields.length?'Missing existing fields: '+comparison.missingFields.join(', '):'',comparison.conflicts.length?'Different existing fields: '+comparison.conflicts.join(', '):'',...comparison.issues].filter(Boolean).join(' · ');
+            const choices=(current.prizeSchedule??[]).filter((p:any)=>p.drawDate===row.drawDate);
+            card.querySelector<HTMLElement>('.prizeSuggestions')!.textContent=choices.length?'Date-matched suggestions need approval: '+choices.map((p:any)=>p.category+': '+p.description).join(' / '):'No approved prize suggestion for this date.';
             const old=existing.find(v=>v.id===comparison.existingId);
             card.querySelector<HTMLElement>('.existingWinner')!.textContent=old?`Existing: ${old.drawDate||'(date missing)'} · ticket ${old.ticketNumber||'(missing)'} · ${old.name||'(name missing)'} · ${old.town||'(hometown missing)'}`:'';
         });

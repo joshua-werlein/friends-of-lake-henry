@@ -1,0 +1,47 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+export const prerender=false;
+---
+<BaseLayout title="Admin | Raffle prize calendar">
+<main class="container" style="--maxw:1100px">
+    <section class="card calendarAdmin">
+        <a class="pill" href="/admin/raffle">Back to raffle admin</a>
+        <h1>Raffle prize calendar</h1>
+        <p>Published raffle events supply the main prizes. Edit those through Events. Add only missing supplemental prizes here; drafts stay private until explicitly approved.</p>
+        <label>Raffle month <input class="input" id="prizeMonth" type="month" /></label>
+        <button class="btn" id="loadPrizeMonth" type="button">Load calendar</button>
+        <p id="calendarStatus" role="status"></p>
+        <div class="calendarGrid">
+            <div>
+                <h2>Published events and supplemental prizes</h2>
+                <div id="calendarRows"></div>
+            </div>
+            <aside>
+                <div class="panel">
+                    <h2>Add a supplemental draft</h2>
+                    <form id="supplementForm">
+                        <label>Drawing dates (YYYY-MM-DD, separated by commas)<textarea id="supplementDates" class="input" rows="3"></textarea></label>
+                        <label><input type="checkbox" id="allEventDates" /> Use every published drawing date in this month</label>
+                        <label>Category<select class="input" id="supplementCategory"><option>Gift card</option><option>Firearm</option><option>Cash</option><option>Other</option></select></label>
+                        <label>Prize description<textarea class="input" id="supplementDescription" maxlength="250" required rows="3"></textarea></label>
+                        <p>Numeric placement stays unknown. A date match or the number of drawings does not establish a winner’s place.</p>
+                        <button class="btn" type="submit">Save private drafts</button>
+                    </form>
+                </div>
+                <div class="panel">
+                    <h2>Verify missing information from the existing poster</h2>
+                    <p>The poster is read directly from the month’s R2 reference. Main prizes already in Events are excluded from recognition.</p>
+                    <button class="btn" id="recognizePoster" type="button" disabled>Read missing poster prizes</button>
+                    <p id="posterAiStatus" class="muted"></p>
+                    <a id="calendarPosterLink" target="_blank" rel="noopener"><img id="calendarPoster" alt="Existing uploaded monthly raffle poster for comparison" /></a>
+                    <div id="posterProposals"></div>
+                </div>
+            </aside>
+        </div>
+    </section>
+</main>
+</BaseLayout>
+<script>import '../../../scripts/raffle-prize-calendar-admin';</script>
+<style>
+.calendarAdmin{padding:clamp(1rem,3vw,2rem)}.calendarGrid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:1.5rem}.calendarGrid aside{min-width:0}.calendarAdmin label{display:grid;gap:.4rem;margin:.8rem 0}.calendarAdmin img{width:100%;height:auto;max-height:38rem;object-fit:contain}.calendarAdmin :global(.prizeReviewCard){padding:1rem;margin:1rem 0;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(7,15,23,.76);color:#fff}.calendarAdmin :global(.prizeReviewCard label){display:grid;gap:.3rem;margin:.6rem 0}.calendarAdmin :global(.prizeReviewCard button){margin:.3rem}.calendarAdmin :global(.prizeReviewCard a){color:#fff;text-decoration:underline}.calendarAdmin :global(.prizeReviewCard input[type=checkbox]){width:1.2rem;height:1.2rem}.calendarAdmin aside>.panel{margin:1rem 0}@media(max-width:760px){.calendarGrid{grid-template-columns:1fr}}
+</style>
