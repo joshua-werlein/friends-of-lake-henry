@@ -1129,7 +1129,15 @@ const description =
     }
     .prizeCalendar p{ color: rgba(244, 247, 250, .86); margin: 0 0 .5rem; line-height: 1.55; }
 
-    .publicPrizeList{ list-style: none; margin: 0; padding: 0; }
+    /* Match the extra inset shading inside the Daily Winners table panel. */
+    .publicPrizeList{
+        list-style: none;
+        margin: 0;
+        padding: 0 1rem;
+        background: rgba(0,0,0,0.18);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+    }
     .publicPrizeList > :global(li){
         display: grid;
         grid-template-columns: 7.5rem 1fr;
