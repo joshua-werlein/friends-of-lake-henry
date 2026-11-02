@@ -13,7 +13,7 @@ export type Failure = 'permission-denied' | 'token-expired' | 'rate-limited' | '
 export type Candidate = { postId: string; videoId: string; publishedAt: string };
 export type Discovery = Candidate & Partial<Dimensions> & { url: string; status: 'video'; liveStatus: 'LIVE' | 'VOD' | 'UNKNOWN' };
 export type GraphResult = { ok: true; candidates: number; postsExamined: number; discoveries: Discovery[] }
-    | { ok: false; reason: Failure; retryAfterSeconds?: number };
+    | { ok: false; reason: Failure; retryAfterSeconds?: number; detail?: Record<string, string | number> };
 type RecordValue = Record<string, unknown>;
 const record = (v: unknown): v is RecordValue => !!v && typeof v === 'object' && !Array.isArray(v);
 export const numericId = (v: unknown): v is string => typeof v === 'string' && /^\d{1,40}$/.test(v);
@@ -23,7 +23,7 @@ export function isoTime(v: unknown): v is string {
     return Number.isFinite(time) && new Date(v.slice(0, 10) + 'T00:00:00Z').toISOString().slice(0, 10) === v.slice(0, 10);
 }
 class GraphFailure extends Error {
-    constructor(readonly reason: Failure, readonly retryAfterSeconds?: number) { super(reason); }
+    constructor(readonly reason: Failure, readonly retryAfterSeconds?: number, readonly detail?: Record<string, string | number>) { super(reason); }
 }
 
 export function errorReason(code: unknown, httpStatus: number): Failure {
@@ -110,8 +110,13 @@ export function graphReader(token: string, now = new Date(), fetcher: typeof fet
     return async function get(path: string, params: Record<string, string>): Promise<RecordValue> {
         const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${path}`);
         for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-        const response = await fetcher(url, { method: 'GET', redirect: 'error', cache: 'no-store',
+        // Workers supports manual/follow, not the browser's redirect:error mode.
+        const response = await fetcher(url, { method: 'GET', redirect: 'manual', cache: 'no-store',
             signal: signal, headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+        if (response.status >= 300 && response.status < 400) {
+            await response.body?.cancel();
+            throw new GraphFailure('api-failure', undefined, { httpStatus: response.status });
+        }
         let body: unknown;
         try { body = await boundedJson(response); }
         catch (e) {
@@ -121,7 +126,9 @@ export function graphReader(token: string, now = new Date(), fetcher: typeof fet
         if (!record(body)) throw new GraphFailure('invalid-response');
         if (!response.ok || body.error) {
             const error = record(body.error) ? body.error : {};
-            throw new GraphFailure(errorReason(error.code, response.status), retryAfter(response.headers.get('retry-after'), now.getTime()));
+            throw new GraphFailure(errorReason(error.code, response.status), retryAfter(response.headers.get('retry-after'), now.getTime()), {
+                httpStatus: response.status, ...(Number.isSafeInteger(error.code) ? { code: Number(error.code) } : {}),
+                ...(Number.isSafeInteger(error.error_subcode) ? { subcode: Number(error.error_subcode) } : {}) });
         }
         return body;
     }
@@ -148,22 +155,25 @@ export async function readPagePosts(get: ReturnType<typeof graphReader>, fields 
 
 /** Read-only Graph client. Never follows paging URLs or redirects; never logs raw API data. */
 export async function discoverPosts(options: {
-    token: string; marker: string; probeVideoMetadata?: boolean; now?: Date; fetcher?: typeof fetch;
+    token: string; marker: string; probeVideoMetadata?: boolean; now?: Date; fetcher?: typeof fetch; diagnostic?: boolean;
 }): Promise<GraphResult> {
     const now = options.now ?? new Date();
     const fetcher = options.fetcher ?? fetch;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
     const get = graphReader(options.token, now, fetcher, controller.signal);
+    let phase = 'identity';
     try {
         if (!options.token || !/^#[A-Za-z][A-Za-z0-9_]{2,80}$/.test(options.marker)) throw new GraphFailure('invalid-response');
         const identity = await get(GRAPH_PAGE_ID, { fields: 'id' });
         if (identity.id !== GRAPH_PAGE_ID) throw new GraphFailure('identity-mismatch');
+        phase = 'posts';
         const posts = await readPagePosts(get);
         const candidates = extractCandidates(posts, options.marker, now).slice(0, 8);
         const discoveries: Discovery[] = [];
         if (options.probeVideoMetadata) {
             for (const candidate of candidates) {
+                phase = 'video';
                 const video = verifyVideo(candidate, await get(candidate.videoId, { fields: PROBE_FIELDS }));
                 if (video) {
                     // Optional presentation reads must never weaken or block eligibility.
@@ -197,7 +207,12 @@ export async function discoverPosts(options: {
         }
         return { ok: true, candidates: candidates.length, postsExamined: posts.length, discoveries };
     } catch (e) {
-        return e instanceof GraphFailure ? { ok: false, reason: e.reason, ...(e.retryAfterSeconds ? { retryAfterSeconds: e.retryAfterSeconds } : {}) }
-            : { ok: false, reason: 'api-failure' };
+        const message = e instanceof Error ? e.message : '';
+        const category = /cache.*(not implemented|not supported|unsupported)/i.test(message) ? 'unsupported-cache-mode'
+            : /redirect.*(not implemented|not supported|unsupported)/i.test(message) ? 'unsupported-redirect-mode'
+            : e instanceof Error && e.name === 'AbortError' ? 'timeout' : e instanceof TypeError ? 'transport-type-error' : 'unknown-runtime-error';
+        const detail = options.diagnostic ? { detail: { phase, ...(e instanceof GraphFailure ? e.detail ?? {} : { category }) } } : {};
+        return e instanceof GraphFailure ? { ok: false, reason: e.reason, ...(e.retryAfterSeconds ? { retryAfterSeconds: e.retryAfterSeconds } : {}), ...detail }
+            : { ok: false, reason: 'api-failure', ...detail };
     } finally { clearTimeout(timer); }
 }

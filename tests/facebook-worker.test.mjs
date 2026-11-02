@@ -36,7 +36,7 @@ function api({ posts = fixture, video = id => metadata(id), failure, identity = 
         calls.push({ url, init });
         assert.equal(url.origin, 'https://graph.facebook.com');
         assert.equal(init.method, 'GET');
-        assert.equal(init.redirect, 'error');
+        assert.equal(init.redirect, 'manual');
         assert.equal(init.headers.Authorization, 'Bearer SIMULATED_TEST_TOKEN');
         assert.equal(url.searchParams.has('access_token'), false);
         if (failure) return failure(url);
@@ -172,6 +172,17 @@ test('rebuilds bounded pagination from cursors, never sends token to a paging UR
     const endless = api({ posts: url => ({ data: [], paging: { next: 'anything', cursors: { after: (url.searchParams.get('after') ?? '') + 'a' } } }) });
     assert.equal((await discover({ fetcher: endless.fetcher })).ok, true);
     assert.equal(endless.calls.length, 4); // identity plus maximum three post pages
+});
+
+test('Workers-compatible manual redirect mode rejects redirects without forwarding the token', async () => {
+    let calls = 0;
+    const result = await discover({ fetcher: async (_url, init) => {
+        calls++;
+        assert.equal(init.redirect, 'manual');
+        return new Response(null, { status: 302, headers: { Location: 'https://foreign.invalid/' } });
+    } });
+    assert.deepEqual(result, { ok: false, reason: 'api-failure' });
+    assert.equal(calls, 1);
 });
 
 test('normalizes Graph permission, expired-token, rate-limit and unsupported-field errors without leaks', async () => {

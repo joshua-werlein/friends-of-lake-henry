@@ -117,7 +117,7 @@ function network({expired=false,metadata={},aiResult=reference}={}) {
     const fetcher=async(input,init)=>{
         const url=new URL(input);calls.push({url,init});
         if(url.hostname==='graph.facebook.com') {
-            assert.equal(init.method,'GET');assert.equal(init.redirect,'error');assert.equal(init.headers.Authorization,'Bearer SIMULATED_TEST_TOKEN');assert.equal(url.searchParams.has('access_token'),false);
+            assert.equal(init.method,'GET');assert.equal(init.redirect,'manual');assert.equal(init.headers.Authorization,'Bearer SIMULATED_TEST_TOKEN');assert.equal(url.searchParams.has('access_token'),false);
             return Response.json(url.pathname.endsWith(GRAPH_PAGE_ID)?{id:GRAPH_PAGE_ID}:{id:fakeId,images:[small,{...large,source:large.source+downloads}],link:'https://facebook.com/photo/',...metadata});
         }
         assert.equal(init.headers.Authorization,undefined);assert.equal(init.redirect,'error');downloads++;

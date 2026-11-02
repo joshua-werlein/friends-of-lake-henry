@@ -16,8 +16,8 @@ export async function verifyAndStage(env: Env, expectedId: string, deps: { now?:
     const before = await store.get(RAFFLE_LIVE_KEY);
     const manual = parseLiveConfig(before);
     if (selectionMode(before) !== 'manual' || manual.latestVideoUrl !== `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${expectedId}/`) return { ok: false, status: 'manual-selection-mismatch' };
-    const result = await discoverPosts({ token: env.FB_PAGE_ACCESS_TOKEN, marker: '#LakeHenryRaffle', probeVideoMetadata: true, now, fetcher: deps.fetcher });
-    if (!result.ok) return { ok: false, status: result.reason };
+    const result = await discoverPosts({ token: env.FB_PAGE_ACCESS_TOKEN, marker: '#LakeHenryRaffle', probeVideoMetadata: true, now, fetcher: deps.fetcher, diagnostic: true });
+    if (!result.ok) return { ok: false, status: result.reason, detail: result.detail };
     const candidate = result.discoveries.filter(v => Date.parse(v.publishedAt) >= season.start)
         .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.videoId.localeCompare(b.videoId))[0];
     if (!candidate || candidate.videoId !== expectedId) return { ok: false, status: 'expected-video-not-newest-eligible', candidates: result.candidates, eligible: result.discoveries.length };
