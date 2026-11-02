@@ -8,6 +8,7 @@ import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { checkDeployment } from '../workers/facebook-live/check-deployment.mjs';
 import { checkActivation } from '../workers/facebook-live/check-activation.mjs';
+import { checkLivePhotosActivation } from '../workers/facebook-live/check-live-photos-deployment.mjs';
 
 // Entirely simulated data and fetch. These are NOT captured or verified real Live responses.
 const fixture = JSON.parse(await readFile(new URL('./fixtures/facebook-page-posts.json', import.meta.url), 'utf8'));
@@ -142,6 +143,29 @@ test('separate activation guard requires explicit policy approval, valid receipt
     assert.throws(() => checkActivation({ ...config, account_id: '1'.repeat(32) }, record, account, LIVE_CONTRACT, now));
     assert.throws(() => checkActivation({ ...config, triggers: { crons: ['* * * * *'] } }, record, account, LIVE_CONTRACT, now));
     assert.throws(() => checkDeployment(config, account, 'existing-approved'));
+});
+
+test('combined live-video/photo profile keeps the approved Cron and flags; photo deploy alone would not', async () => {
+    const read = async f => JSON.parse(await readFile(new URL('../workers/facebook-live/' + f, import.meta.url), 'utf8'));
+    const combined = await read('wrangler.live-photos.existing-account.json'), video = await read('wrangler.video.activation.existing-account.json');
+    const photosOnly = await read('wrangler.photos.existing-account.json');
+    const account = combined.account_id, record = JSON.parse(receipt());
+    assert.equal(checkLivePhotosActivation(combined, record, account, LIVE_CONTRACT, now), true);
+    // Identical to the approved activation profile apart from the entry, AI binding and two photo flags.
+    const { ai, main, vars: { FB_PHOTO_IMPORT_ENABLED, FB_VISION_MODEL_LICENSE_ACCEPTED, ...videoVars }, ...rest } = combined;
+    assert.deepEqual({ ...rest, vars: videoVars }, (({ main: _m, ...v }) => v)(video));
+    assert.deepEqual([FB_PHOTO_IMPORT_ENABLED, FB_VISION_MODEL_LICENSE_ACCEPTED], ['false', 'false']);
+    assert.throws(() => checkLivePhotosActivation({ ...combined, vars: { ...combined.vars, FB_PHOTO_IMPORT_ENABLED: 'true' } }, record, account, LIVE_CONTRACT, now));
+    assert.throws(() => checkLivePhotosActivation({ ...combined, triggers: { crons: [] } }, record, account, LIVE_CONTRACT, now));
+    assert.throws(() => checkLivePhotosActivation({ ...combined, ai: undefined }, record, account, LIVE_CONTRACT, now));
+    assert.throws(() => checkLivePhotosActivation(combined, record, account, undefined, now));
+    // The stand-alone photo profile targets the same Worker name with no Cron: deploying it would stop polling.
+    assert.equal(photosOnly.name, video.name);
+    assert.deepEqual(photosOnly.triggers.crons, []);
+    const bundle = await build({ entryPoints: [new URL('../workers/facebook-live/live-photos-entry.ts', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')],
+        bundle: true, write: false, format: 'esm', platform: 'browser', external: ['cloudflare:workers'] });
+    const text = bundle.outputFiles[0].text;
+    assert.match(text, /PhotoImports/); assert.match(text, /VideoVerification/); assert.match(text, /as default/);
 });
 
 test('rejects unrelated, foreign-page, future, invalid-date, reel, share and foreign-host candidates', () => {

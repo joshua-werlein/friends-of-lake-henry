@@ -278,7 +278,11 @@ const description =
 
         <section class="card winnersCard enter-block delay-6">
             <h2 class="sectionTitle">Daily Winners</h2>
-            <p>November 1–30, 2026: drawings every day at 6:00 PM Central. Two prizes daily; a third on Fridays, Saturdays, Sundays and Thanksgiving (November 26). Winners appear after each drawing.</p>
+            <div class="winnersIntro">
+                <p><strong>November 1–30, 2026</strong> · Daily drawings at <strong>6:00 PM Central</strong></p>
+                <p>Two prizes daily. A third prize is drawn on Fridays, Saturdays, Sundays, and Thanksgiving (November 26).</p>
+                <p>Winners appear after each drawing.</p>
+            </div>
             <p id="winnerRefreshStatus" class="muted" aria-live="polite">Winners update automatically.</p>
             <nav class="monthNav" aria-label="Select raffle month">
                 <div class="monthMeta" aria-live="polite">
@@ -847,6 +851,17 @@ const description =
             margin-top: var(--section-gap);
             padding: 1.5rem;
         }
+
+        .winnersIntro{
+            display: flex;
+            flex-direction: column;
+            gap: .4rem;
+            margin: 0 0 1rem;
+            line-height: 1.55;
+            overflow-wrap: break-word;
+        }
+        .winnersIntro p{ margin: 0; }
+        .winnersIntro strong{ font-weight: 700; }
 
         .monthNav{
             display: grid;
