@@ -5,7 +5,7 @@ import { Miniflare } from 'miniflare';
 import { POST } from '../src/pages/api/admin/raffle/winner-prize.ts';
 import { GET } from '../src/pages/api/raffle/month.ts';
 import { onRequest } from '../src/middleware.ts';
-import { composeWinnerPrize, parseWinnerPrize } from '../src/lib/winner-prize.ts';
+import { composeWinnerPrize, parseWinnerPrize, prizeCells } from '../src/lib/winner-prize.ts';
 const cases = [
     { id:'2026-11-2026-11-01-360', ticket:360, name:'Tim Hartley', town:'La Crosse', category:'Firearm', description:'Auto-Ordnance Thompson 1927A-1, .45 ACP.' },
     { id:'2026-11-2026-11-01-894', ticket:894, name:'Troy Zigler', town:'Cashton', category:'Gift card', description:'$100 gift certificate from Safe & Secure Firearms.' },
@@ -48,4 +48,11 @@ test('middleware rejects unauthenticated and cross-origin prize edits before han
         const response=await onRequest({...base,request:new Request(base.url,{method:'POST',headers})},()=>{throw Error('must not run')});
         assert.equal(response.status,status);
     }
+});
+
+test('public prize cells hide category prefixes and separate verified placement without changing stored data',()=>{
+    assert.deepEqual(prizeCells('Firearm: Auto-Ordnance Thompson'),{place:'—',prize:'Auto-Ordnance Thompson'});
+    assert.deepEqual(prizeCells('Gift card: $100 gift certificate'),{place:'—',prize:'$100 gift certificate'});
+    assert.deepEqual(prizeCells('2nd place — Gift card: Verified certificate'),{place:'2nd',prize:'Verified certificate'});
+    assert.deepEqual(prizeCells(null),{place:'—',prize:'Not recorded'});
 });

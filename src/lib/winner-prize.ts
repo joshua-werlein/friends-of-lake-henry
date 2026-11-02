@@ -1,4 +1,9 @@
 export const prizeCategories = ['Firearm', 'Gift card', 'Cash', 'Other'] as const;
+export function prizeCells(value: string | null) {
+    const parsed = parseWinnerPrize(value);
+    return { place: parsed.position === null ? '—' : `${parsed.position}${parsed.position===1?'st':parsed.position===2?'nd':'rd'}`,
+        prize: parsed.description || 'Not recorded' };
+}
 export function parseWinnerPrize(value: string | null) {
     let text = value ?? '';
     const match = text.match(/^([123])(?:st|nd|rd) place(?:\s*[—–-]\s*|$)/);
