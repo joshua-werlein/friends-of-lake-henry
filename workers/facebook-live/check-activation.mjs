@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { checkVideoDeployment } from './check-video-deployment.mjs';
 import { checkDeployment } from './check-deployment.mjs';
 import { verificationValid } from '../../src/lib/server/raffle-selection.ts';
 import { raffleSeason } from '../../src/lib/server/raffle-season.ts';
@@ -8,7 +9,8 @@ export function checkActivation(config, receipt, account, approval, now = new Da
     if (approval !== 'tagged-page-video-v1') throw Error('Explicit approval of the tagged-video policy is required.');
     if (config.vars?.FB_AUTOMATION_ENABLED !== 'true' || config.vars?.FB_VIDEO_PROBE_ENABLED !== 'true'
         || JSON.stringify(config.triggers?.crons) !== JSON.stringify(['*/5 * * * *'])) throw Error('Activation requires exactly one five-minute Cron and both reviewed flags.');
-    checkDeployment({ ...config, vars: { ...config.vars, FB_AUTOMATION_ENABLED: 'false', FB_VIDEO_PROBE_ENABLED: 'false' },
+    const check = config.main === 'video-entry.ts' ? checkVideoDeployment : checkDeployment;
+    check({ ...config, vars: { ...config.vars, FB_AUTOMATION_ENABLED: 'false', FB_VIDEO_PROBE_ENABLED: 'false' },
         triggers: { crons: [] } }, account, 'existing-approved');
     if (!verificationValid(JSON.stringify(receipt), now, raffleSeason(config.vars))) throw Error('A current reviewed policy/playback/rollback receipt is required.');
     return true;
