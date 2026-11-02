@@ -1,5 +1,6 @@
 ---
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
+import { prizeCells } from "../lib/winner-prize";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, type LiveConfig } from "../lib/facebook";
 import { loadRaffleSelection } from "../lib/server/raffle-selection";
@@ -309,10 +310,11 @@ const description =
             </nav>
             <div id="winnersPanel" class="panel winnersPanel enter-block delay-7">
                 <p class="muted winnersScrollHint">Scroll the table sideways to see every winner detail.</p>
-                <div class="winnersTableWrap" role="region" aria-label="Raffle winners list" tabindex="0">
-                    <table class="winnersTable">
+                <div class="winnersTableWrap" id="publicWinnersTableWrap" role="region" aria-label="Raffle winners list" tabindex="0">
+                    <table class="winnersTable" id="publicWinnersTable">
                         <colgroup>
                             <col class="colDate" />
+                            <col class="colPlace" />
                             <col class="colPrize" />
                             <col class="colTicket" />
                             <col class="colName" />
@@ -322,7 +324,8 @@ const description =
                         <thead>
                         <tr>
                             <th scope="col">Date</th>
-                            <th scope="col">Place / prize</th>
+                            <th scope="col">Place</th>
+                            <th scope="col">Prize</th>
                             <th scope="col">Ticket</th>
                             <th scope="col">Name</th>
                             <th scope="col" class="thTown">Hometown</th>
@@ -342,7 +345,8 @@ const description =
                                         </span>
                                     </time>
                                 </td>
-                                <td class="tdPrize">{w.prize ?? "Not recorded"}</td>
+                                <td class="tdPlace">{prizeCells(w.prize).place}</td>
+                                <td class="tdPrize">{prizeCells(w.prize).prize}</td>
                                 <td>{w.ticketNumber}</td>
                                 <td class="tdName">{w.name}</td>
                                 <td class="tdTown">{w.town}</td>
@@ -370,7 +374,8 @@ const description =
         type="application/json"
         set:html={JSON.stringify(initial)}
     ></script>
-    <script type="module">
+    <script>
+        import { prizeCells } from "../lib/winner-prize";
         const initialEl = document.getElementById("raffleInitialState");
         const initial = /** @type {{monthKey:string, prevMonthKey:string|null, nextMonthKey:string|null}} */ (
             JSON.parse((initialEl?.textContent || "{}").trim())
@@ -528,8 +533,12 @@ const description =
 
                 const tdPrize = document.createElement("td");
                 tdPrize.className = "tdPrize";
-                tdPrize.textContent = String(w.prize ?? "Not recorded");
-                tr.append(tdDate, tdPrize, tdTicket, tdName, tdTown);
+                const cells = prizeCells(w.prize ?? null);
+                tdPrize.textContent = cells.prize;
+                const tdPlace = document.createElement("td");
+                tdPlace.className = "tdPlace";
+                tdPlace.textContent = cells.place;
+                tr.append(tdDate, tdPlace, tdPrize, tdTicket, tdName, tdTown);
                 tbody.appendChild(tr);
             }
             // when month changes, snap scroll back to left so Date is visible
@@ -1083,3 +1092,16 @@ const description =
 
 <script>import "../scripts/raffle-prize-calendar";</script>
 <style>.publicPrizeList{list-style:none;padding:0}.publicPrizeList :global(li){display:grid;grid-template-columns:7rem 1fr;gap:1rem;padding:.75rem 0;border-bottom:1px solid rgba(255,255,255,.16)}@media(max-width:550px){.publicPrizeList :global(li){grid-template-columns:1fr;gap:.25rem}}</style>
+<style is:global>
+#publicWinnersTableWrap{width:100%;padding:0;display:block;box-sizing:border-box}
+#publicWinnersTable{width:100%;min-width:960px;table-layout:fixed;transform:none}
+#publicWinnersTable col.colDate{width:7.25rem}
+#publicWinnersTable col.colPlace{width:4.5rem}
+#publicWinnersTable col.colPrize{width:24rem}
+#publicWinnersTable col.colTicket{width:4.5rem}
+#publicWinnersTable col.colName{width:9.5rem}
+#publicWinnersTable col.colTown{width:9rem}
+#publicWinnersTable td.tdPrize{white-space:normal;overflow-wrap:break-word;min-width:0;line-height:1.55}
+#publicWinnersTable .tdPlace{white-space:nowrap;font-variant-numeric:tabular-nums}
+#publicWinnersTable th:first-child,#publicWinnersTable td:first-child{padding-left:.75rem}
+</style>

@@ -186,11 +186,12 @@ export const prerender = false;
                 <div class="winnersList" style="margin-top: 1rem;">
                     <div class="muted" id="winnersCount" style="margin:0 0 .5rem;"></div>
                     <div class="winnersTableWrap" role="region" aria-label="Admin winners list" tabindex="0">
-                        <table class="winnersTable" id="winnersTable">
+                        <table class="winnersTable" id="winnersTable"><colgroup><col class="colDate"/><col class="colPlace"/><col class="colPrize"/><col class="colTicket"/><col class="colName"/><col class="colTown"/><col class="colActions"/></colgroup>
                             <thead>
                             <tr>
                                 <th>Date</th>
-                                <th>Place / prize</th>
+                                <th>Place</th>
+                                <th>Prize</th>
                                 <th>Ticket</th>
                                 <th>Name</th>
                                 <th>Town</th>
@@ -221,7 +222,8 @@ export const prerender = false;
     <script>import "../../scripts/raffle-prize-editor";</script>
     <script>import "../../scripts/raffle-prize-suggestions";</script>
     <script>import "../../scripts/raffle-orientation-admin";</script>
-    <script type="module">
+    <script>
+        import { prizeCells } from "../../lib/winner-prize";
         function currentMonthKeyChicago() {
             // en-CA => YYYY-MM formatting is easy to slice
             return new Intl.DateTimeFormat("en-CA", {
@@ -499,8 +501,12 @@ export const prerender = false;
                     tdActions.append(edit, btn);
 
                     const tdPrize = document.createElement("td");
-                    tdPrize.textContent = String(r.prize ?? "Not recorded");
-                    tr.append(tdDate, tdPrize, tdTicket, tdName, tdTown, tdActions);
+                    const cells = prizeCells(r.prize ?? null);
+                    tdPrize.className = "tdPrize";
+                    tdPrize.textContent = cells.prize;
+                    const tdPlace = document.createElement("td");
+                    tdPlace.textContent = cells.place;
+                    tr.append(tdDate, tdPlace, tdPrize, tdTicket, tdName, tdTown, tdActions);
                     tbody.appendChild(tr);
                     }
                 }
@@ -863,3 +869,12 @@ export const prerender = false;
     </style>
 </BaseLayout>
 
+
+<style is:global>
+#winnersTable{width:100%;min-width:1100px;table-layout:fixed}
+#winnersTable col.colDate{width:7rem}#winnersTable col.colPlace{width:4.5rem}
+#winnersTable col.colPrize{width:24rem}#winnersTable col.colTicket{width:4.5rem}
+#winnersTable col.colName{width:9rem}#winnersTable col.colTown{width:8rem}
+#winnersTable col.colActions{width:11rem}
+#winnersTable .tdPrize{white-space:normal;overflow-wrap:break-word;line-height:1.55}
+</style>
