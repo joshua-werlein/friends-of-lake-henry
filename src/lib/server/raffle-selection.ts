@@ -2,6 +2,7 @@ import { parseLiveConfig, normalizeFacebookVideoUrl, RAFFLE_LIVE_KEY, FACEBOOK_P
     FACEBOOK_API_VERSION, FACEBOOK_LIVE_CONTRACT, type LiveConfig } from '../facebook';
 import { AUTOMATIC_KEY } from './facebook-automation';
 import { raffleSeason, type SeasonEnv, type Season } from './raffle-season';
+import { offHoursReplayHealthy } from './raffle-discovery-schedule';
 
 export const VERIFICATION_KEY = 'raffle_live_verification';
 export const STATE_KEY = 'raffle_live_automation_state';
@@ -59,13 +60,16 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         || Date.parse(stage.observedAt) > time
         || stage.status !== 'video' || !['LIVE', 'VOD', 'UNKNOWN'].includes(String(stage.liveStatus))
         || time - Date.parse(stage.publishedAt) > 36 * 60 * 60 * 1000) return fallback('invalid-discovery');
-    // Reconfirm the SAME video each poll without rewriting stage/selection timestamps.
+    // During checks require fresh health. Off-hours retain only the last window's
+    // healthy closing verification; the next window must reverify the same video.
+    const retainedReplay = !!state && iso(state.lastVerifiedAt) && Number.isSafeInteger(state.lastAttemptAt)
+        && offHoursReplayHealthy(now, new Date(state.lastVerifiedAt), new Date(Number(state.lastAttemptAt)));
     if (!state || state.version !== 1 || state.paused !== false || state.failures !== 0
         || !['staged', 'unchanged', 'checking'].includes(String(state.status))
         || state.lastVerifiedVideoId !== stage.id || !iso(state.lastVerifiedAt)
-        || Date.parse(state.lastVerifiedAt) > time || time - Date.parse(state.lastVerifiedAt) > 10 * 60 * 1000
+        || Date.parse(state.lastVerifiedAt) > time || (!retainedReplay && time - Date.parse(state.lastVerifiedAt) > 10 * 60 * 1000)
         || !Number.isSafeInteger(state.lastAttemptAt) || Number(state.lastAttemptAt) > time
-        || time - Number(state.lastAttemptAt) > 10 * 60 * 1000) return fallback('detection-unavailable');
+        || (!retainedReplay && time - Number(state.lastAttemptAt) > 10 * 60 * 1000)) return fallback('detection-unavailable');
     return { ...base, config: { latestVideoUrl: stage.url, updatedAt: stage.observedAt }, source: 'automatic', reason: 'verified-discovery', videoMetadata: stage };
 }
 
