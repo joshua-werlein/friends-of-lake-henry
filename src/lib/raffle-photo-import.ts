@@ -103,8 +103,8 @@ export function compareWinner(row: DraftWinner, existing: ExistingWinner[]): Com
     if (!matches.length) return { status: 'missing', existingId: null, missingFields: [], conflicts: [], issues };
     const found = matches[0], missingFields: string[] = [], conflicts: string[] = [];
     for (const field of ['drawDate', 'ticketNumber', 'name', 'town'] as const) {
-        const old = field === 'ticketNumber' ? positiveTicket(found[field]) : normalized(found[field]);
-        const next = field === 'ticketNumber' ? ticket : normalized(row[field]);
+        const old = field === 'ticketNumber' ? positiveTicket(found[field]) : field === 'town' ? normalized(found.town).replace(/[\s,]+/g, '') : normalized(found[field]);
+        const next = field === 'ticketNumber' ? ticket : field === 'town' ? normalized(row.town).replace(/[\s,]+/g, '') : normalized(row[field]);
         if (!old) missingFields.push(field);
         else if (!next || old !== next) conflicts.push(field);
     }
