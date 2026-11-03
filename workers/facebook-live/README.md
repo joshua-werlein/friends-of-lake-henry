@@ -3,23 +3,34 @@
 This directory tracks the live-only implementation already deployed separately as
 `folh-facebook-live-discovery`. Photo importing and AI bindings are excluded.
 
-The unchanged `*/5 * * * *` cron does actual discovery only in November 2026,
-17:30 inclusive to 19:30 exclusive in `America/Chicago`. The last check is 19:25.
+The temporary `* * * * *` cron does actual discovery only in November 2026,
+17:55 through 18:10 inclusive in `America/Chicago`. The entire 18:10 minute is
+eligible, so small cron delays within that minute are tolerated; 18:11 exits.
 The timezone gate precedes every KV/Meta operation, handles UTC midnight and DST,
 and never activates an unconfirmed future season. Completed checks persist one
 final heartbeat, including unchanged results and provider failures. Interrupted
 checks leave the previous health timestamp unchanged.
 
-Expected normal daily usage: 24 state writes and 72 KV reads, plus selection writes
+Expected normal daily usage: 16 state writes and 48 KV reads, plus selection writes
 when a candidate changes. Off-hours: zero KV/Meta operations. Public page requests,
 administrator activity and retries are separate. Public polling remains 15 seconds.
 The Worker never writes the saved manual video.
 
-Pages must be released first. Its resolver retains matching healthy closing
-verification from 19:20 or 19:25 overnight, preserving receipt, identity, failure,
+Pages must be released first. Its resolver retains matching successful
+verification from the last scheduled window overnight, preserving receipt, identity, failure,
 pause, season and 36-hour video-age checks. The next drawing window requires fresh
-health. Failed closing checks fall back to manual. A broadcast first posted after
-19:25 needs manual selection or discovery in the next confirmed window.
+health. Failed closing checks fall back to manual. A broadcast first available
+after the last 18:10 check needs manual selection or discovery in the next confirmed
+window. Backoff near closing, a delayed cron arriving at 18:11, or Facebook feed
+latency can also cause an evening's discovery to be missed. Empty responses never
+clear the saved video. A successful verification earlier in the window remains
+usable off-hours if subsequent ticks were missed, but an explicitly failed final
+check retains the existing manual fallback. The 36-hour video-age and season/receipt
+expiry limits remain; this does not authorize playback beyond their expiration.
+
+This is a temporary schedule until Facebook webhook integration is implemented
+and verified. The 16 checks are discovery cycles, not individual HTTP requests:
+each cycle can read Page identity, posts and video metadata.
 
 ## Deployment after explicit approval only
 
@@ -43,7 +54,9 @@ health. Failed closing checks fall back to manual. A broadcast first posted afte
 6. Publish with the existing Wrangler installation:
    `wrangler deploy --config workers/facebook-live/wrangler.video.activation.existing-account.json`.
    Use this active profile, not the similarly named disabled verification profile.
-   Keep both existing flags true, the single cron unchanged, and only CONFIG bound.
+   Keep both existing flags true and only CONFIG bound. Change the sole cron from
+   `*/5 * * * *` to `* * * * *` and the polling interval from 300 to 60 seconds.
+   Other variables, bindings, the encrypted token, manual video and data stay intact.
    Do not run staging diagnostics or upload a replacement token.
 7. Observe an in-window check and an off-hours cron: one final heartbeat versus
    `outside-drawing-window` with no KV/Meta operations. Verify saved manual video

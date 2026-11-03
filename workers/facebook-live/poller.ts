@@ -4,7 +4,7 @@ import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTR
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
 import { inDiscoveryWindow } from '../../src/lib/server/raffle-discovery-schedule';
-const CRON_EARLY_SLACK_MS = 60_000; // well under the 300-second minimum interval
+const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
 export { STATE_KEY, VERIFICATION_KEY, verificationValid };
 type Store = { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
 export type Env = SeasonEnv & {
@@ -54,7 +54,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
     if (env.FB_AUTOMATION_ENABLED !== 'true') return { status: 'disabled' };
     const now = dependencies.now ?? new Date();
     // This gate precedes every KV operation and every Facebook request. The cron
-    // stays at */5; off-hours and unconfirmed months are zero-I/O invocations.
+    // runs every minute; off-hours and unconfirmed months are zero-I/O invocations.
     if (!inDiscoveryWindow(now)) return { status: 'outside-drawing-window' };
     const time = now.getTime();
     const season = raffleSeason(env);
@@ -64,8 +64,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         || !/^#[A-Za-z][A-Za-z0-9_]{2,80}$/.test(env.FB_RAFFLE_MARKER ?? '')) return { status: 'configuration-error' };
     if (!env.CONFIG) return { status: 'storage-unavailable' };
     if (!env.FB_PAGE_ACCESS_TOKEN) return { status: 'missing-token' };
-    const interval = Number(env.FB_POLL_INTERVAL_SECONDS ?? '300');
-    if (!Number.isInteger(interval) || interval < 300 || interval > 86400) return { status: 'configuration-error' };
+    const interval = Number(env.FB_POLL_INTERVAL_SECONDS ?? '60');
+    if (!Number.isInteger(interval) || interval < 60 || interval > 86400) return { status: 'configuration-error' };
     const accessRevision = env.FB_ACCESS_REVISION ?? '1';
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(accessRevision)) return { status: 'configuration-error' };
     const store = env.CONFIG;
@@ -74,8 +74,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         if (previousState?.accessRevision !== accessRevision) previousState = null;
         if (previousState?.paused) return { status: 'access-paused' };
         // Cron ticks land a few seconds either side of the minute. Without slack, a tick that arrives
-        // just before lastAttempt+interval is skipped and healthy polling silently halves (observed
-        // 2026-11-02: 01:35:04 then 01:45:03), letting public health age past its 10-minute window.
+        // just before lastAttempt+interval is skipped and healthy polling silently halves.
         // Backoff/Retry-After schedules (failures > 0) are honored exactly.
         const slack = previousState && previousState.failures === 0 ? CRON_EARLY_SLACK_MS : 0;
         if (previousState && time + slack < previousState.nextAttemptAt) return { status: 'not-due' };

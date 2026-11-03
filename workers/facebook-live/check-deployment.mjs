@@ -24,7 +24,7 @@ export function checkDeployment(config, expectedAccount, profile = 'new-account'
     if (Object.keys(config.vars ?? {}).some(key => !vars.has(key))) throw Error('Unexpected variables or inline credentials. Use an encrypted secret.');
     if (config.vars?.FB_GRAPH_PAGE_ID !== '144051422124740' || config.vars?.FB_PUBLIC_PAGE_ID !== '61552199315213'
         || config.vars?.FB_RAFFLE_MARKER !== '#LakeHenryRaffle' || !raffleSeason(config.vars)
-        || config.vars?.FB_POLL_INTERVAL_SECONDS !== '300') throw Error('Verify Page identities, required hashtag, season and five-minute interval.');
+        || config.vars?.FB_POLL_INTERVAL_SECONDS !== '60') throw Error('Verify Page identities, required hashtag, season and one-minute interval.');
     return true;
 }
 if (process.argv[1]?.replaceAll('\\', '/').endsWith('/check-deployment.mjs')) {

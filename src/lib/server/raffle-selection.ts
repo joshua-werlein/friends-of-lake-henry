@@ -61,7 +61,7 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         || stage.status !== 'video' || !['LIVE', 'VOD', 'UNKNOWN'].includes(String(stage.liveStatus))
         || time - Date.parse(stage.publishedAt) > 36 * 60 * 60 * 1000) return fallback('invalid-discovery');
     // During checks require fresh health. Off-hours retain only the last window's
-    // healthy closing verification; the next window must reverify the same video.
+    // successful verification; the next window must reverify the same video.
     const retainedReplay = !!state && iso(state.lastVerifiedAt) && Number.isSafeInteger(state.lastAttemptAt)
         && offHoursReplayHealthy(now, new Date(state.lastVerifiedAt), new Date(Number(state.lastAttemptAt)));
     if (!state || state.version !== 1 || state.paused !== false || state.failures !== 0

@@ -7,7 +7,7 @@
   "preview_urls": false,
   "triggers": {
     "crons": [
-      "*/5 * * * *"
+      "* * * * *"
     ]
   },
   "vars": {
@@ -16,7 +16,7 @@
     "FB_GRAPH_PAGE_ID": "144051422124740",
     "FB_PUBLIC_PAGE_ID": "61552199315213",
     "FB_RAFFLE_MARKER": "#LakeHenryRaffle",
-    "FB_POLL_INTERVAL_SECONDS": "300",
+    "FB_POLL_INTERVAL_SECONDS": "60",
     "FB_ACCESS_REVISION": "1",
     "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
     "FB_SEASON_END": "2026-12-01T00:00:00-06:00"
