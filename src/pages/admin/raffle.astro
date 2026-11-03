@@ -76,7 +76,7 @@ export const prerender = false;
                     <h2 class="h2-zero">Daily winners</h2>
                     <div class="muted">Raffle</div>
                 </div>
-                <p><a class="pill" href="/admin/raffle/prizes">Review prize calendar</a></p>
+                <p><a class="pill" href="/admin/raffle/prizes">Review prize calendar</a> <a class="pill" href="/admin/raffle/photo-imports">Facebook photo imports</a></p>
                 <div class="formGrid" style="margin-top: .85rem;">
                     <div class="field">
                         <label class="label" for="raffleMonth">Raffle month</label>
@@ -219,6 +219,19 @@ export const prerender = false;
             <div class="actions span2"><button class="btn" type="submit">Approve and save prize</button><button class="btn" type="button" id="cancelPrizeEdit">Cancel</button></div>
         </form>
     </dialog>
+    <dialog id="winnerDetailsDialog" aria-labelledby="winnerDetailsHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;background:#16202b;color:#fff;padding:1.5rem;">
+        <h2 id="winnerDetailsHeading">Edit winner details</h2>
+        <form id="winnerDetailsForm" class="formGrid">
+            <div class="field"><label for="editWinnerDate">Draw date</label><input id="editWinnerDate" class="input" type="date" required /></div>
+            <div class="field"><label for="editWinnerTicket">Ticket</label><input id="editWinnerTicket" class="input" inputmode="numeric" pattern="[0-9]+" required /></div>
+            <div class="field span2"><label for="editWinnerName">Name</label><input id="editWinnerName" class="input" maxlength="200" required /></div>
+            <div class="field span2"><label for="editWinnerTown">Hometown</label><input id="editWinnerTown" class="input" maxlength="200" required /></div>
+            <p class="muted span2">Prize and place are edited with “Edit prize”.</p>
+            <p id="editWinnerStatus" class="span2" role="status"></p>
+            <div class="actions span2"><button class="btn" type="submit">Save winner</button><button class="btn" type="button" id="cancelWinnerEdit">Cancel</button></div>
+        </form>
+    </dialog>
+    <script>import "../../scripts/raffle-winner-editor";</script>
     <script>import "../../scripts/raffle-prize-editor";</script>
     <script>import "../../scripts/raffle-prize-suggestions";</script>
     <script>import "../../scripts/raffle-orientation-admin";</script>
@@ -498,7 +511,13 @@ export const prerender = false;
                     edit.textContent = "Edit prize";
                     edit.setAttribute("aria-label", `Edit prize for ticket ${r.ticketNumber}, ${r.name}`);
                     edit.addEventListener("click", () => window.dispatchEvent(new CustomEvent("raffle:edit-prize", {detail:r})));
-                    tdActions.append(edit, btn);
+                    const details = document.createElement("button");
+                    details.type = "button";
+                    details.className = "pill";
+                    details.textContent = "Edit details";
+                    details.setAttribute("aria-label", `Edit date, ticket, name or hometown for ticket ${r.ticketNumber}, ${r.name}`);
+                    details.addEventListener("click", () => window.dispatchEvent(new CustomEvent("raffle:edit-winner", {detail:r})));
+                    tdActions.append(details, edit, btn);
 
                     const tdPrize = document.createElement("td");
                     const cells = prizeCells(r.prize ?? null);
@@ -541,6 +560,7 @@ export const prerender = false;
             }
 
             window.addEventListener("raffle:prize-saved", loadWinners);
+            window.addEventListener("raffle:winner-edited", loadWinners);
             const params = new URLSearchParams(location.search);
 
             function setPosterStatus(type, msg) {

@@ -134,6 +134,31 @@ export const POST: APIRoute = async ({ request, locals }) => {
         await DB.prepare(`DELETE FROM raffle_winners WHERE id = ?`).bind(id).run();
         return json({ ok: true }, 200);
     }
+    if (action === "update") {
+        // Corrects date/ticket/name/hometown on one winner (including automatically imported ones). The expected
+        // values guard against overwriting a concurrent edit; the prize is edited separately.
+        const id = (data?.id ?? "").toString().trim();
+        const next = data?.winner ?? {}, expected = data?.expected ?? {};
+        const drawDate = String(next.drawDate ?? "").trim(), ticketNumber = Number(String(next.ticketNumber ?? "").trim());
+        const name = String(next.name ?? "").trim(), town = String(next.town ?? "").trim();
+        if (!id) return json({ ok: false, error: "Missing id" }, 400);
+        if (!isRealIsoDate(drawDate)) return json({ ok: false, error: "drawDate must be a valid YYYY-MM-DD date" }, 400);
+        if (!Number.isSafeInteger(ticketNumber) || ticketNumber <= 0) return json({ ok: false, error: "ticketNumber must be a positive whole number" }, 400);
+        if (name.length < 2 || town.length < 2 || name.length > 200 || town.length > 200) return json({ ok: false, error: "Name and hometown must be 2–200 characters" }, 400);
+        try {
+            const result = await DB.prepare(`UPDATE raffle_winners SET raffle_key=?, draw_date=?, ticket_number=?, winner_name=?, town=?
+                WHERE id=? AND draw_date=? AND ticket_number=? AND winner_name=? AND town=?`)
+                .bind(drawDate.slice(0, 7), drawDate, ticketNumber, name, town, id,
+                    String(expected.drawDate ?? ""), Number(expected.ticketNumber), String(expected.name ?? ""), String(expected.town ?? ""))
+                .run();
+            if (result.meta.changes !== 1) return json({ ok: false, error: "This winner changed or was removed. Reload and try again." }, 409);
+        } catch (err: any) {
+            const msg = String(err?.message ?? "");
+            if (msg.includes("UNIQUE") || msg.includes("constraint")) return json({ ok: false, error: "That ticket number already exists for that day." }, 409);
+            return json({ ok: false, error: "DB update failed" }, 500);
+        }
+        return json({ ok: true, id }, 200);
+    }
     if (action !== "add") return json({ ok: false, error: "Unknown action" }, 400);
     const drawDate = (data?.drawDate ?? "").toString().trim();
     const raffleKey = drawDate.slice(0, 7); // "YYYY-MM"

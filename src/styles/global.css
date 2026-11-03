@@ -385,6 +385,16 @@ textarea::placeholder {
     color: var(--focus-outline);
 }
 
+/* The open dropdown list is drawn by the OS, which ignores the translucent glass background
+   but keeps the light text, leaving white-on-white options. Give the list an opaque dark surface. */
+select { color-scheme: dark; }
+select option,
+select optgroup {
+    background-color: #16202b;
+    color: #fff;
+}
+select option:disabled { color: #9aa4b0; }
+
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {

@@ -1,0 +1,90 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+export const prerender=false;
+---
+<BaseLayout title="Admin | Facebook photo imports">
+<main class="container" style="--maxw:1100px">
+    <section class="card">
+        <a class="pill" href="/admin/raffle">Back to raffle admin</a>
+        <h1>Facebook winner-photo imports</h1>
+        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published; they are listed here with the reason. Correct or add them in raffle admin, then requeue the post if needed.</p>
+        <form id="queueForm" class="panel">
+            <label>Queue a Facebook post link<input class="input" id="queueSource" placeholder="https://www.facebook.com/61552199315213/posts/…" maxlength="2000" /></label>
+            <button class="btn" type="submit">Queue post</button>
+            <p class="muted">Queued posts are processed on the importer's next two-minute run.</p>
+        </form>
+        <p id="importStatus" role="status"></p>
+        <h2>Photos</h2>
+        <div id="importList"></div>
+        <h2>Posts</h2>
+        <div class="tableWrap"><table class="importTable"><thead><tr><th>Post</th><th>Source</th><th>Status</th><th>Attempts</th><th>Error</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
+    </section>
+</main>
+<style>
+    .importTable{width:100%;border-collapse:collapse;font-size:.95rem}
+    .importTable th,.importTable td{padding:.45rem .5rem;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+    .tableWrap{overflow-x:auto}
+    .importCard{border:1px solid var(--border);border-radius:12px;padding:.8rem 1rem;margin:.75rem 0}
+    .outcome-inserted{color:#7ee2a8}.outcome-rejected{color:#ffb4a8}.outcome-held{color:#ffd479}
+</style>
+<script>
+    const list = document.getElementById('importList')!, posts = document.getElementById('postRows')!, status = document.getElementById('importStatus')!;
+    const cell = (text: string, cls = '') => { const td = document.createElement('td'); td.textContent = text; if (cls) td.className = cls; return td; };
+    const local = (iso: string) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago' }) : '';
+    async function requeue(postId: string) {
+        status.textContent = 'Queuing…';
+        const res = await fetch('/api/admin/raffle/photo-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'requeue', postId }) });
+        const data = await res.json().catch(() => ({}));
+        status.textContent = res.ok && data.ok ? (data.queued ? 'Queued. It will run within two minutes.' : 'Already queued or processing.') : (data.error ?? 'Unable to queue.');
+        await load();
+    }
+    async function load() {
+        const res = await fetch('/api/admin/raffle/photo-imports', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) { status.textContent = data.error ?? 'Unable to load imports.'; return; }
+        list.replaceChildren();
+        if (!data.imports.length) list.textContent = 'No photos processed yet.';
+        for (const imp of data.imports) {
+            const card = document.createElement('div'); card.className = 'importCard';
+            const head = document.createElement('p');
+            const link = document.createElement('a'); link.href = `https://www.facebook.com/photo/?fbid=${imp.photoId}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = `Photo ${imp.photoId}`;
+            head.append(link, ` · ${imp.status} · ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : []));
+            card.append(head);
+            if (imp.rows.length) {
+                const table = document.createElement('table'); table.className = 'importTable';
+                table.innerHTML = '<thead><tr><th>#</th><th>Outcome</th><th>Date</th><th>Place</th><th>Ticket</th><th>Name</th><th>Town</th><th>Prize</th><th>Reason</th></tr></thead>';
+                const body = document.createElement('tbody');
+                for (const r of imp.rows) {
+                    const tr = document.createElement('tr');
+                    tr.append(cell(String(r.rowNumber)), cell(r.outcome, 'outcome-' + r.outcome), cell(r.row.drawDate), cell(r.row.position ?? '—'),
+                        cell(r.row.ticketNumber), cell(r.row.name), cell(r.row.town), cell(r.prize ?? r.row.prize ?? ''), cell(r.reasons.join('; ')));
+                    body.append(tr);
+                }
+                table.append(body);
+                const wrap = document.createElement('div'); wrap.className = 'tableWrap'; wrap.append(table); card.append(wrap);
+            }
+            list.append(card);
+        }
+        posts.replaceChildren();
+        for (const p of data.posts) {
+            const tr = document.createElement('tr');
+            const action = document.createElement('td');
+            if (['failed', 'done', 'ignored', 'retry'].includes(p.status)) {
+                const b = document.createElement('button'); b.type = 'button'; b.className = 'pill'; b.textContent = 'Requeue';
+                b.addEventListener('click', () => void requeue(p.postId)); action.append(b);
+            }
+            tr.append(cell(p.postId), cell(p.source), cell(p.status), cell(String(p.attempts)), cell(p.errorCode ?? ''), cell(local(p.updatedAt)), action);
+            posts.append(tr);
+        }
+    }
+    document.getElementById('queueForm')!.addEventListener('submit', async e => {
+        e.preventDefault();
+        const source = (document.getElementById('queueSource') as HTMLInputElement).value;
+        const res = await fetch('/api/admin/raffle/photo-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'queue', source }) });
+        const data = await res.json().catch(() => ({}));
+        status.textContent = res.ok && data.ok ? 'Queued. It will run within two minutes.' : (data.error ?? 'Unable to queue.');
+        await load();
+    });
+    void load();
+</script>
+</BaseLayout>

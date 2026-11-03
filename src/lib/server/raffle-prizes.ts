@@ -2,7 +2,12 @@ import type { D1Database } from '@cloudflare/workers-types';
 import { chicagoDatetimeLocalToUtcIso } from '../datetime';
 import { cleanPrizeDescription } from '../winner-prize';
 export type ScheduledPrize = { id:string; drawDate:string; category:string; position:number|null; description:string;
-    source:'event'|'supplement'; status:'approved'|'draft'|'rejected'; eventId?:string; notes:string; version?:number };
+    source:'event'|'supplement'|'daily'; status:'approved'|'draft'|'rejected'; eventId?:string; notes:string; version?:number };
+// Recurring prizes printed on a month's verified poster for every drawing day. They attach only to dates
+// that already have a published main-prize event, so a month without an event calendar gets none.
+export const DAILY_PRIZES:Record<string,{category:string;description:string}[]>={
+    '2026-11':[{category:'Gift card',description:'$100 gift certificate from Safe & Secure Firearms'}],
+};
 export const validMonth = (v:unknown):v is string => typeof v==='string' && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(v);
 export function validDrawDate(v:unknown,month:string):v is string {
     return typeof v==='string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && v.slice(0,7)===month
@@ -29,13 +34,15 @@ export async function prizeSchedule(db:D1Database,month:string,includeDrafts=fal
         if(bonus) main.push({id:'event-bonus:'+e.id,eventId:e.id,drawDate:date,category:'Bonus drawing',position:null,
             description:bonus,source:'event',status:'approved',notes:String(e.summary)});
     }
+    for(const date of new Set(main.map(p=>p.drawDate))) for(const [i,d] of (DAILY_PRIZES[month]??[]).entries())
+        main.push({id:`daily:${date}:${i}`,drawDate:date,category:d.category,position:null,description:d.description,source:'daily',status:'approved',notes:'Printed daily on the verified raffle poster.'});
     const supplement=await db.prepare(`SELECT id,draw_date AS drawDate,category,position,description,notes,status,version FROM raffle_prize_supplements
         WHERE raffle_key=? ${includeDrafts?'':"AND status='approved'"} ORDER BY draw_date,category,position`).bind(month).all<any>();
     return [...main,...supplement.results.map(v=>({...v,source:'supplement' as const}))]
         .sort((a,b)=>a.drawDate.localeCompare(b.drawDate)||rank(a)-rank(b)||a.category.localeCompare(b.category)||(a.position??99)-(b.position??99));
 }
-// Same-day order: published main prize, published bonus drawing, then approved supplements.
-const rank=(p:ScheduledPrize)=>p.category==='Main prize'?0:p.category==='Bonus drawing'?1:2;
+// Same-day order: published main prize, published bonus drawing, poster daily prize, then approved supplements.
+const rank=(p:ScheduledPrize)=>p.category==='Main prize'?0:p.category==='Bonus drawing'?1:p.source==='daily'?2:3;
 export function suggestPrizes(prizes:ScheduledPrize[],drawDate:string,position:number|null=null) {
     const options=prizes.filter(p=>p.status==='approved' && p.drawDate===drawDate && (position===null || p.position===null || p.position===position));
     return { status:options.length===0?'unavailable':options.length===1?'review-suggestion':'selection-required',options,

@@ -24,7 +24,7 @@ test('30 real published event prizes match Central drawing dates; no event copyi
     const main=rows.filter(v=>v.category==='Main prize'),bonus=rows.filter(v=>v.category==='Bonus drawing');
     assert.equal(main.length,30);assert.equal(main[0].drawDate,'2026-11-01');assert.equal(main.at(-1).drawDate,'2026-11-30');
     assert.equal(new Set(main.map(v=>v.drawDate)).size,30); // one main prize per Central drawing date
-    assert.ok(rows.every(v=>v.source==='event'&&v.position===null));
+    assert.ok(rows.every(v=>['event','daily'].includes(v.source)&&v.position===null)); // daily = poster's $100 Safe & Secure certificate
     // Bonus drawings come from published summaries, read-only, never from supplements.
     assert.equal(bonus.length,13);
     assert.deepEqual(bonus.find(v=>v.drawDate==='2026-11-26'),{...bonus.find(v=>v.drawDate==='2026-11-26'),description:'Gun Safe',eventId:main.find(v=>v.drawDate==='2026-11-26').eventId});
@@ -38,7 +38,7 @@ test('supplements remain private until approved, deduplicate and never alter eve
     const {DB,ctx}=await setup(t),before=(await DB.prepare('SELECT * FROM events ORDER BY id').all()).results;
     const value={drawDate:'2026-11-01',category:'Gift card',position:null,description:'Verified supplemental gift certificate',notes:''};
     const saved=await saveSupplement(DB,'2026-11',value);
-    const base=(await prizeSchedule(DB,'2026-11')).length;assert.equal(base,43); // 30 main + 13 bonus; drafts stay private
+    const base=(await prizeSchedule(DB,'2026-11')).length;assert.equal(base,73); // 30 main + 13 bonus + 30 daily poster prizes; drafts stay private
     assert.equal((await saveSupplement(DB,'2026-11',value)).duplicate,true);
     assert.equal((await saveSupplement(DB,'2026-11',{...value,category:'Other',description:'gun safe'})).duplicate,false); // different date
     assert.equal((await saveSupplement(DB,'2026-11',{...value,drawDate:'2026-11-26',category:'Other',description:' GUN SAFE '})).duplicate,true); // already a published bonus
