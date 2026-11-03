@@ -25,5 +25,7 @@
       "id": "b70df87ff3db4230a621d4a39ab24ff7"
     }
   ],
-  "account_id": "aa86268490e681cccb3a41a62093e2aa"
+  "account_id": "aa86268490e681cccb3a41a62093e2aa",
+  "durable_objects": { "bindings": [{ "name": "DISCOVERY_SCHEDULER", "class_name": "DiscoveryScheduler" }] },
+  "migrations": [{ "tag": "discovery-scheduler-v1", "new_sqlite_classes": ["DiscoveryScheduler"] }]
 }

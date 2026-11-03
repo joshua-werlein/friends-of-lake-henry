@@ -5,7 +5,11 @@ const raffleSeason = vars => {
     return Number.isFinite(start) && Number.isFinite(end) && start < end && end - start <= 366 * 86400000;
 };
 export function checkDeployment(config, expectedAccount, profile = 'new-account') {
-    const fields = new Set(['$schema', 'name', 'main', 'compatibility_date', 'workers_dev', 'preview_urls', 'triggers', 'vars', 'kv_namespaces', 'account_id']);
+    const fields = new Set(['$schema', 'name', 'main', 'compatibility_date', 'workers_dev', 'preview_urls', 'triggers', 'vars', 'kv_namespaces', 'account_id', 'durable_objects', 'migrations']);
+    if (config.durable_objects !== undefined || config.migrations !== undefined) {
+        if (JSON.stringify(config.durable_objects) !== JSON.stringify({ bindings: [{ name: 'DISCOVERY_SCHEDULER', class_name: 'DiscoveryScheduler' }] })
+            || JSON.stringify(config.migrations) !== JSON.stringify([{ tag: 'discovery-scheduler-v1', new_sqlite_classes: ['DiscoveryScheduler'] }])) throw Error('Only the reviewed SQLite discovery coordinator migration and binding are allowed.');
+    }
     if (Object.keys(config).some(key => !fields.has(key)) || config.main !== 'index.ts') throw Error('Unexpected deployment settings or entry point. Review isolation before deployment.');
     const oldAccount = 'aa86268490e681cccb3a41a62093e2aa';
     const oldConfig = 'b70df87ff3db4230a621d4a39ab24ff7';

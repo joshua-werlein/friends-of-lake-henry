@@ -50,7 +50,7 @@ function previousIdentity(raw: string | null): { id: string; publishedAt: string
 }
 
 /** Staging only. There is deliberately no code path that writes/deletes raffle_live. */
-export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number } = {}): Promise<Outcome> {
+export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number; nextScheduledAt?: number } = {}): Promise<Outcome> {
     if (env.FB_AUTOMATION_ENABLED !== 'true') return { status: 'disabled' };
     const now = dependencies.now ?? new Date();
     // This gate precedes every KV operation and every Facebook request. The cron
@@ -76,9 +76,9 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         // Cron ticks land a few seconds either side of the minute. Without slack, a tick that arrives
         // just before lastAttempt+interval is skipped and healthy polling silently halves.
         // Backoff/Retry-After schedules (failures > 0) are honored exactly.
-        const slack = previousState && previousState.failures === 0 ? CRON_EARLY_SLACK_MS : 0;
+        const slack = previousState && previousState.failures === 0 && dependencies.nextScheduledAt === undefined ? CRON_EARLY_SLACK_MS : 0;
         if (previousState && time + slack < previousState.nextAttemptAt) return { status: 'not-due' };
-        const state: State = { version: 1, accessRevision, lastAttemptAt: time, nextAttemptAt: time + interval * 1000,
+        const state: State = { version: 1, accessRevision, lastAttemptAt: time, nextAttemptAt: dependencies.nextScheduledAt ?? time + interval * 1000,
             failures: previousState?.failures ?? 0, status: 'checking', paused: false,
             lastVerifiedVideoId: previousState?.lastVerifiedVideoId, lastVerifiedAt: previousState?.lastVerifiedAt };
         // Keep in-progress state in memory. Persist one completed outcome below,
