@@ -26,6 +26,7 @@ export const GET: APIRoute = async ({ site, locals }) => {
         "/contact",
         "/photos",
         "/privacy",
+        "/data-deletion",
         "/terms",
     ];
 

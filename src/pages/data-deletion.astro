@@ -1,0 +1,100 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const title = "Data Deletion Instructions — Friends of Lake Henry";
+const description =
+    "How to request deletion of personal information associated with the Friends of Lake Henry website and Facebook Page integration.";
+---
+
+<BaseLayout title={title} description={description}>
+    <div class="container" style="--maxw: 900px;">
+        <section class="card enter-block" style="margin-top: var(--section-gap);" aria-labelledby="deletionHeading">
+            <div class="panel deletionContent">
+                <h1 id="deletionHeading" class="h1-tight">Data Deletion Instructions</h1>
+                <p class="lead">
+                    You can ask Friends of Lake Henry to delete personal information associated with our website
+                    and its Facebook Page integration. You do not need a website account or a Facebook login to make a request.
+                </p>
+
+                <h2>How to request deletion</h2>
+                <ol>
+                    <li>
+                        Email <a href="mailto:friendsoflakehenryblair@gmail.com?subject=Data%20Deletion%20Request">friendsoflakehenryblair@<wbr />gmail.com</a>.
+                    </li>
+                    <li>Use the subject line <strong>Data Deletion Request</strong>.</li>
+                    <li>
+                        Identify the information you want deleted and provide enough detail for us to locate it.
+                        For example, include the email address used for a contact submission, a photo or page link,
+                        or the drawing date and ticket number for a raffle winner entry. Let us know whether you are
+                        requesting deletion of your own information or acting on someone else’s behalf.
+                    </li>
+                </ol>
+                <p>
+                    Please do not include passwords, payment details, or copies of identity documents in your initial email.
+                </p>
+
+                <h2>Information your request can cover</h2>
+                <ul>
+                    <li><strong>Contact submissions:</strong> your name, email address, and message.</li>
+                    <li>
+                        <strong>Submitted photos:</strong> the image and associated information, such as a caption,
+                        alternative text, or submitted-by name.
+                    </li>
+                    <li>
+                        <strong>Facebook-derived raffle information:</strong> winner names, hometowns, ticket numbers,
+                        prize information, and related announcement images or processing records, where applicable.
+                        Include the relevant Facebook post or video link if it helps identify the information.
+                    </li>
+                </ul>
+
+                <h2>Verification and review</h2>
+                <p>
+                    Before deleting information, we may request reasonable verification of your identity or your
+                    authority to make the request. We use the information you provide to locate the records,
+                    verify the request, and communicate with you about it.
+                </p>
+
+                <h2>Records we may need to retain</h2>
+                <p>
+                    Some records may need to be retained for applicable legal, raffle, or administrative obligations.
+                    We cannot promise deletion where retention is legally required. We will review your request
+                    and explain any retention requirements or other limitations that apply.
+                </p>
+
+                <h2>Facebook posts and account information</h2>
+                <p>
+                    Deleting information from this website does not delete the original Facebook post, photo, video,
+                    or information in your Facebook account. Those records are controlled separately on Facebook.
+                    To request changes to an original post, contact its owner or use Facebook’s own privacy and deletion controls.
+                </p>
+
+                <p>
+                    Read our <a href="/privacy">Privacy Policy</a> for more about how we handle information,
+                    or visit our <a href="/contact">Contact page</a> for general questions.
+                </p>
+            </div>
+        </section>
+    </div>
+</BaseLayout>
+
+<style>
+    .deletionContent {
+        background: rgba(7, 15, 23, .9);
+        overflow-wrap: anywhere;
+    }
+
+    .deletionContent a {
+        color: #b9dcff;
+        text-decoration: underline;
+        text-underline-offset: .18em;
+    }
+
+    .deletionContent a:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 3px;
+    }
+
+    li + li {
+        margin-top: .65rem;
+    }
+</style>

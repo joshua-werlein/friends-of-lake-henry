@@ -9,7 +9,7 @@ const description =
 <BaseLayout title={title} description={description}>
     <div class="container" style="--maxw: 900px;">
         <section class="card enter-block" style="margin-top: var(--section-gap);">
-            <div class="panel">
+            <div class="panel privacyContent">
                 <h1 class="h1-tight">Privacy Policy</h1>
                 <p class="lead">
                     Friends of Lake Henry (“we,” “our,” or “us”) is committed to protecting your privacy.
@@ -36,7 +36,21 @@ const description =
                 </ul>
                 <p>Submitted photos are reviewed before being published to the public photo gallery.</p>
 
-                <h3>3. Technical and Security Information</h3>
+                <h3>3. Facebook Page and Raffle Information</h3>
+                <p>
+                    We use our organization’s Facebook Page integration to find drawing videos and winner announcements
+                    for the raffle website. This may involve reading public Page post text, publication dates,
+                    post and video identifiers, video availability information, and announcement images.
+                    Visitors do not need to sign in with Facebook to use this website.
+                </p>
+                <p>
+                    We process winner-announcement images to identify information such as winner names, hometowns,
+                    ticket numbers, and prize details. Results that pass our automated checks may be published on the
+                    raffle page; uncertain or conflicting results are held for administrator review. We also keep
+                    related processing records to support review and prevent duplicate entries.
+                </p>
+
+                <h3>4. Technical and Security Information</h3>
                 <p>
                     To protect the website and prevent spam or abuse, we process limited technical information, including IP address
                     and request metadata. This information is used for security, rate limiting, and abuse prevention and is not used
@@ -48,6 +62,7 @@ const description =
                 <ul>
                     <li><strong>Responding to contact requests</strong> (replying to messages submitted through the contact form)</li>
                     <li><strong>Reviewing and publishing photo submissions</strong> (reviewing and, if approved, displaying photos in the public gallery)</li>
+                    <li><strong>Reporting raffle drawings and results</strong> (finding official Page videos and processing and verifying winner announcements)</li>
                     <li><strong>Maintaining site security</strong> (detecting and preventing spam, automated submissions, and abusive behavior)</li>
                 </ul>
                 <p>
@@ -74,7 +89,19 @@ const description =
                     delivered to us by email.
                 </p>
 
-                <h3>Facebook (Embedded Video Content)</h3>
+                <h3>Cloudflare (Winner-Photo Processing)</h3>
+                <p>
+                    We use Cloudflare’s hosted AI processing to read public Facebook winner-announcement images and
+                    extract raffle results. The images can contain personal information, including names and hometowns.
+                    Automated extraction is subject to verification checks and administrator review when results are uncertain.
+                </p>
+
+                <h3>Facebook (Page Integration and Embedded Video Content)</h3>
+                <p>
+                    We read public content from our Facebook Page to support raffle video discovery and winner-photo
+                    processing, as described above. Deleting information from our website does not delete the original
+                    Facebook content or information in a Facebook account.
+                </p>
                 <p>
                     Some pages of the site embed Facebook video content (such as Facebook Live or Reels) using Facebook’s official embed player.
                     When you view embedded Facebook content, Facebook may collect information and set cookies or similar technologies according to
@@ -93,7 +120,8 @@ const description =
                 <h2>Data Retention</h2>
                 <p>
                     We retain personal information only for as long as necessary to respond to inquiries, review and manage submitted
-                    content, maintain site security, and comply with applicable legal or operational requirements.
+                    content, report and review raffle results, maintain site security, and comply with applicable legal,
+                    raffle, or administrative obligations. Some records may need to be retained when those obligations apply.
                 </p>
 
                 <h2>Data Security</h2>
@@ -107,10 +135,14 @@ const description =
                 <p>You may request:</p>
                 <ul>
                     <li>Access to or correction of your submitted information</li>
-                    <li>Deletion of your contact message or submitted photos, where legally permitted</li>
+                    <li>Deletion of contact submissions, submitted photos, or Facebook-derived raffle information associated with you, where applicable and legally permitted</li>
                 </ul>
                 <p>
-                    To make a request, contact us at <a href="mailto:friendsoflakehenryblair@gmail.com">friendsoflakehenryblair@gmail.com</a>.
+                    To request deletion, follow our <a href="/data-deletion">Data Deletion Instructions</a> and email
+                    <a href="mailto:friendsoflakehenryblair@gmail.com?subject=Data%20Deletion%20Request">friendsoflakehenryblair@<wbr />gmail.com</a>
+                    with the subject <strong>Data Deletion Request</strong>, identifying the information you want deleted.
+                    We may request reasonable verification of your identity or authority before acting on the request.
+                    Other privacy questions can also be sent to this email address.
                 </p>
 
                 <h2>Children’s Privacy</h2>
@@ -126,9 +158,27 @@ const description =
                 </p>
 
                 <p class="muted" style="margin-top: 1rem;">
-                    Last updated: December 26, 2025
+                    Last updated: November 3, 2026
                 </p>
             </div>
         </section>
     </div>
 </BaseLayout>
+
+<style>
+    .privacyContent {
+        background: rgba(7, 15, 23, .9);
+        overflow-wrap: anywhere;
+    }
+
+    .privacyContent a {
+        color: #b9dcff;
+        text-decoration: underline;
+        text-underline-offset: .18em;
+    }
+
+    .privacyContent a:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 3px;
+    }
+</style>
