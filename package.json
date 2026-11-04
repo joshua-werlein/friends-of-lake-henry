@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:pages-api": "tsc --noEmit -p tsconfig.worker.json",
     "typecheck:facebook-photos": "tsc -p workers/facebook-photos/tsconfig.json",
-    "build:facebook-photos": "esbuild workers/facebook-photos/index.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=.wrangler/facebook-photos-build/index.js",
+    "build:facebook-photos": "esbuild workers/facebook-photos/index.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=.wrangler/facebook-photos-build/index.js --external:cloudflare:workers",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",

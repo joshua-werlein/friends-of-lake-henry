@@ -1,10 +1,28 @@
 {
   "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "**/*", "src", "astro.config.*", "env.d.ts"],
-  "exclude": ["dist", "workers/facebook-live/video-entry.ts", "workers/facebook-live/discovery-object.ts", "workers/facebook-photos/index.ts"],
+  "include": [
+    ".astro/types.d.ts",
+    "**/*",
+    "src",
+    "astro.config.*",
+    "env.d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "workers/facebook-live/video-entry.ts",
+    "workers/facebook-live/discovery-object.ts",
+    "workers/facebook-photos/index.ts",
+    "workers/facebook-live/photo-reads.ts"
+  ],
   "compilerOptions": {
-    "types": ["astro/client"],
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": [
+      "astro/client"
+    ],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2022"
+    ],
     "skipLibCheck": true
   }
 }

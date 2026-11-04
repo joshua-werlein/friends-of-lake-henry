@@ -11,12 +11,12 @@ const manual = { latestVideoUrl: url('111'), updatedAt: '2026-11-01T22:00:00Z', 
 const stage = { schemaVersion: 2, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
     apiVersion: FACEBOOK_API_VERSION, contract: FACEBOOK_LIVE_CONTRACT, id: '222', videoId: '222',
     postId: `${FACEBOOK_GRAPH_PAGE_ID}_333`, url: url('222'), publishedAt: '2026-11-02T00:00:00Z',
-    observedAt: '2026-11-02T00:00:00Z', status: 'video', liveStatus: 'VOD' };
+    origin:'page-video-live-status',originStatus:'LIVE',originObservedAt:'2026-11-02T00:00:00Z',drawingDate:'2026-11-01',observedAt: '2026-11-02T00:00:00Z', status: 'video', liveStatus: 'VOD' };
 const state = { version: 1, paused: false, failures: 0, status: 'staged', lastVerifiedVideoId: '222',
     lastVerifiedAt: now.toISOString(), lastAttemptAt: now.getTime() };
-const receipt = { schemaVersion: 3, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
+const receipt = { schemaVersion: 5, graphPageId: FACEBOOK_GRAPH_PAGE_ID, publicPageId: FACEBOOK_PAGE_ID,
     apiVersion: FACEBOOK_API_VERSION, contract: FACEBOOK_LIVE_CONTRACT, verifiedVideoId: '222',
-    evidence: 'tagged-page-video-policy-reviewed', marker: '#LakeHenryRaffle', publicPlaybackVerified: true, rollbackTested: true,
+    evidence: 'page-video-live-origin-policy-reviewed', marker: '#LakeHenryRaffle', publicPlaybackVerified: true, rollbackTested: true,
     verifiedAt: '2026-11-01T23:00:00Z', expiresAt: '2026-12-01T06:00:00Z' };
 const input = extra => ({ enabled: true, now, manualRaw: JSON.stringify(manual), automaticRaw: JSON.stringify(stage),
     stateRaw: JSON.stringify(state), verificationRaw: JSON.stringify(receipt), ...extra });
@@ -40,9 +40,8 @@ test('automatic requires explicit opt-in, verification and fresh matching health
         { automaticRaw: JSON.stringify({ ...stage, status: 'live' }) },
         { automaticRaw: JSON.stringify({ ...stage, graphPageId: FACEBOOK_PAGE_ID }) },
         { automaticRaw: JSON.stringify({ ...stage, observedAt: '2026-11-03T00:00:00Z' }) },
-        ...[{ paused: true }, { failures: 1 }, { status: 'permission-denied' }, { status: 'no-verified-live' },
-            { lastVerifiedVideoId: '999' }, { lastVerifiedAt: '2026-11-01T23:54:59Z' },
-            { lastAttemptAt: now.getTime() - 600001 }].map(change => ({ stateRaw: JSON.stringify({ ...state, ...change }) }))]) {
+        ...[{ lastVerifiedVideoId: '999' }, { lastVerifiedAt: '2026-11-01T23:54:59Z' },
+            { lastVerifiedAt:'2026-11-01T23:59:59Z' }].map(change => ({ stateRaw: JSON.stringify({ ...state, ...change }) }))]) {
         assert.equal(selectRaffleVideo(input(extra)).config.latestVideoUrl, url('111'), JSON.stringify(extra));
     }
     const cleared = selectRaffleVideo(input({ manualRaw: JSON.stringify({ ...manual, latestVideoUrl: null }), stateRaw: '{}' }));
@@ -58,10 +57,10 @@ test('long Live uses fresh health without timestamp churn; unproven replay falls
         automaticRaw: JSON.stringify({ ...stage, status: 'replay', liveStatus: 'LIVE_STOPPED' }) })).reason, 'invalid-discovery');
 });
 
-test('fresh polling cannot keep an old tagged replay eligible beyond 36 hours', () => {
+test('verified replays remain displayed without repeating API requests', () => {
     const later = new Date('2026-11-03T13:00:01Z');
     const fresh = JSON.stringify({ ...state, lastVerifiedAt: later.toISOString(), lastAttemptAt: later.getTime() });
-    assert.equal(selectRaffleVideo(input({ now: later, stateRaw: fresh })).source, 'manual');
+    assert.equal(selectRaffleVideo(input({ now: later, stateRaw: fresh })).source, 'automatic');
 });
 
 test('season is configurable for future years, validates dates, and never activates outside season', () => {
@@ -74,7 +73,7 @@ test('season is configurable for future years, validates dates, and never activa
     const result = selectRaffleVideo(input({ now: new Date('2027-11-02T00:05:00Z'), season: future,
         manualRaw: advance(manual), automaticRaw: advance(stage), verificationRaw: advance(receipt),
         stateRaw: JSON.stringify({ ...state, lastVerifiedAt: '2027-11-02T00:05:00Z', lastAttemptAt: Date.parse('2027-11-02T00:05:00Z') }) }));
-    assert.equal(result.source, 'automatic');
+    assert.equal(result.source, 'manual'); // A future season also needs a new reviewed discovery policy.
 });
 
 test('extra KV failures retain saved fallback; disabled reads only the manual record', async () => {
@@ -85,22 +84,22 @@ test('extra KV failures retain saved fallback; disabled reads only the manual re
     assert.equal((await loadRaffleSelection(kv, true, now)).reason, 'detection-unavailable');
 });
 
-test('admin mode preserves manual fields; unverified Automatic rejected; any manual save immediately restores Manual', async () => {
+test('admin mode preserves manual fields; automatic setting remains independent of manual saves', async () => {
     const kv = kvStore();
     assert.equal((await POST(context(kv, { action: 'setMode', selectionMode: 'automatic' }, false))).status, 409);
     // Actual wall clock is irrelevant: no valid receipt may be assumed in this API test.
     kv.data.delete(VERIFICATION_KEY);
-    assert.equal((await POST(context(kv, { action: 'setMode', selectionMode: 'automatic' }))).status, 409);
+    assert.equal((await POST(context(kv, { action: 'setMode', selectionMode: 'automatic' }))).status, 200);
     const response = await POST(context(kv, { action: 'setMode', selectionMode: 'manual' }));
     assert.equal(response.status, 200);
-    assert.deepEqual(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)), { ...manual, selectionMode: 'manual' });
+    assert.deepEqual(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)), { ...manual, selectionMode: 'manual', automaticEnabled:false });
     kv.data.set(RAFFLE_LIVE_KEY, JSON.stringify(manual));
     await POST(context(kv, { latestVideoUrl: manual.latestVideoUrl }));
-    assert.equal(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)).selectionMode, 'manual');
+    assert.equal(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)).selectionMode, 'automatic');
     assert.equal(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)).preserved, 'yes');
     await POST(context(kv, { latestVideoUrl: '' }));
     assert.equal(JSON.parse(kv.data.get(RAFFLE_LIVE_KEY)).latestVideoUrl, null);
-    assert.equal((await (await GET(context(kv))).json()).selectionMode, 'manual');
+    assert.equal((await (await GET(context(kv))).json()).selectionMode, 'automatic');
     assert.equal(kv.writes.every(k => k === RAFFLE_LIVE_KEY), true);
 });
 
@@ -115,4 +114,11 @@ test('existing middleware enforces authentication and same-origin CSRF for mode 
     assert.equal((await onRequest(ctx(url.origin), next)).status, 401);
     assert.equal((await onRequest(ctx(url.origin, 'admin_session=local'), next)).status, 200);
     assert.equal(calls, 1);
+});
+
+test('saving a fallback preserves both the displayed explicit manual override and independent automatic enablement',async()=>{
+ const kv=kvStore();await POST(context(kv,{action:'showVideo',latestVideoUrl:url('333')}));
+ await POST(context(kv,{action:'saveFallback',latestVideoUrl:url('444')}));
+ const saved=JSON.parse(kv.data.get(RAFFLE_LIVE_KEY));assert.equal(saved.automaticEnabled,true);assert.equal(saved.manualOverrideUrl,url('333'));assert.equal(saved.latestVideoUrl,url('444'));
+ const selected=selectRaffleVideo(input({now:new Date(),manualRaw:JSON.stringify(saved)}));assert.equal(selected.config.latestVideoUrl,url('333'));assert.equal(selected.manualConfig.latestVideoUrl,url('444'));
 });

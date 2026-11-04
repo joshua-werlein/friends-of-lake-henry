@@ -1,7 +1,7 @@
 // Only the confirmed November 2026 drawing schedule. Never extrapolate a future season.
 const clock = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 // Temporary November-only schedule, including the entire 18:10 minute.
-const START = 17 * 60 + 50, END = 18 * 60 + 11;
+const START = 17 * 60 + 50, END = 18 * 60 + 31;
 function localTime(now: Date): { day: string; minute: number } | null {
     if (!Number.isFinite(now.getTime())) return null;
     const parts = Object.fromEntries(clock.formatToParts(now).map(part => [part.type, part.value]));
@@ -38,3 +38,7 @@ export function offHoursReplayHealthy(now: Date, verifiedAt: Date, attemptedAt: 
         && verified.minute >= START && verified.minute < END && attempted.minute >= START && attempted.minute < END
         && verifiedAt.getTime() <= now.getTime() && attemptedAt.getTime() <= now.getTime();
 }
+
+export const drawingDate = (now:Date) => localTime(now)?.day ?? null;
+
+export function lastDiscoverySlot(now:Date):number|null {const local=localTime(now);return local&&inDiscoveryWindow(now)?Math.floor(now.getTime()/60000)*60000+(END-1-local.minute)*60000:null;}

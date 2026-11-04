@@ -153,28 +153,22 @@ test('deployment preflight rejects anything that could replace the Live discover
 });
 
 // ---- End to end under workerd: signed webhook → Graph → CDN → AI (2 passes) → D1 → public API → admin edit/delete ----
-test('Facebook photo → AI → D1 → public website, idempotent across redeliveries, polling and retries', async t => {
+for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own token':'fallback binding'} → AI → D1 → public website, dedupe and retries`, async t => {
     const bundle = await build({ entryPoints: [new URL('../workers/facebook-photos/index.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
-        bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022' });
+        bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', external: ['cloudflare:workers'] });
+    const readsBundle = await build({entryPoints:['workers/facebook-live/photo-reads.ts'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:workers']});
     const now = new Date(), D = chicagoDate(now), prev = chicagoDate(new Date(now.getTime() - 86400000));
     const created = new Date(now.getTime() - 10 * 60000).toISOString().replace(/\.\d+Z$/, '+0000');
     const posts = new Map(), photoPng = 'https://scontent-ord5-1.xx.fbcdn.net/v/t39/winner.png';
     const post = (n, message) => { const id = `${PAGE}_${n}`; posts.set(id, { id, message, created_time: created,
         attachments: { data: [{ type: 'photo', target: { id: `90000000000000${n}` }, url: 'https://www.facebook.com/photo/' }] } }); return id; };
     const daily = post(1, `Congratulations to tonight's winners! #LakeHenryRaffle`);
+    const liveEvents=new Set();let liveForwardCalls=0;
     let aiCalls = 0, failNextAi = false, aiRows = new Map();
     aiRows.set(1, [row({ drawDate: D, prize: 'Tikka T3X Hunter 7MM Rem Mag' }), row({ drawDate: D, position: 2, ticketNumber: '77', name: 'Bob Smith', town: 'Taylor', prize: '' })]);
     let currentPhoto = 0;
     const graphCalls = [];
-    const mf = new Miniflare({
-        workers: [
-            { name: 'photos', modules: true, script: bundle.outputFiles[0].text, compatibilityDate: '2025-09-15',
-                d1Databases: ['DB'], wrappedBindings: { AI: { scriptName: 'ai-shim' } },
-                bindings: { FB_PAGE_ACCESS_TOKEN: 'page-token', FB_APP_SECRET: 'app-secret', FB_WEBHOOK_VERIFY_TOKEN: 'verify-me',
-                    FB_PHOTO_AUTOMATION_ENABLED: 'true', FB_PHOTO_AUTOPUBLISH: 'true', FB_PHOTO_POLL_ENABLED: 'true', FB_PHOTO_EXTRACTION_PASSES: '2',
-                    FB_RAFFLE_MARKER: '#LakeHenryRaffle', FB_SEASON_START: new Date(now.getTime() - 10 * 86400000).toISOString(),
-                    FB_SEASON_END: new Date(now.getTime() + 10 * 86400000).toISOString() },
-                outboundService: async request => {
+    const mockOutbound = async request => {
                     const url = new URL(request.url);
                     if (url.hostname.endsWith('.fbcdn.net')) {
                         assert.equal(request.headers.get('authorization'), null); // The Page token never reaches the CDN.
@@ -188,8 +182,18 @@ test('Facebook photo → AI → D1 → public website, idempotent across redeliv
                     if (posts.has(path)) return Response.json(posts.get(path));
                     if (/^90000000000000\d$/.test(path)) { currentPhoto = Number(path.slice(-1));
                         return Response.json({ id: path, images: [{ source: photoPng, width: 831, height: 1554 }, { source: photoPng.replace('winner', 'small'), width: 100, height: 187 }] }); }
-                    return Response.json({ error: { code: 100 } }, { status: 400 });
-                } },
+                    return Response.json({ error: { code: 100 } }, { status: 400 });};
+    const mf = new Miniflare({
+        workers: [
+            { name: 'photos', modules: true, script: bundle.outputFiles[0].text, compatibilityDate: '2025-09-15',
+                d1Databases: ['DB'], serviceBindings:{FACEBOOK_READS:{name:'reads',entrypoint:'FacebookPhotoReads'}}, wrappedBindings: { AI: { scriptName: 'ai-shim' }, FACEBOOK_LIVE:{scriptName:'events-shim'} },
+                bindings: { ...(ownToken?{FB_PAGE_ACCESS_TOKEN:'page-token'}:{}), FB_APP_SECRET: 'app-secret', FB_WEBHOOK_VERIFY_TOKEN: 'verify-me',
+                    FB_PHOTO_AUTOMATION_ENABLED: 'true', FB_PHOTO_AUTOPUBLISH: 'true', FB_PHOTO_POLL_ENABLED: 'true', FB_PHOTO_EXTRACTION_PASSES: '2',
+                    FB_RAFFLE_MARKER: '#LakeHenryRaffle', FB_SEASON_START: new Date(now.getTime() - 10 * 86400000).toISOString(),
+                    FB_SEASON_END: new Date(now.getTime() + 10 * 86400000).toISOString() },
+                outboundService: mockOutbound },
+            {name:'reads',modules:true,script:readsBundle.outputFiles[0].text,compatibilityDate:'2025-09-15',bindings:{FB_PAGE_ACCESS_TOKEN:'page-token'},outboundService:mockOutbound},
+            {name:'events-shim',modules:true,serviceBindings:{CONTROL:async request=>{liveForwardCalls++;liveEvents.add(await request.text());return Response.json({accepted:true});}},script: `export default function(env){return {async notify(id){const r=await env.CONTROL.fetch('http://events',{method:'POST',body:id});return r.json()}}}`},
             { name: 'ai-shim', modules: true, serviceBindings: { CONTROL: async request => {
                     const input = await request.json();
                     assert.match(input.image, /^data:image\/png;base64,/);
@@ -226,6 +230,11 @@ test('Facebook photo → AI → D1 → public website, idempotent across redeliv
     assert.equal((await webhook([daily], 'sha256=' + '0'.repeat(64))).status, 403);
     assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_photo_auto_posts').first()).n, 0);
 
+    // A signed official Page video event forwards independently of photo extraction; forged and wrong-Page events do not.
+    const videoBody=JSON.stringify({object:'page',entry:[{id:PAGE,changes:[{field:'feed',value:{item:'video',verb:'add',post_id:PAGE+'_28261694626839193'}}]}]});
+    const deliverVideo=signature=>mf.dispatchFetch('https://photos.test/facebook/webhook',{method:'POST',body:videoBody,headers:{'x-hub-signature-256':signature}});
+    assert.equal((await deliverVideo('sha256='+'0'.repeat(64))).status,403);assert.equal(liveForwardCalls,0);
+    assert.equal((await deliverVideo(sign(videoBody))).status,200);assert.equal((await deliverVideo(sign(videoBody))).status,200);assert.equal(liveEvents.size,1);assert.equal(aiCalls,0);
     // 1. Signed delivery → processed in the background → two winners published.
     const res = await webhook([daily]);
     assert.equal(res.status, 200);
@@ -307,4 +316,15 @@ test('Facebook photo → AI → D1 → public website, idempotent across redeliv
     assert.equal((await winners()).filter(w => w.name === 'Dee Park').length, 1);
     // Every Graph request stayed on Page-owned objects.
     assert.ok(graphCalls.every(p => p.startsWith(PAGE) || /^90000000000000\d$/.test(p)));
+});
+
+
+test('actual November 3 image and both captured AI passes retain exact names, leading-zero ticket and unique category prizes',async t=>{
+ const evidence=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-03.json',import.meta.url)));
+ const {createHash}=await import('node:crypto');const image=await readFile(new URL('./fixtures/facebook-winners-2026-11-03.jpg',import.meta.url));
+ assert.equal(createHash('sha256').update(image).digest('hex'),evidence.sha256);
+ const schedule=await prizeSchedule(await database(t),'2026-11');const decision=decidePhoto(evidence.extractionPasses,[],schedule,'2026-11-03');
+ const rows=decision.rows.filter(r=>r.row.drawDate==='2026-11-03');assert.deepEqual(rows.map(r=>[r.row.ticketNumber,r.row.name,r.row.town,r.row.position,r.prize]),[
+ ['392','Nate Berg','Brainerd, MN',null,'Tikka T3X Hunter 7MM Rem Mag'],['047','Kerry & Jeff Jacobson','Monona, WI',null,'$100 gift certificate from Safe & Secure Firearms']]);
+ assert.ok(rows.every(r=>r.outcome==='insert'));const duplicate=schedule.filter(p=>p.drawDate==='2026-11-03'&&p.category==='Gift card')[0];assert.equal(matchPrize('Gift Card','2026-11-03',[...schedule,{...duplicate,id:'another'}]).match,'unmatched');
 });

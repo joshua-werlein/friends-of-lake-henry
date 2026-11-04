@@ -35,5 +35,17 @@
     "RAFFLE_PRIZE_CALENDAR_ENABLED": "true",
     "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
     "FB_SEASON_END": "2026-12-01T00:00:00-06:00"
-  }
+  },
+  "services": [
+    {
+      "binding": "FACEBOOK_LIVE",
+      "service": "folh-facebook-live-discovery",
+      "entrypoint": "LiveEvents"
+    },
+    {
+      "binding": "FACEBOOK_PHOTO_STATUS",
+      "service": "folh-facebook-winner-photos",
+      "entrypoint": "PhotoDiagnostics"
+    }
+  ]
 }

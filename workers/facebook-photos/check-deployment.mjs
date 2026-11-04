@@ -3,7 +3,7 @@
 // DiscoveryScheduler Durable Object, migration or cron.
 import { readFile } from 'node:fs/promises';
 export function checkPhotoWorker(config) {
-    const allowed = new Set(['$schema', 'name', 'main', 'compatibility_date', 'account_id', 'workers_dev', 'preview_urls', 'triggers', 'vars', 'd1_databases', 'ai']);
+    const allowed = new Set(['$schema', 'name', 'main', 'compatibility_date', 'account_id', 'workers_dev', 'preview_urls', 'triggers', 'vars', 'd1_databases', 'ai', 'services']);
     if (Object.keys(config).some(k => !allowed.has(k))) throw Error('Unexpected settings: this Worker must not declare Durable Objects, migrations, KV or routes.');
     if (config.name !== 'folh-facebook-winner-photos') throw Error('Worker name must be folh-facebook-winner-photos; never folh-facebook-live-discovery.');
     if (config.main !== 'index.ts') throw Error('Unexpected entry point.');
@@ -11,6 +11,7 @@ export function checkPhotoWorker(config) {
     if (config.preview_urls !== false) throw Error('Preview URLs must stay disabled.');
     if (JSON.stringify(config.d1_databases) !== JSON.stringify([{ binding: 'DB', database_name: 'folh-db', database_id: '527df871-e876-4924-81d0-5d0572b4dd7b' }])) throw Error('Only the folh-db D1 binding is allowed.');
     if (config.ai?.binding !== 'AI') throw Error('AI binding required.');
+    if (config.services && JSON.stringify(config.services)!==JSON.stringify([{binding:'FACEBOOK_READS',service:'folh-facebook-live-discovery',entrypoint:'FacebookPhotoReads'},{binding:'FACEBOOK_LIVE',service:'folh-facebook-live-discovery',entrypoint:'LiveEvents'}])) throw Error('Unexpected private service binding.');
     const crons = config.triggers?.crons ?? [];
     if (crons.length > 1 || (crons[0] && !/^\*\/[1-9]\d? \* \* \* \*$/.test(crons[0]))) throw Error('Only one simple minute cron is expected.');
     const vars = config.vars ?? {};
