@@ -1,0 +1,4 @@
+{
+  "extends": "../facebook-photos/tsconfig.json",
+  "include": ["./*.ts"]
+}

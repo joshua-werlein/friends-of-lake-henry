@@ -95,6 +95,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             if (Number(row.ticketNumber) !== Number(o.ticketNumber)) differs.push('ticketNumber' as never);
             if (row.ticketNumber !== o.ticketNumber && Number(row.ticketNumber) === Number(o.ticketNumber)) reasons.push('extraction passes disagree on printed ticket label');
             if (!row.town && row.townStatus !== o.townStatus) reasons.push('extraction passes disagree on whether hometown is visibly blank');
+            if (o.notes || o.townStatus === 'uncertain') reasons.push('another extraction pass flagged uncertainty');
             if (row.position !== o.position) differs.push('position' as never);
             if (differs.length) reasons.push('extraction passes disagree on ' + differs.join(', '));
         }

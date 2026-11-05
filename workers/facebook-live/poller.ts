@@ -5,13 +5,13 @@ import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTR
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
 import { inDiscoveryWindow, lastDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
+import { pageAccessToken, type FacebookCredentials } from './credentials';
 const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
 export { STATE_KEY, VERIFICATION_KEY, verificationValid };
 type Store = { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
-export type Env = SeasonEnv & {
+export type Env = SeasonEnv & FacebookCredentials & {
     CONFIG?: Store;
     DISCOVERY_SCHEDULER?: {idFromName(name:string):any;get(id:any):{fetch(url:string,init?:RequestInit):Promise<Response>}};
-    FB_PAGE_ACCESS_TOKEN?: string;
     FB_AUTOMATION_ENABLED?: string;
     FB_VIDEO_PROBE_ENABLED?: string;
     FB_GRAPH_PAGE_ID?: string;
@@ -64,7 +64,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
     if (!Number.isFinite(time) || time < season.start || time >= season.end) return { status: 'outside-window' };
     if (env.FB_GRAPH_PAGE_ID !== GRAPH_PAGE_ID || env.FB_PUBLIC_PAGE_ID !== PUBLIC_PAGE_ID) return { status: 'configuration-error' };
     if (!env.CONFIG) return { status: 'storage-unavailable' };
-    if (!env.FB_PAGE_ACCESS_TOKEN) return { status: 'missing-token' };
+    const token = pageAccessToken(env);
+    if (!token) return { status: 'missing-token' };
     const interval = Number(env.FB_POLL_INTERVAL_SECONDS ?? '60');
     if (!Number.isInteger(interval) || interval < 60 || interval > 86400) return { status: 'configuration-error' };
     const accessRevision = env.FB_ACCESS_REVISION ?? '1';
@@ -91,7 +92,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         const probing = env.FB_VIDEO_PROBE_ENABLED === 'true';
         const previousRaw=await store.get(AUTOMATIC_KEY);
         const prior=previousState?.lastLiveObservation??(previousRaw?JSON.parse(previousRaw):null);
-        const result = await discoverLivestreams({ token: env.FB_PAGE_ACCESS_TOKEN, now, prior, fetcher: dependencies.fetcher });
+        const result = await discoverLivestreams({ token, now, prior, fetcher: dependencies.fetcher });
         state.pendingVideos=result.pending??[];
         if (!result.ok) {
             state.retryAfterUntil=result.retryAfterSeconds?time+result.retryAfterSeconds*1000:undefined;

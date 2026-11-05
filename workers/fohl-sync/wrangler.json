@@ -1,0 +1,9 @@
+{
+  "name": "folh-sync-webhook-test",
+  "main": "index.ts",
+  "account_id": "aa86268490e681cccb3a41a62093e2aa",
+  "compatibility_date": "2025-09-15",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false }
+}

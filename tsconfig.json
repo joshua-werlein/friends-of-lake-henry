@@ -12,7 +12,8 @@
     "workers/facebook-live/video-entry.ts",
     "workers/facebook-live/discovery-object.ts",
     "workers/facebook-photos/index.ts",
-    "workers/facebook-live/photo-reads.ts"
+    "workers/facebook-live/photo-reads.ts",
+    "workers/fohl-sync/index.ts"
   ],
   "compilerOptions": {
     "types": [

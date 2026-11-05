@@ -11,6 +11,67 @@ import { checkPhotoWorker } from '../workers/facebook-photos/check-deployment.mj
 import { base64Image } from '../workers/facebook-live/photos.ts';
 import { GET as publicMonth } from '../src/pages/api/raffle/month.ts';
 import { POST as winnersPost } from '../src/pages/api/admin/raffle/winners.ts';
+
+test('isolated FOHL Sync callback checks signatures and keeps Graph diagnostics off public HTTP', async () => {
+    const bundle = await build({ entryPoints: ['workers/fohl-sync/index.ts'], bundle: true,
+        format: 'esm', external: ['cloudflare:workers'], write: false });
+    const mf = new Miniflare({ modules: true, script: bundle.outputFiles[0].text,
+        compatibilityDate: '2025-09-15', bindings: { FB_APP_SECRET: 'test-signing-key', FB_WEBHOOK_VERIFY_TOKEN: 'test-challenge-key' },
+        outboundService: () => { throw Error('The callback must not contact external services'); } });
+    try {
+        const url = 'https://test.invalid/facebook/webhook';
+        const challenge = await mf.dispatchFetch(url + '?hub.mode=subscribe&hub.verify_token=test-challenge-key&hub.challenge=12345');
+        assert.equal(challenge.status, 200);
+        assert.equal(await challenge.text(), '12345');
+        assert.equal((await mf.dispatchFetch(url + '?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=12345')).status, 403);
+        const body = JSON.stringify({ object: 'page', entry: [{ id: '144051422124740', changes: [
+            { field: 'feed', value: { item: 'photo', verb: 'add', post_id: '144051422124740_123' } },
+        ] }] });
+        const signature = 'sha256=' + createHmac('sha256', 'test-signing-key').update(body).digest('hex');
+        const send = (text, sig) => mf.dispatchFetch(url, { method: 'POST', body: text,
+            headers: sig ? { 'X-Hub-Signature-256': sig } : {} });
+        assert.equal((await send(body)).status, 403);
+        assert.equal((await send(body + ' ', signature)).status, 403);
+        assert.equal((await send(body, signature)).status, 200);
+        assert.equal((await mf.dispatchFetch('https://test.invalid/inspect')).status, 404);
+    } finally {
+        await mf.dispose();
+    }
+});
+
+test('production callback keys are isolated and switching credentials changes only the active route', async () => {
+    const bundle = await build({ stdin: { resolveDir: process.cwd(), contents: `
+        import worker from './workers/facebook-photos/index.ts';
+        export default { async fetch(request, env, ctx) {
+            let forwarded = 0;
+            const response = await worker.fetch(request, {
+                ...env,
+                FACEBOOK_LIVE: { async notify() { forwarded++; } },
+            }, ctx);
+            return new Response(response.body, { status: response.status, headers: { forwarded: String(forwarded) } });
+        } };
+    ` }, bundle: true, format: 'esm', external: ['cloudflare:workers'], write: false });
+    const body = JSON.stringify({ object: 'page', entry: [{ id: '144051422124740', changes: [
+        { field: 'feed', value: { item: 'video', verb: 'add', post_id: '144051422124740_123' } },
+    ] }] });
+    for (const active of ['legacy', 'fohl-sync']) {
+        const mf = new Miniflare({ modules: true, script: bundle.outputFiles[0].text, compatibilityDate: '2025-09-15',
+            bindings: { FB_CREDENTIAL_SET: active, FB_APP_SECRET: 'old-test-key', FOHL_SYNC_APP_SECRET: 'new-test-key' } });
+        try {
+            for (const [suffix, key, otherKey] of [['', 'old-test-key', 'new-test-key'], ['/fohl-sync', 'new-test-key', 'old-test-key']]) {
+                const send = signingKey => mf.dispatchFetch('https://test.invalid/facebook/webhook' + suffix, {
+                    method: 'POST', body, headers: { 'X-Hub-Signature-256': 'sha256=' + createHmac('sha256', signingKey).update(body).digest('hex') },
+                });
+                assert.equal((await send(otherKey)).status, 403);
+                const response = await send(key);
+                assert.equal(response.status, 200);
+                assert.equal(response.headers.get('forwarded'), Boolean(suffix) === (active === 'fohl-sync') ? '1' : '0');
+            }
+        } finally {
+            await mf.dispose();
+        }
+    }
+});
 import { GET as importsGet, POST as importsPost } from '../src/pages/api/admin/raffle/photo-imports.ts';
 
 const events = JSON.parse(await readFile(new URL('./fixtures/november-2026-published-raffle-events.json', import.meta.url))).events;
@@ -124,6 +185,7 @@ test('blank hometown needs both reads to verify the empty cell; incomplete prize
  assert.equal(decidePhoto([pass([a])],[],schedule,'2026-11-03').status,'rejected');
  for(const bad of [{...a,townStatus:undefined},{...a,townStatus:'uncertain'},{...a,notes:'hometown clipped'},{...a,prize:''}])assert.equal(decide(bad).rows[0].outcome,'rejected');
  assert.equal(decide(a,{...a,townStatus:undefined}).rows[0].outcome,'rejected');
+ assert.equal(decide(a,{...a,notes:'hometown clipped'}).rows[0].outcome,'rejected');
  assert.equal(decide({...a,ticketNumber:'047'},{...a,ticketNumber:'47'}).rows[0].outcome,'rejected');
  assert.equal(decide(a,a,['right winner column is clipped']).status,'rejected');
  assert.equal(decidePhoto([pass([a]),pass([a])],[],[],'2026-11-03').rows[0].outcome,'rejected');
@@ -166,7 +228,8 @@ test('webhook payload parsing, signature verification, post qualification and po
     assert.equal(await validSignature('app-secret', 'sha1=abc', body.buffer), false);
     assert.equal(await validSignature('app-secret', null, body.buffer), false);
     assert.ok(qualifies('Congratulations to tonight’s winners! #LakeHenryRaffle'));
-    assert.ok(qualifies('Day 3 calendar raffle winners'));
+    assert.ok(!qualifies('Day 3 calendar raffle winners'));
+    assert.ok(!qualifies('Drawing winners #LakeHenryRaffleArchive'));
     assert.ok(!qualifies('Ice fishing report and photos'));
     assert.ok(!qualifies('Our raffle poster is here'));
     assert.ok(pollDue(new Date('2026-11-04T00:10:00Z')));   // 18:10 Central
@@ -192,8 +255,9 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     const bundle = await build({ entryPoints: [new URL('../workers/facebook-photos/index.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
         bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', external: ['cloudflare:workers'] });
     const readsBundle = await build({entryPoints:['workers/facebook-live/photo-reads.ts'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:workers']});
-    const now = new Date(), D = chicagoDate(now), prev = chicagoDate(new Date(now.getTime() - 86400000));
-    const created = new Date(now.getTime() - 10 * 60000).toISOString().replace(/\.\d+Z$/, '+0000');
+    const now = new Date(), publishedAt = new Date(now.getTime() - 10 * 60000);
+    const D = chicagoDate(publishedAt), prev = chicagoDate(new Date(publishedAt.getTime() - 86400000));
+    const created = publishedAt.toISOString().replace(/\.\d+Z$/, '+0000');
     const posts = new Map(), photoPng = 'https://scontent-ord5-1.xx.fbcdn.net/v/t39/winner.png';
     const post = (n, message) => { const id = `${PAGE}_${n}`; posts.set(id, { id, message, created_time: created,
         attachments: { data: [{ type: 'photo', target: { id: `90000000000000${n}` }, url: 'https://www.facebook.com/photo/' }] } }); return id; };
