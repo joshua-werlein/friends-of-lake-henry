@@ -28,6 +28,12 @@ const ordinal = (n: number) => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : 'rd'} pl
 export function matchPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]): { description: string | null; match: RowDecision['prizeMatch'] } {
     const visible = fold(text ?? '');
     if (visible.length < 3) return { description: null, match: 'none' };
+    const category = visible === 'gift card' ? 'Gift card' : visible === 'firearm' ? 'Firearm' : null;
+    if(category) {
+        const eligible=schedule.filter(p=>p.status==='approved'&&p.drawDate===drawDate&&(p.category===category
+            || (category==='Firearm'&&p.category==='Main prize'&&/\b(Tikka|Savage|Ruger|Browning|Winchester|Remington|Mossberg|Henry|Glock|Beretta|Benelli|Smith|Springfield|Kimber|CZ|Auto-Ordnance)\b/i.test(p.description))));
+        return eligible.length===1?{description:eligible[0].description,match:'scheduled'}:{description:null,match:'unmatched'};
+    }
     const words = (v: string) => new Set(fold(v).split(' ').filter(w => w.length > 1 || /\d/.test(w)));
     const seen = words(visible);
     const scored = schedule.filter(p => p.status === 'approved' && p.drawDate === drawDate).map(p => {

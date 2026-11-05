@@ -1,0 +1,11 @@
+import {readFile} from 'node:fs/promises';
+import {checkVideoDeployment} from './check-video-deployment.mjs';
+import {checkPhotoWorker} from '../facebook-photos/check-deployment.mjs';
+import {verificationValid} from '../../src/lib/server/raffle-selection.ts';
+const live=JSON.parse(await readFile(new URL('./wrangler.video.activation.existing-account.json',import.meta.url)));
+checkVideoDeployment({...live,vars:{...live.vars,FB_AUTOMATION_ENABLED:'false',FB_VIDEO_PROBE_ENABLED:'false'},triggers:{crons:[]}},'aa86268490e681cccb3a41a62093e2aa');
+if(JSON.stringify(live.triggers.crons)!=='["* * * * *"]')throw Error('Unexpected live cron');
+checkPhotoWorker(JSON.parse(await readFile(new URL('../facebook-photos/wrangler.json',import.meta.url))));
+const old=JSON.parse(await readFile(process.argv[2],'utf8'));
+if(verificationValid(JSON.stringify(old),new Date()))throw Error('Repair must not silently reuse the prior selection receipt');
+console.log('Repair preflight: exact existing account/resources; unchanged DO migration and schedules; private read/trigger bindings only; legacy receipt cannot authorize new policy. Automatic selection stays fail-closed pending real Meta verification.');

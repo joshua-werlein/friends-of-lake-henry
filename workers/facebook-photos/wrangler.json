@@ -7,7 +7,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "triggers": {
-    "crons": ["*/2 * * * *"]
+    "crons": [
+      "*/2 * * * *"
+    ]
   },
   "vars": {
     "FB_PHOTO_AUTOMATION_ENABLED": "true",
@@ -27,5 +29,17 @@
   ],
   "ai": {
     "binding": "AI"
-  }
+  },
+  "services": [
+    {
+      "binding": "FACEBOOK_READS",
+      "service": "folh-facebook-live-discovery",
+      "entrypoint": "FacebookPhotoReads"
+    },
+    {
+      "binding": "FACEBOOK_LIVE",
+      "service": "folh-facebook-live-discovery",
+      "entrypoint": "LiveEvents"
+    }
+  ]
 }

@@ -1,3 +1,7 @@
+> Current production status after token rotation: [follow-up report](facebook-automation-production-2026-11-03.md).
+
+> Superseded production status: see [November 3 automation repair](raffle-automation-repair-2026-11-03.md). The historical setup/status below predates that repair.
+
 # Unattended Facebook winner-photo publication
 
 Branch `codex/photo-autopublish`, based on `96dab63` (= `origin/main`, the deployed 15-second Live scheduler).

@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import type { D1Database } from "@cloudflare/workers-types";
 import { json } from "../../../../lib/http";
 import { cleanPrizeDescription } from "../../../../lib/winner-prize";
+import { winnerTicketLabels } from '../../../../lib/server/raffle-ticket-labels';
 
 function mustBeIsoDate(s: string): boolean {
     return /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -78,7 +79,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
         meta = { title: row ? String((row as any).title ?? "") || null : null };
     }
 
-    return json({ ok: true, winners: results ?? [],raffleKey, months, meta}, 200);
+    return json({ ok: true, winners: await winnerTicketLabels(DB,(results ?? []) as any),raffleKey, months, meta}, 200);
 };
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -135,21 +136,29 @@ export const POST: APIRoute = async ({ request, locals }) => {
         return json({ ok: true }, 200);
     }
     if (action === "update") {
-        // Corrects date/ticket/name/hometown on one winner (including automatically imported ones). The expected
-        // values guard against overwriting a concurrent edit; the prize is edited separately.
+        // Update all editable fields together on the existing ID, refusing stale edits.
         const id = (data?.id ?? "").toString().trim();
         const next = data?.winner ?? {}, expected = data?.expected ?? {};
-        const drawDate = String(next.drawDate ?? "").trim(), ticketNumber = Number(String(next.ticketNumber ?? "").trim());
+        const drawDate = String(next.drawDate ?? "").trim(), ticketText = String(next.ticketNumber ?? "").trim(), ticketNumber = Number(ticketText);
         const name = String(next.name ?? "").trim(), town = String(next.town ?? "").trim();
+        const prize = cleanPrizeDescription(String(next.prize ?? '')) || null;
         if (!id) return json({ ok: false, error: "Missing id" }, 400);
         if (!isRealIsoDate(drawDate)) return json({ ok: false, error: "drawDate must be a valid YYYY-MM-DD date" }, 400);
-        if (!Number.isSafeInteger(ticketNumber) || ticketNumber <= 0) return json({ ok: false, error: "ticketNumber must be a positive whole number" }, 400);
-        if (name.length < 2 || town.length < 2 || name.length > 200 || town.length > 200) return json({ ok: false, error: "Name and hometown must be 2–200 characters" }, 400);
+        if (!/^\d{1,9}$/.test(ticketText) || ticketNumber <= 0) return json({ ok: false, error: "ticketNumber must be 1–9 digits and positive" }, 400);
+        if (name.length < 2 || name.length > 200 || town.length > 200 || (prize?.length ?? 0)>250) return json({ ok: false, error: "Name is required; name/hometown allow 200 characters and prize 250" }, 400);
+        if (!Object.hasOwn(expected,'prize') || !Object.hasOwn(expected,'ticketNumberText')) return json({ok:false,error:'Reload this winner before editing.'},400);
         try {
-            const result = await DB.prepare(`UPDATE raffle_winners SET raffle_key=?, draw_date=?, ticket_number=?, winner_name=?, town=?
-                WHERE id=? AND draw_date=? AND ticket_number=? AND winner_name=? AND town=?`)
-                .bind(drawDate.slice(0, 7), drawDate, ticketNumber, name, town, id,
-                    String(expected.drawDate ?? ""), Number(expected.ticketNumber), String(expected.name ?? ""), String(expected.town ?? ""))
+            const stored=await DB.prepare('SELECT ticket_number_text FROM raffle_winners WHERE id=?').bind(id).first<any>();
+            const current=await winnerTicketLabels(DB, (await DB.prepare('SELECT id,ticket_number AS ticketNumber FROM raffle_winners WHERE id=?').bind(id).all<any>()).results);
+            if(current[0]?.ticketNumberText!==expected.ticketNumberText) return json({ok:false,error:'This winner changed or was removed. Reload and try again.'},409);
+            const duplicate=await DB.prepare('SELECT id FROM raffle_winners WHERE draw_date=? AND ticket_number=? AND id<>?').bind(drawDate,ticketNumber,id).first();
+            if(duplicate) return json({ok:false,error:'That ticket number already exists for that day.'},409);
+            const result = await DB.prepare(`UPDATE raffle_winners SET raffle_key=?, draw_date=?, ticket_number=?, ticket_number_text=?, winner_name=?, town=?, prize=?
+                WHERE id=? AND draw_date=? AND ticket_number=? AND winner_name=? AND town=? AND prize IS ?
+                AND ticket_number_text IS ?`)
+                .bind(drawDate.slice(0, 7), drawDate, ticketNumber, ticketText, name, town, prize, id,
+                    String(expected.drawDate ?? ""), Number(expected.ticketNumber), String(expected.name ?? ""), String(expected.town ?? ""),expected.prize,
+                    stored?.ticket_number_text??null)
                 .run();
             if (result.meta.changes !== 1) return json({ ok: false, error: "This winner changed or was removed. Reload and try again." }, 409);
         } catch (err: any) {
@@ -173,11 +182,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (!isRealIsoDate(drawDate)) return json({ ok: false, error: "drawDate must be a valid date" }, 400);
 
     const ticketNumber = Number(ticketNumberRaw);
-    if (!Number.isSafeInteger(ticketNumber) || ticketNumber <= 0) {
+    if (!/^\d{1,9}$/.test(ticketNumberRaw) || ticketNumber <= 0) {
         return json({ ok: false, error: "ticketNumber must be a positive whole number" }, 400);
     }
     if (name.length < 2) return json({ ok: false, error: "name required" }, 400);
-    if (town.length < 2) return json({ ok: false, error: "town required" }, 400);
 
     if (name.length > 200 || town.length > 200 || (prize?.length ?? 0) > 250) return json({ ok: false, error: "Name, hometown or prize is too long" }, 400);
 
@@ -186,10 +194,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     try {
         await DB.prepare(
-            `INSERT INTO raffle_winners (id, raffle_key, draw_date, ticket_number, winner_name, town, prize)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO raffle_winners (id, raffle_key, draw_date, ticket_number, winner_name, town, prize, ticket_number_text)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
-            .bind(id, raffleKey, drawDate, ticketNumber, name, town, prize)
+            .bind(id, raffleKey, drawDate, ticketNumber, name, town, prize, ticketNumberRaw)
             .run();
     } catch (err: any) {
         const msg = String(err?.message ?? "");

@@ -17,6 +17,15 @@ export class DiscoveryCoordinator {
     constructor(private storage: Storage, private env: Env,
         private now: () => number = Date.now, private poll: Poll = runPoll, private fetcher: typeof fetch = fetch) {}
 
+    async event(id:string):Promise<boolean> {
+        if(!/^[a-f0-9]{64}$/.test(id)||!inDiscoveryWindow(new Date(this.now()))) return false;
+        const events=await this.storage.get<string[]>('events')??[];
+        if(events.includes(id)) return false;
+        if(this.env.CONFIG) await this.env.CONFIG.put('raffle_live_webhook_state',JSON.stringify({lastEventReceivedAt:new Date(this.now()).toISOString(),signedEventReceived:true}));
+        await this.storage.put('pending-event',id);
+        await this.storage.setAlarm(this.now());
+        await this.storage.put('events',[...events.slice(-99),id]);return true;
+    }
     async kick(): Promise<void> {
         if (this.env.FB_AUTOMATION_ENABLED !== 'true' || !inDiscoveryWindow(new Date(this.now())) || this.busy) return;
         if (await this.storage.getAlarm() === null) await this.storage.setAlarm(this.now());
@@ -33,10 +42,14 @@ export class DiscoveryCoordinator {
             // Arm before external work: a runtime interruption leaves a recovery
             // alarm. Platform serialization prevents the next alarm overlapping.
             if (next !== null) await this.storage.setAlarm(next);
-            if (previous !== undefined && previous >= slot) return { status: 'slot-already-claimed' };
+            const pending=await this.storage.get<string>('pending-event');
+            const claimedEvent=await this.storage.get<string>('claimed-event');
+            const webhook=!!pending && pending!==claimedEvent;
+            if (!webhook && previous !== undefined && previous >= slot) return { status: 'slot-already-claimed' };
             // Durable claim precedes every KV/Facebook operation. At-least-once
             // alarm retries never repeat an already-started slot after a reset.
             await this.storage.put('claimed-slot', slot);
+            if(webhook) await this.storage.put('claimed-event',pending);
             if (!this.env.CONFIG) return { status: 'storage-unavailable' };
             const upstream = this.env.CONFIG;
             const assertWindow = () => {
@@ -70,7 +83,7 @@ export class DiscoveryCoordinator {
                 },
             };
             return await this.poll({ ...this.env, CONFIG: store }, {
-                now: date, nextScheduledAt: next ?? time + 60_000,
+                now: date, trigger:webhook?'webhook':'poll', nextScheduledAt: next ?? time + 60_000,
                 fetcher: (input, init) => { assertWindow(); return this.fetcher(input, init); },
             });
         } finally { this.busy = false; }

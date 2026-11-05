@@ -1,3 +1,4 @@
+import {winnerTicketLabels} from '../../../lib/server/raffle-ticket-labels';
 import type { APIRoute } from "astro";
 import type { D1Database } from "@cloudflare/workers-types";
 import { json } from "../../../lib/http";
@@ -98,7 +99,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
     raffleTitle: titleRaw || null,
     rafflePosterUrl: posterKeyRaw ? `/api/raffle/poster?month=${encodeURIComponent(raffleKey)}` : null,
     rafflePosterAlt: posterAltRaw || `${monthKeyToLabel(raffleKey)} raffle poster`,
-    winners: winnersRes.results ?? [],
+    winners: await winnerTicketLabels(DB, (winnersRes.results ?? []) as any),
     months: jumpMonths,
   });
 };

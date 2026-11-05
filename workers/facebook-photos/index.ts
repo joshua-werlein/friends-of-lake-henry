@@ -2,7 +2,7 @@
 // Unattended Facebook winner-photo publication. Deliberately a separate Worker (folh-facebook-winner-photos) so it
 // can never replace folh-facebook-live-discovery, its DiscoveryScheduler Durable Object, migration or cron.
 import { graphReader, GRAPH_PAGE_ID, isoTime } from '../facebook-live/graph';
-import { inSeason, qualifies, pollDue, sameSecret, validSignature, webhookPostIds } from './webhook';
+import { inSeason, qualifies, pollDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
 import { base64Image, downloadPhoto, extractPhotoCandidates, extractWinners } from '../facebook-live/photos';
 import { PHOTO_MODEL, hashBytes, type Extraction } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext,
@@ -10,6 +10,8 @@ import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, f
 
 export type Env = {
     DB: D1Database;
+    FACEBOOK_LIVE?:{notify(id:string):Promise<unknown>};
+    FACEBOOK_READS?: { read(path:string,params:Record<string,string>):Promise<Record<string,unknown>> };
     AI?: { run(model: string, input: unknown): Promise<unknown> };
     FB_PAGE_ACCESS_TOKEN?: string;     // secret
     FB_APP_SECRET?: string;            // secret: verifies X-Hub-Signature-256
@@ -54,12 +56,21 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, 
     // Durably queue before acknowledging; a D1 failure returns 500 so Meta redelivers. Redeliveries dedupe on post_id.
     const fresh: string[] = [];
     for (const id of ids) if (await enqueuePost(env.DB, id, 'webhook')) fresh.push(id);
+    if(env.FACEBOOK_LIVE && webhookLiveHint(payload)) {
+        const id=await hashBytes(new Uint8Array(body));
+        try { await env.FACEBOOK_LIVE.notify(id); }
+        catch { if(fresh.length&&enabled(env))ctx.waitUntil(drain(env,fetcher,new Date(),fresh));return new Response('Retry event delivery',{status:503}); }
+    }
     log('webhook-received', { posts: ids.length, queued: fresh.length });
     if (fresh.length && enabled(env)) ctx.waitUntil(drain(env, fetcher, new Date(), fresh));
     return new Response('EVENT_RECEIVED', { headers: { 'content-type': 'text/plain' } });
 }
 
 // ---- Processing ----
+function photoReader(env:Env, now:Date, fetcher:Fetcher) {
+    return env.FB_PAGE_ACCESS_TOKEN ? graphReader(env.FB_PAGE_ACCESS_TOKEN,now,fetcher,AbortSignal.timeout(25000))
+        : (path:string,params:Record<string,string>) => env.FACEBOOK_READS!.read(path,params);
+}
 class Permanent extends Error {}
 
 async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announcementDate: string): Promise<Extraction[]> {
@@ -75,8 +86,8 @@ async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announce
 /** `adminQueued` posts were chosen explicitly by an administrator, so caption and age filters are skipped;
  * every row still has to pass the same date-window, agreement and conflict checks. */
 export async function processPost(env: Env, postId: string, fetcher: Fetcher, now = new Date(), adminQueued = false) {
-    if (!env.FB_PAGE_ACCESS_TOKEN || !env.AI) throw Error('worker-not-configured');
-    const get = graphReader(env.FB_PAGE_ACCESS_TOKEN, now, fetcher, AbortSignal.timeout(25000));
+    if ((!env.FB_PAGE_ACCESS_TOKEN && !env.FACEBOOK_READS) || !env.AI) throw Error('worker-not-configured');
+    const get = photoReader(env, now, fetcher);
     const post = await get(postId, { fields: POST_FIELDS });
     if (post.id !== postId || !postId.startsWith(GRAPH_PAGE_ID + '_') || !isoTime(post.created_time)) throw new Permanent('identity-mismatch');
     const published = new Date(post.created_time);
@@ -125,8 +136,8 @@ export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?:
 
 /** Fallback discovery with the Page token's already-working published_posts read; no webhook permissions needed. */
 export async function poll(env: Env, fetcher: Fetcher, now = new Date()) {
-    if (!env.FB_PAGE_ACCESS_TOKEN) return 0;
-    const get = graphReader(env.FB_PAGE_ACCESS_TOKEN, now, fetcher, AbortSignal.timeout(25000));
+    if (!env.FB_PAGE_ACCESS_TOKEN && !env.FACEBOOK_READS) return 0;
+    const get = photoReader(env, now, fetcher);
     const body = await get(`${GRAPH_PAGE_ID}/published_posts`, { fields: POST_FIELDS, limit: '10' });
     if (!Array.isArray(body.data)) throw Error('invalid-response');
     let queued = 0;
@@ -160,3 +171,13 @@ export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
     };
 }
 export default createWorker();
+
+import { WorkerEntrypoint } from 'cloudflare:workers';
+import { inspectGraph } from '../facebook-live/inspect';
+export class PhotoDiagnostics extends WorkerEntrypoint<Env> { async inspect() { return inspectGraph(this.env); } async inspectPhoto(){
+    const get=graphReader(this.env.FB_PAGE_ACCESS_TOKEN??'',new Date(),fetch,AbortSignal.timeout(25000));
+    const post=await get('144051422124740_122333284658073310',{fields:POST_FIELDS});
+    const {image,dimensions}=await downloadPhoto(get,fetch,'122333284628073310');
+    const queue=await this.env.DB.prepare('SELECT post_id,status,attempts,error_code FROM raffle_photo_auto_posts WHERE post_id=?').bind('144051422124740_122333284658073310').first();
+    return {at:new Date().toISOString(),postMatches:post.id==='144051422124740_122333284658073310',photoId:'122333284628073310',bytes:image.bytes.length,mime:image.mime,width:dimensions.width,height:dimensions.height,sha256:await hashBytes(image.bytes),queue,ownTokenUsed:true};
+} async webhookStatus(){return {configured:!!this.env.FB_APP_SECRET&&!!this.env.FB_WEBHOOK_VERIFY_TOKEN,liveForwarding:!!this.env.FACEBOOK_LIVE};} }

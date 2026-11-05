@@ -9,7 +9,7 @@ export const POST_FIELDS = 'id,message,created_time,permalink_url,attachments{ty
 // Hashtag policy selects eligible Page videos, not proof of broadcast origin or current streaming state.
 export const PROBE_FIELDS = 'id,from,live_status,published,embeddable';
 export type Failure = 'permission-denied' | 'token-expired' | 'rate-limited' | 'unsupported-contract'
-    | 'api-failure' | 'invalid-response' | 'identity-mismatch';
+    | 'ambiguous-livestream' | 'api-failure' | 'invalid-response' | 'identity-mismatch';
 export type Candidate = { postId: string; videoId: string; publishedAt: string };
 export type Discovery = Candidate & Partial<Dimensions> & { url: string; status: 'video'; liveStatus: 'LIVE' | 'VOD' | 'UNKNOWN' };
 export type GraphResult = { ok: true; candidates: number; postsExamined: number; discoveries: Discovery[] }
@@ -71,7 +71,7 @@ export function extractCandidates(posts: unknown[], marker: string, now: Date): 
     for (const post of posts) {
         if (!record(post) || typeof post.id !== 'string' || !new RegExp(`^${GRAPH_PAGE_ID}_\\d+$`).test(post.id)
             || !isoTime(post.created_time) || Date.parse(post.created_time) > now.getTime() || now.getTime() - Date.parse(post.created_time) > 36 * 60 * 60 * 1000
-            || typeof post.message !== 'string' || !post.message.split(/\s+/).includes(marker)) continue;
+            || (marker && (typeof post.message !== 'string' || !post.message.split(/\s+/).includes(marker)))) continue;
         const postId = post.id;
         const publishedAt = post.created_time;
         function visit(attachments: unknown, depth = 0) {
@@ -127,7 +127,7 @@ export function graphReader(token: string, now = new Date(), fetcher: typeof fet
         if (!response.ok || body.error) {
             const error = record(body.error) ? body.error : {};
             throw new GraphFailure(errorReason(error.code, response.status), retryAfter(response.headers.get('retry-after'), now.getTime()), {
-                httpStatus: response.status, ...(Number.isSafeInteger(error.code) ? { code: Number(error.code) } : {}),
+                httpStatus: response.status, permissions: ['pages_read_engagement','pages_manage_metadata','publish_video','pages_manage_posts','pages_show_list'].filter(p => typeof error.message === 'string' && error.message.includes(p)).join(','), ...(Number.isSafeInteger(error.code) ? { code: Number(error.code) } : {}),
                 ...(Number.isSafeInteger(error.error_subcode) ? { subcode: Number(error.error_subcode) } : {}) });
         }
         return body;

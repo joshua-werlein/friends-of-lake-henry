@@ -1,55 +1,52 @@
-import type { APIRoute } from "astro";
-import type { KVNamespace } from "@cloudflare/workers-types";
-import { json } from "../../../../lib/http";
-import { normalizeFacebookVideoUrl, parseLiveConfig, RAFFLE_LIVE_KEY, type LiveConfig } from "../../../../lib/facebook";
-import { loadRaffleSelection, readRecord, verificationValid, VERIFICATION_KEY } from '../../../../lib/server/raffle-selection';
-
-import { raffleSeason, type SeasonEnv } from '../../../../lib/server/raffle-season';
-
-type Env = SeasonEnv & { CONFIG?: KVNamespace; RAFFLE_AUTOMATIC_SELECTION_ENABLED?: string };
-
-export const GET: APIRoute = async (context) => {
-    const env = context.locals.runtime?.env as Env | undefined;
-    if (!env?.CONFIG) return json({ ok: false, error: "KV not bound (CONFIG)" }, 500);
-    const selection = await loadRaffleSelection(env.CONFIG, env.RAFFLE_AUTOMATIC_SELECTION_ENABLED === 'true', new Date(), env);
-    return json({ ok: true, config: selection.manualConfig, selectionMode: selection.selectionMode,
-        automaticAllowed: selection.automaticAllowed, source: selection.source, reason: selection.reason });
+import type { APIRoute } from 'astro';
+import type { KVNamespace } from '@cloudflare/workers-types';
+import {json} from '../../../../lib/http';
+import {normalizeFacebookVideoUrl,parseLiveConfig,RAFFLE_LIVE_KEY} from '../../../../lib/facebook';
+import {loadRaffleSelection,readRecord,selectionMode,STATE_KEY,verificationValid,VERIFICATION_KEY} from '../../../../lib/server/raffle-selection';
+import {raffleSeason} from '../../../../lib/server/raffle-season';
+import type {SeasonEnv} from '../../../../lib/server/raffle-season';
+import {inDiscoveryWindow} from '../../../../lib/server/raffle-discovery-schedule';
+type Env=SeasonEnv&{CONFIG?:KVNamespace;RAFFLE_AUTOMATIC_SELECTION_ENABLED?:string;
+    FACEBOOK_LIVE?:{testDiscovery():Promise<unknown>}; FACEBOOK_PHOTO_STATUS?:{webhookStatus():Promise<unknown>}};
+export const GET:APIRoute=async context=>{
+    const env=context.locals.runtime?.env as Env|undefined;
+    if(!env?.CONFIG)return json({ok:false,error:'Video settings are unavailable.'},500);
+    const now=new Date();const selection=await loadRaffleSelection(env.CONFIG,env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true',now,env);
+    const [state,webhook,automatic]=await Promise.all([env.CONFIG.get(STATE_KEY),env.CONFIG.get('raffle_live_webhook_state'),env.CONFIG.get('raffle_live_automatic')]);
+    let webhookSetup:unknown={configured:false,liveForwarding:false};
+    try{webhookSetup=await env.FACEBOOK_PHOTO_STATUS?.webhookStatus()??webhookSetup;}catch{}
+    selection.automaticAllowed=env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true'&&verificationValid(await env.CONFIG.get(VERIFICATION_KEY),now,raffleSeason(env));
+    const health=readRecord(state);const automaticEnabled=selection.selectionMode==='automatic';
+    return json({ok:true,config:selection.manualConfig,displayed:selection.config,source:selection.source,reason:selection.reason,
+        selectionMode:selection.selectionMode,automaticEnabled,automaticAllowed:selection.automaticAllowed,
+        status:!automaticEnabled?'Disabled':health?.lastError||!selection.automaticAllowed?'Error':health?.status==='pending-live-confirmation'?'Waiting':inDiscoveryWindow(now)?'Active':'Waiting',
+        lastSuccessfulCheck:health?.lastSuccessAt??health?.lastVerifiedAt??null,lastError:health?.lastError??(!selection.automaticAllowed?{cause:'verification-required'}:null),
+        pendingVideos:health?.pendingVideos??[],lastAutomaticVideo:readRecord(automatic)?.url??null,webhook:{...webhookSetup as object,...readRecord(webhook)}});
 };
-
-export const POST: APIRoute = async (context) => {
-    const env = context.locals.runtime?.env as Env | undefined;
-    if (!env?.CONFIG) return json({ ok: false, error: "KV not bound (CONFIG)" }, 500);
-    let body: unknown;
-    try { body = await context.request.json(); }
-    catch { return json({ ok: false, error: "Invalid JSON body" }, 400); }
-    if (body && typeof body === 'object' && 'action' in body && body.action === 'setMode') {
-        const mode = 'selectionMode' in body ? body.selectionMode : null;
-        if (mode !== 'manual' && mode !== 'automatic') return json({ ok: false, error: 'Select Manual or Automatic.' }, 400);
-        if (mode === 'automatic') {
-            if (env.RAFFLE_AUTOMATIC_SELECTION_ENABLED !== 'true') return json({ ok: false, error: 'Automatic selection is not enabled for this deployment. Manual selection is unchanged.' }, 409);
-            if (!verificationValid(await env.CONFIG.get(VERIFICATION_KEY), new Date(), raffleSeason(env))) return json({ ok: false, error: 'The tagged-video selection policy and rollback must be approved before Automatic mode is enabled.' }, 409);
-        }
-        const raw = await env.CONFIG.get(RAFFLE_LIVE_KEY);
-        const stored = readRecord(raw);
-        if (raw !== null && (!stored || !('latestVideoUrl' in stored) || (stored.latestVideoUrl !== null && (typeof stored.latestVideoUrl !== 'string' || !normalizeFacebookVideoUrl(stored.latestVideoUrl))))) return json({ ok: false, error: 'Saved manual configuration is invalid. Save the manual video first.' }, 409);
-        const record = stored ?? { latestVideoUrl: null, updatedAt: null };
-        await env.CONFIG.put(RAFFLE_LIVE_KEY, JSON.stringify({ ...record, selectionMode: mode }));
-        return json({ ok: true, config: parseLiveConfig(JSON.stringify(record)), selectionMode: mode });
+export const POST:APIRoute=async context=>{
+    const env=context.locals.runtime?.env as Env|undefined;
+    if(!env?.CONFIG)return json({ok:false,error:'Video settings are unavailable.'},500);
+    let body:any;try{body=await context.request.json();}catch{return json({ok:false,error:'Invalid JSON body'},400);}
+    if(!body||typeof body!=='object'||Array.isArray(body))return json({ok:false,error:'Invalid settings.'},400);
+    if(body.action==='testDiscovery'){
+        if(!env.FACEBOOK_LIVE)return json({ok:false,error:'Discovery is not connected.'},503);
+        try{return json({ok:true,result:await env.FACEBOOK_LIVE.testDiscovery()});}catch{return json({ok:false,error:'Discovery could not be queued. Your current video is unchanged.'},503);}
     }
-    if (body && typeof body === 'object' && 'action' in body && body.action !== 'saveVideo') return json({ ok: false, error: 'Unknown action' }, 400);
-    if (!body || typeof body !== 'object' || !('latestVideoUrl' in body)
-        || (body.latestVideoUrl !== null && typeof body.latestVideoUrl !== 'string')) {
-        return json({ ok: false, error: "latestVideoUrl must be a string or null" }, 400);
+    const raw=await env.CONFIG.get(RAFFLE_LIVE_KEY);const previous=readRecord(raw)??{latestVideoUrl:null,updatedAt:null};
+    if(body.action==='setAutomation'||body.action==='setMode'){
+        const enabled=body.action==='setMode'?body.selectionMode==='automatic':body.enabled;
+        if(typeof enabled!=='boolean'||(body.action==='setMode'&&!['manual','automatic'].includes(body.selectionMode)))return json({ok:false,error:'Choose enabled or disabled.'},400);
+        if(enabled&&env.RAFFLE_AUTOMATIC_SELECTION_ENABLED!=='true')return json({ok:false,error:'Automatic updates are not enabled for this website deployment.'},409);
+        await env.CONFIG.put(RAFFLE_LIVE_KEY,JSON.stringify({...previous,automaticEnabled:enabled,selectionMode:enabled?'automatic':'manual'}));
+        return json({ok:true,automaticEnabled:enabled,selectionMode:enabled?'automatic':'manual'});
     }
-    const raw = (body.latestVideoUrl ?? '').trim();
-    const latestVideoUrl = raw ? normalizeFacebookVideoUrl(raw) : null;
-    if (raw && !latestVideoUrl) {
-        return json({ ok: false, error: "Paste the full Facebook video or reel URL (videos/<id>, watch?v=<id>, or reel/<id>). Open short/share links in Facebook and copy the full video URL first." }, 400);
-    }
-    const stored = await env.CONFIG.get(RAFFLE_LIVE_KEY);
-    // Every save, even an unchanged URL or deliberate blank, explicitly restores Manual.
-    // Mode and manual fallback live in one record. Automation never writes this key.
-    const config: LiveConfig = { latestVideoUrl, updatedAt: new Date().toISOString() };
-    await env.CONFIG.put(RAFFLE_LIVE_KEY, JSON.stringify({ ...readRecord(stored), ...config, selectionMode: 'manual' }));
-    return json({ ok: true, config, selectionMode: 'manual' });
+    if(body.action&&!['saveVideo','showVideo','saveFallback'].includes(body.action))return json({ok:false,error:'Unknown action'},400);
+    if(!('latestVideoUrl'in body)||(body.latestVideoUrl!==null&&typeof body.latestVideoUrl!=='string'))return json({ok:false,error:'latestVideoUrl must be a string or null'},400);
+    const entered=(body.latestVideoUrl??'').trim(),url=entered?normalizeFacebookVideoUrl(entered):null;
+    if(entered&&!url)return json({ok:false,error:'Paste the full Facebook video URL. Open short/share links on Facebook and copy the full video URL.'},400);
+    const now=new Date().toISOString();const automaticEnabled=selectionMode(raw)==='automatic';
+    const config={latestVideoUrl:url,updatedAt:now};
+    await env.CONFIG.put(RAFFLE_LIVE_KEY,JSON.stringify({...previous,...config,automaticEnabled,selectionMode:automaticEnabled?'automatic':'manual',
+        ...(body.action==='saveFallback'?{}:{manualOverrideAt:now,manualOverrideUrl:url})}));
+    return json({ok:true,config,automaticEnabled,selectionMode:automaticEnabled?'automatic':'manual'});
 };

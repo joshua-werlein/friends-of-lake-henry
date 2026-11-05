@@ -1,14 +1,16 @@
+import { discoverLivestreams } from './livestream';
 import { AUTOMATIC_KEY } from '../../src/lib/server/facebook-automation';
 import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTRACT, isoTime, numericId, type Discovery } from './graph';
 
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
-import { inDiscoveryWindow } from '../../src/lib/server/raffle-discovery-schedule';
+import { inDiscoveryWindow, lastDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
 const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
 export { STATE_KEY, VERIFICATION_KEY, verificationValid };
 type Store = { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
 export type Env = SeasonEnv & {
     CONFIG?: Store;
+    DISCOVERY_SCHEDULER?: {idFromName(name:string):any;get(id:any):{fetch(url:string,init?:RequestInit):Promise<Response>}};
     FB_PAGE_ACCESS_TOKEN?: string;
     FB_AUTOMATION_ENABLED?: string;
     FB_VIDEO_PROBE_ENABLED?: string;
@@ -19,7 +21,7 @@ export type Env = SeasonEnv & {
     FB_POLL_INTERVAL_SECONDS?: string;
 };
 type State = { version: 1; accessRevision: string; lastAttemptAt: number; nextAttemptAt: number;
-    failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number };
+    failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number; lastError?:Record<string,string|number>; lastSuccessAt?:string; pendingVideos?:unknown[]; lastLiveObservation?:unknown; retryAfterUntil?:number };
 export type Outcome = { status: string; candidates?: number; postsExamined?: number };
 export type Staged = Discovery & { schemaVersion: 2; id: string; graphPageId: string; publicPageId: string;
     apiVersion: string; contract: string; observedAt: string };
@@ -44,13 +46,13 @@ function previousIdentity(raw: string | null): { id: string; publishedAt: string
         || value.url !== `https://www.facebook.com/${PUBLIC_PAGE_ID}/videos/${value.id}/`) throw Error('stage');
     if (value.schemaVersion === 2) {
         if (value.graphPageId !== GRAPH_PAGE_ID || value.publicPageId !== PUBLIC_PAGE_ID
-            || value.apiVersion !== GRAPH_VERSION || value.contract !== LIVE_CONTRACT) throw Error('stage');
+            || value.apiVersion !== GRAPH_VERSION || value.contract !== LIVE_CONTRACT) return null;
     } else if (value.pageId !== PUBLIC_PAGE_ID) throw Error('stage');
     return { id: value.id, publishedAt: date, status: String(value.status) };
 }
 
 /** Staging only. There is deliberately no code path that writes/deletes raffle_live. */
-export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number; nextScheduledAt?: number } = {}): Promise<Outcome> {
+export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number; nextScheduledAt?: number; trigger?:'webhook'|'poll' } = {}): Promise<Outcome> {
     if (env.FB_AUTOMATION_ENABLED !== 'true') return { status: 'disabled' };
     const now = dependencies.now ?? new Date();
     // This gate precedes every KV operation and every Facebook request. The cron
@@ -60,8 +62,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
     const season = raffleSeason(env);
     if (!season) return { status: 'configuration-error' };
     if (!Number.isFinite(time) || time < season.start || time >= season.end) return { status: 'outside-window' };
-    if (env.FB_GRAPH_PAGE_ID !== GRAPH_PAGE_ID || env.FB_PUBLIC_PAGE_ID !== PUBLIC_PAGE_ID
-        || !/^#[A-Za-z][A-Za-z0-9_]{2,80}$/.test(env.FB_RAFFLE_MARKER ?? '')) return { status: 'configuration-error' };
+    if (env.FB_GRAPH_PAGE_ID !== GRAPH_PAGE_ID || env.FB_PUBLIC_PAGE_ID !== PUBLIC_PAGE_ID) return { status: 'configuration-error' };
     if (!env.CONFIG) return { status: 'storage-unavailable' };
     if (!env.FB_PAGE_ACCESS_TOKEN) return { status: 'missing-token' };
     const interval = Number(env.FB_POLL_INTERVAL_SECONDS ?? '60');
@@ -70,6 +71,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(accessRevision)) return { status: 'configuration-error' };
     const store = env.CONFIG;
     try {
+        const manual = JSON.parse(await store.get('raffle_live') ?? 'null');
+        if (manual?.automaticEnabled === false) return {status:'disabled-by-admin'};
         let previousState = parseState(await store.get(STATE_KEY));
         if (previousState?.accessRevision !== accessRevision) previousState = null;
         if (previousState?.paused) return { status: 'access-paused' };
@@ -77,35 +80,44 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         // just before lastAttempt+interval is skipped and healthy polling silently halves.
         // Backoff/Retry-After schedules (failures > 0) are honored exactly.
         const slack = previousState && previousState.failures === 0 && dependencies.nextScheduledAt === undefined ? CRON_EARLY_SLACK_MS : 0;
-        if (previousState && time + slack < previousState.nextAttemptAt) return { status: 'not-due' };
+        if (previousState && time + slack < previousState.nextAttemptAt && (dependencies.trigger!=='webhook' || previousState.status==='rate-limited' || (previousState.retryAfterUntil??0)>time)) return { status: 'not-due' };
         const state: State = { version: 1, accessRevision, lastAttemptAt: time, nextAttemptAt: dependencies.nextScheduledAt ?? time + interval * 1000,
             failures: previousState?.failures ?? 0, status: 'checking', paused: false,
-            lastVerifiedVideoId: previousState?.lastVerifiedVideoId, lastVerifiedAt: previousState?.lastVerifiedAt };
+            lastVerifiedVideoId: previousState?.lastVerifiedVideoId, lastVerifiedAt: previousState?.lastVerifiedAt, lastSuccessAt:previousState?.lastSuccessAt, lastLiveObservation:previousState?.lastLiveObservation };
         // Keep in-progress state in memory. Persist one completed outcome below,
         // including every unchanged-video heartbeat and provider failure/backoff.
         // Interrupted polls leave the previous health timestamp to expire normally.
         const verified = verificationValid(await store.get(VERIFICATION_KEY), now, season);
         const probing = env.FB_VIDEO_PROBE_ENABLED === 'true';
-        const result = await discoverPosts({ token: env.FB_PAGE_ACCESS_TOKEN, marker: env.FB_RAFFLE_MARKER!,
-            probeVideoMetadata: probing, now, fetcher: dependencies.fetcher });
+        const previousRaw=await store.get(AUTOMATIC_KEY);
+        const prior=previousState?.lastLiveObservation??(previousRaw?JSON.parse(previousRaw):null);
+        const result = await discoverLivestreams({ token: env.FB_PAGE_ACCESS_TOKEN, now, prior, fetcher: dependencies.fetcher });
+        state.pendingVideos=result.pending??[];
         if (!result.ok) {
+            state.retryAfterUntil=result.retryAfterSeconds?time+result.retryAfterSeconds*1000:undefined;
             state.status = result.reason;
+            state.lastError = {cause:result.reason,at:now.toISOString(),...result.detail};
             state.failures = Math.min(16, state.failures + 1);
             state.paused = ['token-expired', 'permission-denied', 'identity-mismatch', 'unsupported-contract'].includes(result.reason);
             const random = Math.max(0, Math.min(1, (dependencies.random ?? Math.random)()));
-            const backoff = Math.min(3600, interval * 2 ** Math.min(state.failures, 4));
-            state.nextAttemptAt = time + Math.max(interval, result.retryAfterSeconds ?? 0, Math.ceil(backoff * (1 + random * 0.2))) * 1000;
+            const backoff = Math.min(120, interval * 2 ** Math.min(state.failures, 4));
+            state.nextAttemptAt = time + Math.max(interval, result.retryAfterSeconds ?? 0, Math.min(120, Math.ceil(backoff * (1 + random * 0.2)))) * 1000;
+            const closing=lastDiscoverySlot(now);
+            if(closing!==null&&closing>time&&!result.retryAfterSeconds) state.nextAttemptAt=Math.min(state.nextAttemptAt,closing);
         } else {
             state.failures = 0;
+            state.lastSuccessAt = now.toISOString();
+            if(probing && result.discoveries.length===1) state.lastLiveObservation={...result.discoveries[0],
+                schemaVersion:2,contract:LIVE_CONTRACT,graphPageId:GRAPH_PAGE_ID,publicPageId:PUBLIC_PAGE_ID,apiVersion:GRAPH_VERSION};
             state.candidates = result.candidates;
             state.postsExamined = result.postsExamined;
-            state.status = !probing ? 'candidates-only' : !verified ? 'verification-required' : 'no-eligible-video';
+            state.status = result.pending?.length ? 'pending-live-confirmation' : !probing ? 'candidates-only' : !verified ? 'verification-required' : 'no-eligible-video';
             if (probing && verified) {
                 const candidate = result.discoveries
                     .filter(v => Date.parse(v.publishedAt) >= season.start && Date.parse(v.publishedAt) <= time)
                     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.videoId.localeCompare(b.videoId))[0];
                 if (candidate) {
-                    const previous = previousIdentity(await store.get(AUTOMATIC_KEY));
+                    const previous = previousIdentity(previousRaw);
                     const older = previous && Date.parse(previous.publishedAt) > Date.parse(candidate.publishedAt);
                     // Selection identity is stable across Facebook status changes; do not rewrite playback.
                     const same = previous?.id === candidate.videoId && previous.status === candidate.status;

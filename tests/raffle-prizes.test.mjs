@@ -104,3 +104,10 @@ test('prize review endpoints require an admin session and same-origin requests',
         }
     }
 });
+import { completedDrawingDates } from '../src/pages/api/raffle/prizes.ts';
+test('only fully published drawings leave the upcoming calendar',()=>{
+ const prizes=[{drawDate:'2026-11-04',description:'Henry Big Boy All Weather 44 Mag'},{drawDate:'2026-11-04',description:'$100 gift certificate from Safe & Secure Firearms'}];
+ const winners=[{drawDate:'2026-11-04',prize:'1st place — Firearm: Henry Big Boy All Weather 44 Mag'},{drawDate:'2026-11-04',prize:'2nd place — Gift card: $100 gift certificate from Safe & Secure Firearms'}];
+ assert.deepEqual(completedDrawingDates(prizes,winners),['2026-11-04']);
+ assert.deepEqual(completedDrawingDates(prizes,winners.slice(0,1)),[]);
+});

@@ -1,4 +1,5 @@
 ---
+import {winnerTicketLabels} from '../lib/server/raffle-ticket-labels';
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
 import { prizeCells } from "../lib/winner-prize";
 import BaseLayout from "../layouts/BaseLayout.astro";
@@ -20,7 +21,7 @@ const rules = [
 type WinnerRow = {
     id: string;
     drawDate: string;
-    ticketNumber: number;
+    ticketNumber: number; ticketNumberText?: string;
     name: string;
     town: string;
     prize: string | null;
@@ -111,7 +112,7 @@ if (DB) {
      WHERE raffle_key = ?
      ORDER BY draw_date DESC, CASE WHEN prize LIKE '1st place%' THEN 1 WHEN prize LIKE '2nd place%' THEN 2 WHEN prize LIKE '3rd place%' THEN 3 ELSE 4 END, created_at DESC`
     ).bind(raffleKey).all();
-    winners = (results ?? []) as any;
+    winners = await winnerTicketLabels(DB, (results ?? []) as any);
 }
 
 let raffleTitle: string | null = null;
@@ -283,7 +284,7 @@ const description =
                 <p>Two prizes daily. A third prize is drawn on Fridays, Saturdays, Sundays, and Thanksgiving (November 26).</p>
                 <p>Winners appear after each drawing.</p>
             </div>
-            <p id="winnerRefreshStatus" class="muted" aria-live="polite">Winners update automatically.</p>
+            <p id="winnerRefreshStatus" class="muted" aria-live="polite">Check back for the latest published winners.</p>
             <nav class="monthNav" aria-label="Select raffle month">
                 <div class="monthMeta" aria-live="polite">
                     <div class="monthNavLabel" id="monthLabel">{monthLabel}</div>
@@ -346,7 +347,7 @@ const description =
                                 </td>
                                 <td class="tdPlace">{prizeCells(w.prize).place}</td>
                                 <td class="tdPrize">{prizeCells(w.prize).prize}</td>
-                                <td>{w.ticketNumber}</td>
+                                <td>{w.ticketNumberText ?? w.ticketNumber}</td>
                                 <td class="tdName">{w.name}</td>
                                 <td class="tdTown">{w.town}</td>
                             </tr>
@@ -525,7 +526,7 @@ const description =
 
                 // Ticket cell
                 const tdTicket = document.createElement("td");
-                tdTicket.textContent = String(w.ticketNumber ?? "");
+                tdTicket.textContent = String(w.ticketNumberText ?? w.ticketNumber ?? "");
 
                 // Name cell
                 const tdName = document.createElement("td");
@@ -646,7 +647,7 @@ const description =
             refreshingWinners = true;
             try {
                 await loadMonth(state.monthKey, false);
-                document.getElementById("winnerRefreshStatus").textContent = "Winners update automatically.";
+                document.getElementById("winnerRefreshStatus").textContent = "Latest published winners.";
             } catch {
                 document.getElementById("winnerRefreshStatus").textContent = "Unable to check winners. Showing the last loaded results; retrying automatically.";
             } finally { refreshingWinners = false; }

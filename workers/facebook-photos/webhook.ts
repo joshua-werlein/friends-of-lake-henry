@@ -50,3 +50,11 @@ export function webhookPostIds(payload: unknown): string[] {
     }
     return [...ids].slice(0, 20);
 }
+
+/** Signed hints only; every selected video is subsequently fetched through the Page Live edge. */
+export function webhookLiveHint(payload:unknown):boolean {
+    const p=payload as any;
+    return p?.object==='page' && Array.isArray(p.entry) && p.entry.slice(0,50).some((e:any)=>
+        [GRAPH_PAGE_ID,PUBLIC_PAGE_ID].includes(String(e?.id)) && Array.isArray(e.changes) && e.changes.slice(0,50).some((c:any)=>
+            c?.field==='live_videos' || c?.field==='videos' || (c?.field==='feed' && ['video','status','post'].includes(c?.value?.item) && ['add','edited'].includes(c?.value?.verb))));
+}

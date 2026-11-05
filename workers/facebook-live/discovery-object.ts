@@ -6,7 +6,10 @@ import type { Env } from './poller';
 /** Private singleton. No public routes and no discovery in fetch(). */
 export class DiscoveryScheduler extends DurableObject<Env> {
     private coordinator = new DiscoveryCoordinator(this.ctx.storage, this.env);
-    async fetch(): Promise<Response> {
+    async fetch(request:Request): Promise<Response> {
+        if(new URL(request.url).pathname==='/event' && request.method==='POST') {
+            const id=await request.text();return Response.json({accepted:await this.ctx.blockConcurrencyWhile(()=>this.coordinator.event(id))});
+        }
         await this.coordinator.kick();
         return new Response(null, { status: 204 });
     }
