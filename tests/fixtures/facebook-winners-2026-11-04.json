@@ -1,0 +1,171 @@
+{
+  "photoId": "122333482004073310",
+  "postId": "144051422124740_122333482076073310",
+  "sha256": "e4c9943181cbc03bd3f41d1bbbecdce58bd0bb5ba5593445a898af7fb30f37ee",
+  "width": 1030,
+  "height": 249,
+  "extractionPasses": [
+    {
+      "containsWinners": true,
+      "rows": [
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "360",
+          "name": "Tim Hartley",
+          "town": "LaCrosse, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "709",
+          "name": "Art Soborowicz",
+          "town": "Hixton, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "392",
+          "name": "Nate Berg",
+          "town": "Brainerd, MN",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-04",
+          "position": null,
+          "ticketNumber": "226",
+          "name": "Jim Wilber",
+          "town": "",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "894",
+          "name": "Troy Zigler",
+          "town": "Cashton, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "323",
+          "name": "Amos Carvalho",
+          "town": "Auburn, WA",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "047",
+          "name": "Kerry & Jeff Jacobson",
+          "town": "Monona, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-04",
+          "position": null,
+          "ticketNumber": "362",
+          "name": "Rob Stanton",
+          "town": "Dakota, MN",
+          "notes": "",
+          "prize": ""
+        }
+      ],
+      "warnings": [
+        "The table is split into two columns, 'Firearm' and 'Gift Card', with different winners under each prize type.",
+        "The drawing date is repeated for each row, but the image does not indicate if all winners were drawn on the same date."
+      ]
+    },
+    {
+      "containsWinners": true,
+      "rows": [
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "360",
+          "name": "Tim Hartley",
+          "town": "LaCrosse, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "709",
+          "name": "Art Soborowicz",
+          "town": "Hixton, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "392",
+          "name": "Nate Berg",
+          "town": "Brainerd, MN",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-04",
+          "position": null,
+          "ticketNumber": "226",
+          "name": "Jim Wilber",
+          "town": "",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "894",
+          "name": "Troy Zigler",
+          "town": "Cashton, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "323",
+          "name": "Amos Carvalho",
+          "town": "Auburn, WA",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "047",
+          "name": "Kerry & Jeff Jacobson",
+          "town": "Monona, WI",
+          "notes": "",
+          "prize": ""
+        },
+        {
+          "drawDate": "2026-11-04",
+          "position": null,
+          "ticketNumber": "362",
+          "name": "Rob Stanton",
+          "town": "Dakota, MN",
+          "notes": "",
+          "prize": ""
+        }
+      ],
+      "warnings": [
+        "The table is split into two columns, 'Firearm' and 'Gift Card', with different winners under each prize type.",
+        "The drawing date is repeated for each row, but the image does not indicate if all winners were drawn on the same date or if each prize type has its own drawing date."
+      ]
+    }
+  ]
+}

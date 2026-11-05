@@ -1,6 +1,6 @@
 import { graphReader, GRAPH_PAGE_ID } from './graph';
 import { discoverLivestreams } from './livestream';
-import type { Env } from './poller';
+import { pageAccessToken, usesFohlSync, type FacebookCredentials } from './credentials';
 
 /** Strip pagination at every depth; Graph can embed credentials in nested attachment paging URLs. */
 export function sanitizedDiagnostic(value:unknown):unknown {
@@ -13,8 +13,8 @@ export function sanitizedDiagnostic(value:unknown):unknown {
 }
 
 /** Account-only diagnostics: Graph reads only, no selection, receipt, queue or KV writes. */
-export async function inspectGraph(env: Pick<Env, 'FB_PAGE_ACCESS_TOKEN'>) {
-    const token=env.FB_PAGE_ACCESS_TOKEN??'';
+export async function inspectGraph(env: FacebookCredentials) {
+    const token=pageAccessToken(env)??'';
     const get=graphReader(token,new Date(),fetch,AbortSignal.timeout(25000));
     const out:Record<string,unknown>={at:new Date().toISOString()};
     for(const [phase,path,fields] of [
@@ -34,7 +34,8 @@ export async function inspectGraph(env: Pick<Env, 'FB_PAGE_ACCESS_TOKEN'>) {
         out.tokenAccess={appId:d?.app_id,type:d?.type,isValid:d?.is_valid,expiresAt:d?.expires_at,dataAccessExpiresAt:d?.data_access_expires_at,scopes:d?.scopes};
     }catch(e){out.tokenAccess={ok:false,reason:(e as any).reason??'unavailable'}}
     try {
-        const subscriptions=await get('1700219394854878/subscriptions',{});
+        const appId = usesFohlSync(env) ? '2349506929155471' : '1700219394854878';
+        const subscriptions=await get(`${appId}/subscriptions`,{});
         out.appSubscriptions={readable:true,subscriptions:Array.isArray(subscriptions.data)?subscriptions.data.map((v:any)=>({object:v.object,active:v.active,fields:v.fields})):[]};
     } catch(e) {out.appSubscriptions={readable:false,reason:(e as any).reason??'unavailable',detail:(e as any).detail??{}};}
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
@@ -44,8 +45,8 @@ export async function inspectGraph(env: Pick<Env, 'FB_PAGE_ACCESS_TOKEN'>) {
 }
 
 /** Probe only the known public video, reporting allowlisted values/field names rather than raw metadata. */
-export async function inspectOriginMetadata(env:Pick<Env,'FB_PAGE_ACCESS_TOKEN'>) {
-    const get=graphReader(env.FB_PAGE_ACCESS_TOKEN??'',new Date(),fetch,AbortSignal.timeout(25000));
+export async function inspectOriginMetadata(env:FacebookCredentials) {
+    const get=graphReader(pageAccessToken(env)??'',new Date(),fetch,AbortSignal.timeout(25000));
     const result:Record<string,unknown>={at:new Date().toISOString()};
     for(const field of ['live_video','is_live_streaming','broadcast_id']) {
         try{const body=await get('28261694626839193',{fields:'id,'+field});result[field]={supported:true,present:body[field]!==undefined};}

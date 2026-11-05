@@ -5,11 +5,10 @@ export function inSeason(env: { FB_SEASON_START?: string; FB_SEASON_END?: string
     const start = Date.parse(env.FB_SEASON_START ?? ''), end = Date.parse(env.FB_SEASON_END ?? '');
     return Number.isFinite(start) && Number.isFinite(end) && now.getTime() >= start && now.getTime() < end;
 }
-/** A winner post must carry the raffle hashtag, or plainly announce raffle/calendar winners. */
+/** Automatic photo imports require the raffle hashtag as a standalone caption token. */
 export function qualifies(message: unknown, marker = '#LakeHenryRaffle') {
     if (typeof message !== 'string') return false;
-    if (message.split(/\s+/).some(w => w.replace(/[.,!?:;]+$/, '').toLowerCase() === marker.toLowerCase())) return true;
-    return /\bwinners?\b/i.test(message) && /\b(raffle|calendar|drawing|drawn|ticket)\b/i.test(message);
+    return message.split(/\s+/).some(word => word.replace(/[.,!?:;]+$/, '').toLowerCase() === marker.toLowerCase());
 }
 /** Every tick from 17:45 to midnight Central (drawings and their winner posts); otherwise twice an hour. */
 export function pollDue(now: Date) {

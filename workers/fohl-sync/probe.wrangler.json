@@ -1,0 +1,12 @@
+{
+  "name": "folh-sync-local-probe",
+  "account_id": "aa86268490e681cccb3a41a62093e2aa",
+  "compatibility_date": "2025-09-15",
+  "workers_dev": false,
+  "services": [{
+    "binding": "SYNC",
+    "service": "folh-sync-webhook-test",
+    "entrypoint": "SyncDiagnostics",
+    "remote": true
+  }]
+}

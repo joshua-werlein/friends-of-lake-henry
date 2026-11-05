@@ -11,12 +11,73 @@ import { checkPhotoWorker } from '../workers/facebook-photos/check-deployment.mj
 import { base64Image } from '../workers/facebook-live/photos.ts';
 import { GET as publicMonth } from '../src/pages/api/raffle/month.ts';
 import { POST as winnersPost } from '../src/pages/api/admin/raffle/winners.ts';
+
+test('isolated FOHL Sync callback checks signatures and keeps Graph diagnostics off public HTTP', async () => {
+    const bundle = await build({ entryPoints: ['workers/fohl-sync/index.ts'], bundle: true,
+        format: 'esm', external: ['cloudflare:workers'], write: false });
+    const mf = new Miniflare({ modules: true, script: bundle.outputFiles[0].text,
+        compatibilityDate: '2025-09-15', bindings: { FB_APP_SECRET: 'test-signing-key', FB_WEBHOOK_VERIFY_TOKEN: 'test-challenge-key' },
+        outboundService: () => { throw Error('The callback must not contact external services'); } });
+    try {
+        const url = 'https://test.invalid/facebook/webhook';
+        const challenge = await mf.dispatchFetch(url + '?hub.mode=subscribe&hub.verify_token=test-challenge-key&hub.challenge=12345');
+        assert.equal(challenge.status, 200);
+        assert.equal(await challenge.text(), '12345');
+        assert.equal((await mf.dispatchFetch(url + '?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=12345')).status, 403);
+        const body = JSON.stringify({ object: 'page', entry: [{ id: '144051422124740', changes: [
+            { field: 'feed', value: { item: 'photo', verb: 'add', post_id: '144051422124740_123' } },
+        ] }] });
+        const signature = 'sha256=' + createHmac('sha256', 'test-signing-key').update(body).digest('hex');
+        const send = (text, sig) => mf.dispatchFetch(url, { method: 'POST', body: text,
+            headers: sig ? { 'X-Hub-Signature-256': sig } : {} });
+        assert.equal((await send(body)).status, 403);
+        assert.equal((await send(body + ' ', signature)).status, 403);
+        assert.equal((await send(body, signature)).status, 200);
+        assert.equal((await mf.dispatchFetch('https://test.invalid/inspect')).status, 404);
+    } finally {
+        await mf.dispose();
+    }
+});
+
+test('production callback keys are isolated and switching credentials changes only the active route', async () => {
+    const bundle = await build({ stdin: { resolveDir: process.cwd(), contents: `
+        import worker from './workers/facebook-photos/index.ts';
+        export default { async fetch(request, env, ctx) {
+            let forwarded = 0;
+            const response = await worker.fetch(request, {
+                ...env,
+                FACEBOOK_LIVE: { async notify() { forwarded++; } },
+            }, ctx);
+            return new Response(response.body, { status: response.status, headers: { forwarded: String(forwarded) } });
+        } };
+    ` }, bundle: true, format: 'esm', external: ['cloudflare:workers'], write: false });
+    const body = JSON.stringify({ object: 'page', entry: [{ id: '144051422124740', changes: [
+        { field: 'feed', value: { item: 'video', verb: 'add', post_id: '144051422124740_123' } },
+    ] }] });
+    for (const active of ['legacy', 'fohl-sync']) {
+        const mf = new Miniflare({ modules: true, script: bundle.outputFiles[0].text, compatibilityDate: '2025-09-15',
+            bindings: { FB_CREDENTIAL_SET: active, FB_APP_SECRET: 'old-test-key', FOHL_SYNC_APP_SECRET: 'new-test-key' } });
+        try {
+            for (const [suffix, key, otherKey] of [['', 'old-test-key', 'new-test-key'], ['/fohl-sync', 'new-test-key', 'old-test-key']]) {
+                const send = signingKey => mf.dispatchFetch('https://test.invalid/facebook/webhook' + suffix, {
+                    method: 'POST', body, headers: { 'X-Hub-Signature-256': 'sha256=' + createHmac('sha256', signingKey).update(body).digest('hex') },
+                });
+                assert.equal((await send(otherKey)).status, 403);
+                const response = await send(key);
+                assert.equal(response.status, 200);
+                assert.equal(response.headers.get('forwarded'), Boolean(suffix) === (active === 'fohl-sync') ? '1' : '0');
+            }
+        } finally {
+            await mf.dispose();
+        }
+    }
+});
 import { GET as importsGet, POST as importsPost } from '../src/pages/api/admin/raffle/photo-imports.ts';
 
 const events = JSON.parse(await readFile(new URL('./fixtures/november-2026-published-raffle-events.json', import.meta.url))).events;
 const picture = new Uint8Array(await readFile(new URL('./fixtures/november-2025-winner-table.png', import.meta.url)));
 const PAGE = '144051422124740';
-const row = (extra = {}) => ({ drawDate: '2026-11-03', position: 1, ticketNumber: '412', name: 'Jane Doe', town: 'Blair', prize: '', notes: '', ...extra });
+const row = (extra = {}) => ({ drawDate: '2026-11-03', position: 1, ticketNumber: '412', name: 'Jane Doe', town: 'Blair', prize: 'Firearm', notes: '', ...extra });
 const pass = rows => ({ containsWinners: true, rows, warnings: [] });
 // Stored November 2 placements that must survive every automated run.
 const art = { id: '2026-11-2026-11-02-118', drawDate: '2026-11-02', ticketNumber: 118, name: 'Art Soborowicz', town: 'Galesville', prize: '1st place — Savage 110 High Country 30-06' };
@@ -100,11 +161,11 @@ test('uncertain, disagreeing or conflicting rows are rejected, never guessed or 
     assert.equal(decide(Array.from({ length: 30 }, (_, i) => row({ ticketNumber: String(i + 1), position: null }))).status, 'rejected');
     assert.equal(decide([row({ drawDate: '2026-11-01', position: null })], undefined, [art, amos], '2026-11-05').rows[0].outcome, 'outside-window');
     assert.equal(decide([row({ drawDate: '2026-11-04' })]).rows[0].reasons[0], 'draw date is after the announcement');
-    // Unmatched prize text publishes the verified winner with the place only, and records why.
+    // Unmatched or absent prize evidence holds the row for review.
     const unmatched = decide([row({ prize: 'Remington 700' })]);
-    assert.equal(unmatched.rows[0].outcome, 'insert');
-    assert.equal(unmatched.rows[0].prize, '1st place');
-    assert.match(unmatched.rows[0].reasons.join(), /did not match one scheduled prize/);
+    assert.equal(unmatched.rows[0].outcome, 'rejected');
+    assert.equal(unmatched.rows[0].prize, null);
+    assert.match(unmatched.rows[0].reasons.join(), /exactly one approved scheduled prize/);
 });
 
 test('image encoding is exact and cheap enough for the Workers Free CPU limit', () => {
@@ -112,6 +173,42 @@ test('image encoding is exact and cheap enough for the Workers Free CPU limit', 
     const start = performance.now();
     for (let i = 0; i < 10; i++) base64Image(picture);
     assert.ok((performance.now() - start) / 10 < 5, 'encoding a 600 KB winner image must stay well under 10 ms');
+});
+
+test('blank hometown needs both reads to verify the empty cell; incomplete prize, label disagreement and image warnings stay held', async t => {
+ const schedule=await prizeSchedule(await database(t),'2026-11');
+ const a=row({town:'',townStatus:'blank',prize:'Firearm',position:null});
+ const decide=(x,y=x,warnings=[])=>decidePhoto([{...pass([x]),warnings},pass([y])],[],schedule,'2026-11-03');
+ assert.equal(decide(a).rows[0].outcome,'insert');
+ const stored={id:'blank-town-winner',drawDate:a.drawDate,ticketNumber:Number(a.ticketNumber),name:a.name,town:'',prize:'Tikka T3X Hunter 7MM Rem Mag'};
+ assert.equal(decidePhoto([pass([a]),pass([a])],[stored],schedule,'2026-11-03').rows[0].outcome,'duplicate');
+ assert.equal(decidePhoto([pass([a])],[],schedule,'2026-11-03').status,'rejected');
+ for(const bad of [{...a,townStatus:undefined},{...a,townStatus:'uncertain'},{...a,notes:'hometown clipped'},{...a,prize:''}])assert.equal(decide(bad).rows[0].outcome,'rejected');
+ assert.equal(decide(a,{...a,townStatus:undefined}).rows[0].outcome,'rejected');
+ assert.equal(decide(a,{...a,notes:'hometown clipped'}).rows[0].outcome,'rejected');
+ assert.equal(decide({...a,ticketNumber:'047'},{...a,ticketNumber:'47'}).rows[0].outcome,'rejected');
+ assert.equal(decide(a,a,['right winner column is clipped']).status,'rejected');
+ assert.equal(decidePhoto([pass([a]),pass([a])],[],[],'2026-11-03').rows[0].outcome,'rejected');
+ const duplicate=schedule.find(p=>p.drawDate==='2026-11-03'&&p.category==='Main prize');
+ assert.equal(decidePhoto([pass([a]),pass([a])],[],[...schedule,{...duplicate,id:'other-main'}],'2026-11-03').rows[0].outcome,'rejected');
+});
+
+test('real column-aware AI reads recover November 3–4 headings, full towns, blank hometown and 047 without inventing places',async t=>{
+ const schedule=await prizeSchedule(await database(t),'2026-11');
+ for(const day of ['03','04']){
+  const fixture=suffix=>new URL(`./fixtures/facebook-winners-2026-11-${day}${suffix}`,import.meta.url);
+  const before=JSON.parse(await readFile(fixture('.json'),'utf8'));
+  const after=JSON.parse(await readFile(fixture('.table-vision.json'),'utf8'));
+  const {createHash}=await import('node:crypto');assert.equal(createHash('sha256').update(await readFile(fixture('.jpg'))).digest('hex'),after.sha256);
+  assert.equal(after.sha256,before.sha256);
+  assert.equal(after.extractionPasses.length,2);
+  for(const pass of after.extractionPasses){assert.equal(pass.rows.length,day==='03'?6:8);assert.deepEqual(pass.warnings,[]);assert.ok(pass.rows.every(r=>r.position===null));assert.ok(pass.rows.every(r=>['Firearm','Gift Card'].includes(r.prize)));assert.ok(pass.rows.every(r=>!r.town||/\b(?:WI|MN|WA)$/.test(r.town)));assert.equal(pass.rows.find(r=>r.name==='Kerry & Jeff Jacobson').ticketNumber,'047');}
+  const decision=decidePhoto(after.extractionPasses,[],schedule,`2026-11-${day}`);
+  const latest=decision.rows.filter(r=>r.row.drawDate===`2026-11-${day}`);
+  assert.ok(latest.every(r=>r.outcome==='insert'));
+  assert.deepEqual(latest.map(r=>[r.row.ticketNumber,r.prize]),day==='03'?[['392','Tikka T3X Hunter 7MM Rem Mag'],['047','$100 gift certificate from Safe & Secure Firearms']]:[['226','Henry Big Boy All Weather 44 Mag'],['362','$100 gift certificate from Safe & Secure Firearms']]);
+  if(day==='04'){const jim=latest.find(r=>r.row.name==='Jim Wilber');assert.equal(jim.row.town,'');assert.equal(jim.row.townStatus,'blank');const old=decidePhoto(before.extractionPasses,[],schedule,'2026-11-04');assert.ok(old.rows.filter(r=>r.row.drawDate==='2026-11-04').every(r=>r.outcome==='rejected'));}
+ }
 });
 
 test('webhook payload parsing, signature verification, post qualification and poll window', async () => {
@@ -131,7 +228,8 @@ test('webhook payload parsing, signature verification, post qualification and po
     assert.equal(await validSignature('app-secret', 'sha1=abc', body.buffer), false);
     assert.equal(await validSignature('app-secret', null, body.buffer), false);
     assert.ok(qualifies('Congratulations to tonight’s winners! #LakeHenryRaffle'));
-    assert.ok(qualifies('Day 3 calendar raffle winners'));
+    assert.ok(!qualifies('Day 3 calendar raffle winners'));
+    assert.ok(!qualifies('Drawing winners #LakeHenryRaffleArchive'));
     assert.ok(!qualifies('Ice fishing report and photos'));
     assert.ok(!qualifies('Our raffle poster is here'));
     assert.ok(pollDue(new Date('2026-11-04T00:10:00Z')));   // 18:10 Central
@@ -157,15 +255,16 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     const bundle = await build({ entryPoints: [new URL('../workers/facebook-photos/index.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
         bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', external: ['cloudflare:workers'] });
     const readsBundle = await build({entryPoints:['workers/facebook-live/photo-reads.ts'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:workers']});
-    const now = new Date(), D = chicagoDate(now), prev = chicagoDate(new Date(now.getTime() - 86400000));
-    const created = new Date(now.getTime() - 10 * 60000).toISOString().replace(/\.\d+Z$/, '+0000');
+    const now = new Date(), publishedAt = new Date(now.getTime() - 10 * 60000);
+    const D = chicagoDate(publishedAt), prev = chicagoDate(new Date(publishedAt.getTime() - 86400000));
+    const created = publishedAt.toISOString().replace(/\.\d+Z$/, '+0000');
     const posts = new Map(), photoPng = 'https://scontent-ord5-1.xx.fbcdn.net/v/t39/winner.png';
     const post = (n, message) => { const id = `${PAGE}_${n}`; posts.set(id, { id, message, created_time: created,
         attachments: { data: [{ type: 'photo', target: { id: `90000000000000${n}` }, url: 'https://www.facebook.com/photo/' }] } }); return id; };
     const daily = post(1, `Congratulations to tonight's winners! #LakeHenryRaffle`);
     const liveEvents=new Set();let liveForwardCalls=0;
     let aiCalls = 0, failNextAi = false, aiRows = new Map();
-    aiRows.set(1, [row({ drawDate: D, prize: 'Tikka T3X Hunter 7MM Rem Mag' }), row({ drawDate: D, position: 2, ticketNumber: '77', name: 'Bob Smith', town: 'Taylor', prize: '' })]);
+    aiRows.set(1, [row({ drawDate: D, prize: 'Tikka T3X Hunter 7MM Rem Mag' }), row({ drawDate: D, position: 2, ticketNumber: '77', name: 'Bob Smith', town: 'Taylor', prize: 'Gift Card' })]);
     let currentPhoto = 0;
     const graphCalls = [];
     const mockOutbound = async request => {
@@ -242,14 +341,14 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     assert.equal(aiCalls, 2); // Two independent reads that had to agree.
     const published = (await winners()).filter(w => w.drawDate === D);
     assert.deepEqual(published, [
-        { drawDate: D, ticketNumber: 77, name: 'Bob Smith', town: 'Taylor', prize: '2nd place' },
+        { drawDate: D, ticketNumber: 77, name: 'Bob Smith', town: 'Taylor', prize: '2nd place — $100 gift certificate from Safe & Secure Firearms' },
         { drawDate: D, ticketNumber: 412, name: 'Jane Doe', town: 'Blair', prize: '1st place — Tikka T3X Hunter 7MM Rem Mag' }]);
     assert.equal((await DB.prepare('SELECT status FROM raffle_photo_auto_imports WHERE photo_id=?').bind('900000000000001').first()).status, 'published');
 
     // The public website API serves them immediately (no cache), ordered 1st then 2nd.
     const pub = await (await publicMonth({ request: new Request(`https://example.test/api/raffle/month?month=${D.slice(0, 7)}`), locals: { runtime: { env: { DB } } } })).json();
     assert.deepEqual(pub.winners.filter(w => w.drawDate === D).map(w => [w.name, w.prize]),
-        [['Jane Doe', '1st place — Tikka T3X Hunter 7MM Rem Mag'], ['Bob Smith', '2nd place']]);
+        [['Jane Doe', '1st place — Tikka T3X Hunter 7MM Rem Mag'], ['Bob Smith', '2nd place — $100 gift certificate from Safe & Secure Firearms']]);
 
     // 2. Meta redelivers the same event, and the polling fallback sees the same post: no duplicate work or rows.
     assert.equal((await webhook([daily])).status, 200);
@@ -260,7 +359,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
 
     // 3. Found only by polling (no webhook), first AI call fails → retried on a later tick → published once.
     const late = post(2, 'Bonus drawing winners #LakeHenryRaffle');
-    aiRows.set(2, [row({ drawDate: D, position: 3, ticketNumber: '5', name: 'Cal Jones', town: 'Osseo', prize: '' })]);
+    aiRows.set(2, [row({ drawDate: D, position: 3, ticketNumber: '5', name: 'Cal Jones', town: 'Osseo', prize: 'Firearm' })]);
     failNextAi = true;
     // Cron ticks at the first poll-due minute at/after the offset, so the test does not depend on the time of day.
     const dueAt = offsetMs => { let at = new Date(Date.now() + offsetMs); while (!pollDue(at)) at = new Date(at.getTime() + 60000); return at; };
@@ -307,7 +406,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     assert.equal((await DB.prepare(`SELECT source FROM raffle_photo_auto_posts WHERE post_id=?`).bind(`${PAGE}_42`).first()).source, 'admin');
     // An untagged post is ignored by polling/webhooks but processed when an administrator queues it explicitly.
     const untagged = post(4, 'Tonight at the Legion');
-    aiRows.set(4, [row({ drawDate: D, position: null, ticketNumber: '600', name: 'Dee Park', town: 'Arcadia', prize: '' })]);
+    aiRows.set(4, [row({ drawDate: D, position: null, ticketNumber: '600', name: 'Dee Park', town: 'Arcadia', prize: 'Gift Card' })]);
     await webhook([untagged]);
     await settle(`SELECT status FROM raffle_photo_auto_posts WHERE post_id=?`, 'ignored', untagged);
     assert.equal((await queue({ action: 'queue', source: `https://www.facebook.com/61552199315213/posts/4` })).status, 200);
@@ -324,7 +423,9 @@ test('actual November 3 image and both captured AI passes retain exact names, le
  const {createHash}=await import('node:crypto');const image=await readFile(new URL('./fixtures/facebook-winners-2026-11-03.jpg',import.meta.url));
  assert.equal(createHash('sha256').update(image).digest('hex'),evidence.sha256);
  const schedule=await prizeSchedule(await database(t),'2026-11');const decision=decidePhoto(evidence.extractionPasses,[],schedule,'2026-11-03');
- const rows=decision.rows.filter(r=>r.row.drawDate==='2026-11-03');assert.deepEqual(rows.map(r=>[r.row.ticketNumber,r.row.name,r.row.town,r.row.position,r.prize]),[
+ // Historical model warnings now hold the image; retain its immutable field evidence separately.
+ assert.equal(decision.status,'rejected');assert.match(decision.reasons.join(),/warnings/);
+ const rows=evidence.extractionPasses[0].rows.filter(r=>r.drawDate==='2026-11-03');assert.deepEqual(rows.map(r=>[r.ticketNumber,r.name,r.town,r.position,matchPrize(r.prize,r.drawDate,schedule).description]),[
  ['392','Nate Berg','Brainerd, MN',null,'Tikka T3X Hunter 7MM Rem Mag'],['047','Kerry & Jeff Jacobson','Monona, WI',null,'$100 gift certificate from Safe & Secure Firearms']]);
- assert.ok(rows.every(r=>r.outcome==='insert'));const duplicate=schedule.filter(p=>p.drawDate==='2026-11-03'&&p.category==='Gift card')[0];assert.equal(matchPrize('Gift Card','2026-11-03',[...schedule,{...duplicate,id:'another'}]).match,'unmatched');
+ const duplicate=schedule.filter(p=>p.drawDate==='2026-11-03'&&p.category==='Gift card')[0];assert.equal(matchPrize('Gift Card','2026-11-03',[...schedule,{...duplicate,id:'another'}]).match,'unmatched');
 });

@@ -58,7 +58,9 @@ function rowProblems(row: DraftWinner, announcementDate: string): { reasons: str
     if (!realDate(row.drawDate)) reasons.push('draw date missing or invalid');
     if (!/^\d{1,9}$/.test(row.ticketNumber) || Number(row.ticketNumber) <= 0) reasons.push('ticket number missing or invalid');
     if (row.name.length < 2 || /[?…]|\.\.\./.test(row.name)) reasons.push('name missing or uncertain');
-    if (row.town.length < 2 || /[?…]|\.\.\./.test(row.town)) reasons.push('hometown missing or uncertain');
+    if ((row.town.length < 2 && !(row.town === '' && row.townStatus === 'blank'))
+        || /[?…]|\.\.\./.test(row.town) || row.townStatus === 'uncertain'
+        || (row.town !== '' && row.townStatus === 'blank')) reasons.push('hometown missing or uncertain');
     if (row.notes) reasons.push('model flagged uncertainty: ' + row.notes);
     let outside = false;
     if (realDate(row.drawDate)) {
@@ -78,6 +80,9 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     const [first, ...others] = passes;
     if (passes.some(p => p.containsWinners !== first.containsWinners)) return { status: 'rejected', reasons: ['extraction passes disagree about whether this is a winner announcement'], rows: [] };
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
+    if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
+    const warnings = passes.flatMap(p => p.warnings).filter(w => w.trim() && !/^no (?:warnings|issues)[.!]?$/i.test(w.trim()));
+    if (warnings.length) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...new Set(warnings)], rows: [] };
     if (!first.rows.length) return { status: 'rejected', reasons: ['announcement contains no readable winner rows'], rows: [] };
     if (others.some(p => p.rows.length !== first.rows.length)) return { status: 'rejected', reasons: ['extraction passes found different numbers of winners'], rows: [] };
     if (first.rows.length > MAX_AUTO_ROWS) return { status: 'rejected', reasons: [`${first.rows.length} rows exceeds the ${MAX_AUTO_ROWS}-row daily announcement limit; enter monthly tables manually`], rows: [] };
@@ -88,6 +93,9 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             const o = other.rows[i];
             const differs = (['drawDate', 'name', 'town', 'prize'] as const).filter(f => !same(row[f], o[f]));
             if (Number(row.ticketNumber) !== Number(o.ticketNumber)) differs.push('ticketNumber' as never);
+            if (row.ticketNumber !== o.ticketNumber && Number(row.ticketNumber) === Number(o.ticketNumber)) reasons.push('extraction passes disagree on printed ticket label');
+            if (!row.town && row.townStatus !== o.townStatus) reasons.push('extraction passes disagree on whether hometown is visibly blank');
+            if (o.notes || o.townStatus === 'uncertain') reasons.push('another extraction pass flagged uncertainty');
             if (row.position !== o.position) differs.push('position' as never);
             if (differs.length) reasons.push('extraction passes disagree on ' + differs.join(', '));
         }
@@ -123,7 +131,11 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         }
         const prize = matchPrize(d.row.prize, d.row.drawDate, schedule);
         d.prizeMatch = prize.match;
-        if (prize.match === 'unmatched') d.reasons.push('visible prize text did not match one scheduled prize; prize left blank');
+        if (prize.match !== 'scheduled') {
+            d.outcome = 'rejected';
+            d.reasons.push('prize or column header must identify exactly one approved scheduled prize; review required');
+            continue;
+        }
         d.prize = composePrize(d.row.position, prize.description);
         d.winnerId = winnerId(d.row.drawDate, Number(d.row.ticketNumber));
     }
@@ -140,7 +152,7 @@ export async function loadContext(db: D1Database, months: string[]) {
         const res = await db.prepare(`SELECT id, draw_date AS drawDate, ticket_number AS ticketNumber, winner_name AS name, town, prize
             FROM raffle_winners WHERE raffle_key=?`).bind(month).all<ExistingWinner>();
         existing.push(...res.results);
-        try { schedule.push(...await prizeSchedule(db, month)); } catch { /* No calendar: prizes stay blank, winners still publish. */ }
+        try { schedule.push(...await prizeSchedule(db, month)); } catch { /* No calendar: new winners stay held for review. */ }
     }
     return { existing, schedule };
 }

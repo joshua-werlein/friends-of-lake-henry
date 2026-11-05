@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { verifyAndStage } from './diagnostics';
+import { pageAccessToken } from './credentials';
 import type { Env } from './poller';
 export { default } from './index';
 export { DiscoveryScheduler } from './discovery-object';
@@ -34,7 +35,7 @@ export class LiveEvents extends WorkerEntrypoint<Env> {
         const previous=this.env.CONFIG?await this.env.CONFIG.get('raffle_live_automatic'):null;
         const state=this.env.CONFIG?await this.env.CONFIG.get('raffle_live_automation_state'):null;
         const prior=(state?JSON.parse(state).lastLiveObservation:null)??(previous?JSON.parse(previous):null);
-        const result=await discoverLivestreams({token:this.env.FB_PAGE_ACCESS_TOKEN??'',prior});
+        const result=await discoverLivestreams({token:pageAccessToken(this.env)??'',prior});
         return {status:result.ok?'checked':'error',checkedAt:new Date().toISOString(),selectionChanged:false,result};
 
     }

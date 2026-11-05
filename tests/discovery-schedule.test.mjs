@@ -11,6 +11,32 @@ import {discoverLivestreams} from '../workers/facebook-live/livestream.ts';
 import {checkActivation} from '../workers/facebook-live/check-activation.mjs';
 import {GRAPH_PAGE_ID as graph,PUBLIC_PAGE_ID as page,GRAPH_VERSION as version,LIVE_CONTRACT as contract} from '../workers/facebook-live/graph.ts';
 const automaticKey='raffle_live_automatic',manualKey='raffle_live';
+
+test('signed hint uses the real workerd fetch transport and records Live evidence without a policy receipt', async t => {
+ const bundle=await build({stdin:{contents:`import {DiscoveryCoordinator} from './workers/facebook-live/coordinator.ts';
+ export default {async fetch(){
+  const data=new Map([['raffle_live',JSON.stringify({latestVideoUrl:'manual-fallback',selectionMode:'manual'})]]);
+  const saved=new Map();const kv={get:async k=>data.get(k)??null,put:async(k,v)=>{data.set(k,v)}};
+  const storage={get:async k=>saved.get(k),put:async(k,v)=>{saved.set(k,v)},getAlarm:async()=>null,setAlarm:async()=>{}};
+  const env={CONFIG:kv,FB_AUTOMATION_ENABLED:'true',FB_VIDEO_PROBE_ENABLED:'true',FB_PAGE_ACCESS_TOKEN:'TEST_ONLY',FB_GRAPH_PAGE_ID:'144051422124740',FB_PUBLIC_PAGE_ID:'61552199315213',FB_SEASON_START:'2026-11-01T00:00:00-05:00',FB_SEASON_END:'2026-12-01T00:00:00-06:00'};
+  const c=new DiscoveryCoordinator(storage,env,()=>Date.parse('2026-11-05T00:00:45Z'));
+  const accepted=await c.event('a'.repeat(64));const outcome=await c.alarm();
+  return Response.json({accepted,outcome,data:Object.fromEntries(data)});
+ }}`,resolveDir:process.cwd(),sourcefile:'coordinator-runtime-test.ts'},bundle:true,write:false,format:'esm',platform:'browser',target:'es2022'});
+ let calls=0;
+ const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2025-09-15',outboundService:request=>{
+  calls++;const part=new URL(request.url).pathname.split('/').at(-1);
+  if(part===graph)return Response.json({id:graph});
+  if(part==='published_posts')return Response.json({data:[{id:graph+'_222',created_time:'2026-11-05T00:00:39+0000',attachments:{data:[{type:'video',target:{id:'222',url:'https://www.facebook.com/61552199315213/videos/222/'}}]}}]});
+  return Response.json({id:'222',from:{id:graph},published:true,embeddable:true,live_status:'LIVE'});
+ }});t.after(()=>mf.dispose());
+ const result=await(await mf.dispatchFetch('https://test/')).json();
+ assert.equal(calls,3);assert.equal(result.accepted,true);assert.equal(result.outcome.status,'verification-required');
+ assert.equal(JSON.parse(result.data[STATE_KEY]).lastLiveObservation.videoId,'222');
+ assert.equal(JSON.parse(result.data.raffle_live_webhook_state).signedEventReceived,true);
+ assert.equal(result.data[automaticKey],undefined);assert.equal(result.data[VERIFICATION_KEY],undefined);
+ assert.equal(JSON.parse(result.data[manualKey]).latestVideoUrl,'manual-fallback');
+});
 const receipt=JSON.stringify({schemaVersion:5,graphPageId:graph,publicPageId:page,apiVersion:version,contract,evidence:'page-video-live-origin-policy-reviewed',verifiedVideoId:'222',publicPlaybackVerified:true,rollbackTested:true,verifiedAt:'2026-11-01T23:00:00Z',expiresAt:'2026-12-01T06:00:00Z'});
 const manual=JSON.stringify({latestVideoUrl:`https://www.facebook.com/${page}/videos/111/`,selectionMode:'automatic'});
 function setup(){const data=new Map([[VERIFICATION_KEY,receipt],[manualKey,manual]]),reads=[],writes=[];const store={async get(k){reads.push(k);return data.get(k)??null},async put(k,v){writes.push(k);data.set(k,v)}};return {data,reads,writes,store,env:{CONFIG:store,FB_PAGE_ACCESS_TOKEN:'TEST_ONLY',FB_AUTOMATION_ENABLED:'true',FB_VIDEO_PROBE_ENABLED:'true',FB_GRAPH_PAGE_ID:graph,FB_PUBLIC_PAGE_ID:page,FB_RAFFLE_MARKER:'#LakeHenryRaffle',FB_POLL_INTERVAL_SECONDS:'60',FB_ACCESS_REVISION:'1'}};}
