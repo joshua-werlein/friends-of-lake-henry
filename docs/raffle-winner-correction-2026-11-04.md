@@ -37,3 +37,13 @@ The existing entry fields are reused. Each row's Edit button fills all six field
 - Production release and browser verification details are recorded below after publication.
 
 No Facebook Worker source, automation schedule, webhook configuration, KV usage logic, or automatic update toggle implementation was changed.
+
+### Production release verified
+
+- Admin deployment commit: `9d055d2`; Pages deployment: [ed5fe2a9](https://ed5fe2a9.friends-of-lake-henry.pages.dev). Migration 005 was applied explicitly to `folh-db` before this deployment.
+- Authenticated live `/admin/raffle` loaded all eight November winners, including Jim and Rob and ticket `047`. Computed styles for all three panels were identical: `rgba(7, 15, 23, 0.86)`, `1px solid rgba(255, 255, 255, 0.16)`, radius `14px`, shadow `none`.
+- Live Edit on Jim populated date `2026-11-04`, ticket `226`, name, blank hometown, 1st place and the correct prize. Cancel returned to Add Winner, hid Cancel Editing and reported no changes saved. No test edits were submitted to production. Saving was exercised against the disposable database.
+- Live public winners displayed both November 4 results correctly; upcoming schedule began November 5. The complete public month and live API responses were identical before/after the admin release.
+- Worker settings, both Worker schedules and all three selected-video KV values were hashed before/after and matched exactly. No automation controls were clicked during verification.
+- Screenshot evidence: ignored `.wrangler/nov4/production-admin-edit.png`. Release snapshots and test logs are retained in that directory.
+- Additional changed validation files: `package.json`, `tests/raffle-prizes.test.mjs`, `tests/raffle.test.mjs`, `tests/photo-autopublish.test.mjs`, `tests/local-preview.mjs`, and new `tests/winner-edit.test.mjs`. Calendar files: `src/pages/api/raffle/prizes.ts`, `src/scripts/raffle-prize-calendar.ts`. Admin implementation files and migration are described above.
