@@ -11,7 +11,7 @@ async function load(month:string) {
         list.replaceChildren();
         if(!data.enabled)return;
         const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-        const prizes=data.prizes.filter((r:any)=>r.drawDate>=today); // past dates: actual prizes show in the winners table
+        const prizes=data.prizes.filter((r:any)=>r.drawDate>=today && !(data.completedDates??[]).includes(r.drawDate));
         document.getElementById('prizeCalendarMonth')!.textContent=new Intl.DateTimeFormat('en-US',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(month+'-15T12:00:00Z'));
         const day=new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'});
         const byDate=new Map<string,any[]>();
