@@ -7,7 +7,8 @@ export const PHOTO_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 export const LLAMA_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 export const MAX_IMPORT_ROWS = 100;
 export type PhotoCandidate = { photoId: string; postId: string | null; sourceUrl: string; publishedAt: string | null };
-export type DraftWinner = { drawDate: string; position: number | null; ticketNumber: string; name: string; town: string; notes: string; prize?: string };
+export type DraftWinner = { drawDate: string; position: number | null; ticketNumber: string; name: string; town: string; notes: string; prize?: string;
+    townStatus?: 'readable' | 'blank' | 'uncertain' };
 export type Extraction = { containsWinners: boolean; rows: DraftWinner[]; warnings: string[] };
 export type PhotoCapture = { photoId: string; sourceUrl: string; bytes: Uint8Array; mime: string;
     sha256: string; width: number; height: number; extraction: Extraction; model: string };
@@ -41,7 +42,8 @@ export function draftRows(value: unknown): DraftWinner[] {
         if (!v || typeof v !== 'object' || Array.isArray(v)) throw Error('Invalid row.');
         return { drawDate: text(v.drawDate, 30), position: [1, 2, 3].includes(v.position) ? v.position : null,
             ticketNumber: typeof v.ticketNumber === 'number' ? String(v.ticketNumber) : text(v.ticketNumber, 30),
-            name: text(v.name, 200), town: text(v.town, 200), notes: text(v.notes, 500), prize: text(v.prize, 250) };
+            name: text(v.name, 200), town: text(v.town, 200), notes: text(v.notes, 500), prize: text(v.prize, 250),
+            ...(['readable', 'blank', 'uncertain'].includes(v.townStatus) ? { townStatus: v.townStatus } : {}) };
     });
 }
 export function parseExtraction(response: unknown): Extraction {
@@ -98,13 +100,14 @@ export function compareWinner(row: DraftWinner, existing: ExistingWinner[]): Com
         const sameName = !!name && name === normalized(v.name);
         return sameTicket || sameName || (v.drawDate === date && !positiveTicket(v.ticketNumber) && !normalized(v.name));
     });
-    const issues = [row.notes, ...(!row.drawDate || !ticket || !row.name || !row.town ? ['Missing or uncertain extracted fields.'] : [])].filter(Boolean);
+    const issues = [row.notes, ...(!row.drawDate || !ticket || !row.name || (!row.town && row.townStatus !== 'blank') ? ['Missing or uncertain extracted fields.'] : [])].filter(Boolean);
     if (matches.length > 1) return { status: 'conflicting', existingId: null, missingFields: [], conflicts: ['Several existing winners could match.'], issues };
     if (!matches.length) return { status: 'missing', existingId: null, missingFields: [], conflicts: [], issues };
     const found = matches[0], missingFields: string[] = [], conflicts: string[] = [];
     for (const field of ['drawDate', 'ticketNumber', 'name', 'town'] as const) {
         const old = field === 'ticketNumber' ? positiveTicket(found[field]) : field === 'town' ? normalized(found.town).replace(/[\s,]+/g, '') : normalized(found[field]);
         const next = field === 'ticketNumber' ? ticket : field === 'town' ? normalized(row.town).replace(/[\s,]+/g, '') : normalized(row[field]);
+        if (field === 'town' && !old && !next && row.townStatus === 'blank') continue;
         if (!old) missingFields.push(field);
         else if (!next || old !== next) conflicts.push(field);
     }

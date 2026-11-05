@@ -19,7 +19,7 @@ export type Env = {
     FB_PHOTO_AUTOMATION_ENABLED?: string; // master switch for webhook processing and polling
     FB_PHOTO_AUTOPUBLISH?: string;        // "false" records decisions as held without inserting winners
     FB_PHOTO_POLL_ENABLED?: string;       // polling fallback when webhooks are unavailable
-    FB_PHOTO_EXTRACTION_PASSES?: string;  // independent AI reads that must agree (1-3)
+    FB_PHOTO_EXTRACTION_PASSES?: string;  // differently instructed AI reads that must agree (2-3)
     FB_RAFFLE_MARKER?: string;
     FB_SEASON_START?: string;
     FB_SEASON_END?: string;
@@ -53,6 +53,7 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, 
     let payload: unknown;
     try { payload = JSON.parse(new TextDecoder().decode(body)); } catch { return new Response('Bad request', { status: 400 }); }
     const ids = webhookPostIds(payload);
+    log('webhook-signature-accepted', { posts: ids.length, liveHint: webhookLiveHint(payload) });
     // Durably queue before acknowledging; a D1 failure returns 500 so Meta redelivers. Redeliveries dedupe on post_id.
     const fresh: string[] = [];
     for (const id of ids) if (await enqueuePost(env.DB, id, 'webhook')) fresh.push(id);
@@ -74,10 +75,10 @@ function photoReader(env:Env, now:Date, fetcher:Fetcher) {
 class Permanent extends Error {}
 
 async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announcementDate: string): Promise<Extraction[]> {
-    const passes = Math.min(3, Math.max(1, Number(env.FB_PHOTO_EXTRACTION_PASSES) || 2));
+    const passes = Math.min(3, Math.max(2, Number(env.FB_PHOTO_EXTRACTION_PASSES) || 2));
     const out: Extraction[] = [], dataUrl = `data:${mime};base64,${base64Image(bytes)}`; // Encode once for all passes.
     for (let i = 0; i < passes; i++) {
-        out.push(await extractWinners(env.AI!, dataUrl, mime, announcementDate.slice(0, 7), PHOTO_MODEL, announcementDate));
+        out.push(await extractWinners(env.AI!, dataUrl, mime, announcementDate.slice(0, 7), PHOTO_MODEL, announcementDate, i));
         if (i === 0 && !out[0].containsWinners) break; // A non-winner photo needs no confirmation pass.
     }
     return out;

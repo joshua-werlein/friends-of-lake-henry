@@ -15,7 +15,8 @@ type Poll = typeof runPoll;
 export class DiscoveryCoordinator {
     private busy = false;
     constructor(private storage: Storage, private env: Env,
-        private now: () => number = Date.now, private poll: Poll = runPoll, private fetcher: typeof fetch = fetch) {}
+        private now: () => number = Date.now, private poll: Poll = runPoll,
+        private fetcher: typeof fetch = (input, init) => fetch(input, init)) {}
 
     async event(id:string):Promise<boolean> {
         if(!/^[a-f0-9]{64}$/.test(id)||!inDiscoveryWindow(new Date(this.now()))) return false;

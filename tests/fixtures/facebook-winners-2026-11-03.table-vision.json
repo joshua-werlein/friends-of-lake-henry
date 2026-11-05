@@ -1,0 +1,141 @@
+{
+  "photoId": "122333284628073310",
+  "sha256": "8fe16e93009ddb2a19ef43c6cc64670f3be0bd0945331e24e2f0ae444c706ef9",
+  "model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "promptVersion": "column-aware-v2",
+  "capturedAt": "2026-11-05T00:52:33.287Z",
+  "extractionPasses": [
+    {
+      "containsWinners": true,
+      "rows": [
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "360",
+          "name": "Tim Hartley",
+          "town": "LaCrosse, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "894",
+          "name": "Troy Zigler",
+          "town": "Cashton, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "709",
+          "name": "Art Soborowicz",
+          "town": "Hixton, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "323",
+          "name": "Amos Carvalho",
+          "town": "Auburn, WA",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "392",
+          "name": "Nate Berg",
+          "town": "Brainerd, MN",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "047",
+          "name": "Kerry & Jeff Jacobson",
+          "town": "Monona, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "containsWinners": true,
+      "rows": [
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "360",
+          "name": "Tim Hartley",
+          "town": "LaCrosse, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-01",
+          "position": null,
+          "ticketNumber": "894",
+          "name": "Troy Zigler",
+          "town": "Cashton, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "709",
+          "name": "Art Soborowicz",
+          "town": "Hixton, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-02",
+          "position": null,
+          "ticketNumber": "323",
+          "name": "Amos Carvalho",
+          "town": "Auburn, WA",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "392",
+          "name": "Nate Berg",
+          "town": "Brainerd, MN",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable"
+        },
+        {
+          "drawDate": "2026-11-03",
+          "position": null,
+          "ticketNumber": "047",
+          "name": "Kerry & Jeff Jacobson",
+          "town": "Monona, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable"
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}
