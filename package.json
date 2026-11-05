@@ -6,7 +6,7 @@
     "node": ">=20 <21"
   },
   "scripts": {
-    "test": "node --import ./tests/register.mjs --test tests/facebook.test.mjs tests/raffle.test.mjs tests/video-presentation.test.mjs tests/raffle-selection.test.mjs tests/winner-prize.test.mjs tests/photo-autopublish.test.mjs tests/raffle-prizes.test.mjs tests/discovery-schedule.test.mjs",
+    "test": "node --import ./tests/register.mjs --test tests/facebook.test.mjs tests/raffle.test.mjs tests/video-presentation.test.mjs tests/raffle-selection.test.mjs tests/winner-prize.test.mjs tests/photo-autopublish.test.mjs tests/raffle-prizes.test.mjs tests/discovery-schedule.test.mjs tests/winner-edit.test.mjs",
     "typecheck:facebook-worker": "tsc -p workers/facebook-live/tsconfig.json",
     "build:facebook-worker": "esbuild workers/facebook-live/video-entry.ts --bundle --format=esm --platform=browser --target=es2022 --external:cloudflare:workers --outfile=.wrangler/facebook-live-build/video-entry.js",
     "typecheck": "tsc --noEmit",

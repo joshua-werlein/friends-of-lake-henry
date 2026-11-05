@@ -8,5 +8,9 @@ export async function winnerTicketLabels<T extends {id:unknown;ticketNumber:unkn
             WHERE a.outcome='inserted' AND CAST(json_extract(a.row_json,'$.ticketNumber') AS INTEGER)=w.ticket_number`).all<any>();
         for(const r of result.results) if(typeof r.label==='string' && /^\d{1,9}$/.test(r.label)) labels.set(r.id,r.label);
     } catch { /* Older deployments without the additive photo audit tables retain normal numeric labels. */ }
+    try {
+        const saved=await db.prepare('SELECT id,ticket_number_text AS label FROM raffle_winners WHERE ticket_number_text IS NOT NULL').all<any>();
+        for(const r of saved.results) if(typeof r.label==='string' && /^\d{1,9}$/.test(r.label)) labels.set(r.id,r.label);
+    } catch { /* Optional exact labels become available with migration 005. */ }
     return rows.map(row=>({...row,ticketNumberText:labels.get(String(row.id))??String(row.ticketNumber??'')}));
 }

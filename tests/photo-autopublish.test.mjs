@@ -30,7 +30,7 @@ async function database(t) {
     return DB;
 }
 async function migrate(DB, seedWinners = true) {
-    for (const name of ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '004_raffle_photo_autopublish.sql']) {
+    for (const name of ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '004_raffle_photo_autopublish.sql', '005_winner_ticket_text.sql']) {
         const sql = (await readFile(new URL('../migrations/' + name, import.meta.url), 'utf8')).replace(/--[^\n]*/g, '');
         for (const statement of sql.split(';').filter(v => v.trim())) await DB.prepare(statement).run();
     }
@@ -288,7 +288,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     assert.equal(rejected.rows[0].outcome, 'rejected');
     assert.match(rejected.rows[0].reasons.join(), /already belongs to another winner/);
     const admin = body => winnersPost({ request: new Request('https://example.test/api/admin/raffle/winners', { method: 'POST', body: JSON.stringify(body) }), locals: { runtime: { env: { DB } } } });
-    const bob = { drawDate: D, ticketNumber: 77, name: 'Bob Smith', town: 'Taylor' };
+    const bob = {...(await winners()).find(w=>w.name==='Bob Smith'),ticketNumberText:'77'};
     const idBob = `${D.slice(0, 7)}-${D}-77`;
     assert.equal((await admin({ action: 'update', id: idBob, expected: bob, winner: { ...bob, name: 'Robert Smith' } })).status, 200);
     assert.equal((await admin({ action: 'update', id: idBob, expected: bob, winner: { ...bob, name: 'Stale Edit' } })).status, 409); // Concurrent-edit guard.

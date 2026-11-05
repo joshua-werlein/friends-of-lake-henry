@@ -113,7 +113,8 @@ export const prerender = false;
                   </div>
                 </div>
 
-                <div class="formGrid" style="margin-top: .85rem;">
+                <h3 id="winnerFormHeading" tabindex="-1">Add Winner</h3>
+                <div id="winnerEntryForm" class="formGrid" style="margin-top: .85rem;">
                     <div class="field">
                         <label class="label" for="wDate">Date</label>
                         <input id="wDate" class="input" type="date" autocomplete="off" />
@@ -130,7 +131,7 @@ export const prerender = false;
                     </div>
 
                     <div class="field span2">
-                        <label class="label" for="wTown">Hometown</label>
+                        <label class="label" for="wTown">Hometown (optional)</label>
                         <input id="wTown" class="input" placeholder="Galesville" autocomplete="off" />
                     </div>
 
@@ -145,12 +146,13 @@ export const prerender = false;
                     </div>
                     <div class="field">
                         <label class="label" for="wPrize">Prize description (optional)</label>
-                        <input id="wPrize" class="input" maxlength="200" placeholder="Prize or cash amount" />
+                        <input id="wPrize" class="input" maxlength="250" placeholder="Prize or cash amount" />
                     </div>
                     <div class="field span2"><label for="scheduledPrizeSuggestion">Approved prize suggestions</label><select class="input" id="scheduledPrizeSuggestion"><option value="">Choose a verified prize suggestion (optional)</option></select><p id="scheduledPrizeHelp" class="muted">Manual prize entry remains available. Date matches do not establish prize placement.</p></div>
                     <p class="muted span2" id="prizeSchedule" aria-live="polite"></p>
                     <div class="actions span2">
-                        <button class="btn" id="addWinner" type="button">Add winner</button>
+                        <button class="btn" id="addWinner" type="button">Add Winner</button>
+                        <button class="btn" id="cancelWinnerEdit" type="button" hidden>Cancel Editing</button>
                     </div>
 
                     <div class="span2">
@@ -194,24 +196,11 @@ export const prerender = false;
             <div class="actions span2"><button class="btn" type="submit">Approve and save prize</button><button class="btn" type="button" id="cancelPrizeEdit">Cancel</button></div>
         </form>
     </dialog>
-    <dialog id="winnerDetailsDialog" aria-labelledby="winnerDetailsHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;background:#16202b;color:#fff;padding:1.5rem;">
-        <h2 id="winnerDetailsHeading">Edit winner details</h2>
-        <form id="winnerDetailsForm" class="formGrid">
-            <div class="field"><label for="editWinnerDate">Draw date</label><input id="editWinnerDate" class="input" type="date" required /></div>
-            <div class="field"><label for="editWinnerTicket">Ticket</label><input id="editWinnerTicket" class="input" inputmode="numeric" pattern="[0-9]+" required /></div>
-            <div class="field span2"><label for="editWinnerName">Name</label><input id="editWinnerName" class="input" maxlength="200" required /></div>
-            <div class="field span2"><label for="editWinnerTown">Hometown</label><input id="editWinnerTown" class="input" maxlength="200" required /></div>
-            <p class="muted span2">Prize and place are edited with “Edit prize”.</p>
-            <p id="editWinnerStatus" class="span2" role="status"></p>
-            <div class="actions span2"><button class="btn" type="submit">Save winner</button><button class="btn" type="button" id="cancelWinnerEdit">Cancel</button></div>
-        </form>
-    </dialog>
-    <script>import "../../scripts/raffle-winner-editor";</script>
     <script>import "../../scripts/raffle-prize-editor";</script>
     <script>import "../../scripts/raffle-prize-suggestions";</script>
     <script>import "../../scripts/raffle-orientation-admin";</script>
     <script>
-        import { prizeCells } from "../../lib/winner-prize";
+        import { prizeCells, parseWinnerPrize } from "../../lib/winner-prize";
         function currentMonthKeyChicago() {
             // en-CA => YYYY-MM formatting is easy to slice
             return new Intl.DateTimeFormat("en-CA", {
@@ -377,6 +366,35 @@ export const prerender = false;
 
             syncPosterMonthKey();
 
+            let editing = null;
+            const heading = document.getElementById('winnerFormHeading');
+            const cancelEdit = document.getElementById('cancelWinnerEdit');
+            function finishEditing() {
+                editing = null;
+                heading.textContent = 'Add Winner';
+                addWinnerBtn.textContent = 'Add Winner';
+                cancelEdit.hidden = true;
+                wTicket.value = ''; wName.value = ''; wTown.value = ''; wPrize.value = ''; wPlace.value = '';
+                window.dispatchEvent(new Event('raffle:winner-saved'));
+            }
+            cancelEdit.addEventListener('click', () => { finishEditing(); setWinnersStatus('info','Editing canceled. No changes saved.'); });
+            window.addEventListener('raffle:edit-winner', event => {
+                if (addWinnerBtn.disabled) return;
+                const row = event.detail;
+                if (row.raffleKey !== raffleMonth.value) return;
+                editing = {...row};
+                const parsed = parseWinnerPrize(row.prize);
+                wDate.value = row.drawDate;
+                wDate.dispatchEvent(new Event('change'));
+                wTicket.value = row.ticketNumberText ?? String(row.ticketNumber);
+                wName.value = row.name; wTown.value = row.town;
+                wPrize.value = parsed.category ? parsed.category + ': ' + parsed.description : parsed.description;
+                wPlace.value = parsed.position === null ? '' : parsed.position + (parsed.position===1?'st':parsed.position===2?'nd':'rd') + ' place';
+                heading.textContent = 'Edit Winner — ' + row.name;
+                addWinnerBtn.textContent = 'Save Changes'; cancelEdit.hidden = false;
+                setWinnersStatus('info','Editing the selected winner. Save Changes updates this entry.');
+                heading.scrollIntoView({behavior:'smooth',block:'start'}); heading.focus({preventScroll:true});
+            });
             function renderWinners(rows) {
                 const tbody = winnersTable.tBodies?.[0];
                 if (!tbody) return;
@@ -399,7 +417,7 @@ export const prerender = false;
 
                     // Ticket cell
                     const tdTicket = document.createElement("td");
-                    tdTicket.textContent = String(r.ticketNumber ?? "");
+                    tdTicket.textContent = String(r.ticketNumberText ?? r.ticketNumber ?? "");
 
                     // Name cell
                     const tdName = document.createElement("td");
@@ -419,19 +437,13 @@ export const prerender = false;
                     btn.setAttribute("data-del", String(r.id ?? ""));
                     btn.textContent = "Remove";
 
-                    const edit = document.createElement("button");
-                    edit.type = "button";
-                    edit.className = "pill";
-                    edit.textContent = "Edit prize";
-                    edit.setAttribute("aria-label", `Edit prize for ticket ${r.ticketNumber}, ${r.name}`);
-                    edit.addEventListener("click", () => window.dispatchEvent(new CustomEvent("raffle:edit-prize", {detail:r})));
                     const details = document.createElement("button");
                     details.type = "button";
                     details.className = "pill";
-                    details.textContent = "Edit details";
-                    details.setAttribute("aria-label", `Edit date, ticket, name or hometown for ticket ${r.ticketNumber}, ${r.name}`);
+                    details.textContent = "Edit";
+                    details.setAttribute("aria-label", `Edit winner for ticket ${r.ticketNumberText ?? r.ticketNumber}, ${r.name}`);
                     details.addEventListener("click", () => window.dispatchEvent(new CustomEvent("raffle:edit-winner", {detail:r})));
-                    tdActions.append(details, edit, btn);
+                    tdActions.append(details, btn);
 
                     const tdPrize = document.createElement("td");
                     const cells = prizeCells(r.prize ?? null);
@@ -461,6 +473,7 @@ export const prerender = false;
 
                     const data = await res.json().catch(() => ({}));
 
+                    if (raffleMonth.value !== monthKey) return;
                     if (res.ok && data?.ok) {
                         renderWinners(data.winners ?? []);
                         raffleTitle.value = (data.meta?.title ?? "").toString();
@@ -528,12 +541,17 @@ export const prerender = false;
 
             addWinnerBtn.addEventListener("click", async () => {
                 const dateMonth = wDate.value.slice(0, 7);
-                if (dateMonth !== raffleMonth.value) {
+                if (!editing && dateMonth !== raffleMonth.value) {
                     setWinnersStatus("error", `Date must be within ${monthKeyToLabel(raffleMonth.value)}.`);
                     return;
                 }
 
+                if (!wDate.value || !/^[0-9]{1,9}$/.test(wTicket.value.trim()) || Number(wTicket.value)<=0 || wName.value.trim().length<2) {
+                    setWinnersStatus('error','Enter a valid date, a positive ticket with 1–9 digits, and a winner name.'); return;
+                }
+                const wasEditing = !!editing;
                 setWinnersStatus("success", "Saving...");
+                raffleMonth.disabled = true; cancelEdit.disabled = true;
                 addWinnerBtn.disabled = true;
                 addWinnerBtn.setAttribute("aria-disabled", "true");
 
@@ -549,27 +567,24 @@ export const prerender = false;
                     const res = await fetch("/api/admin/raffle/winners", {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "Accept": "application/json" },
-                        body: JSON.stringify(payload),
+                        body: JSON.stringify(editing ? {action:"update",id:editing.id,expected:editing,winner:payload} : payload),
                     });
 
                     const data = await res.json().catch(() => ({}));
                     if (res.ok && data?.ok) {
-                        wTicket.value = "";
-                        wName.value = "";
-                        wTown.value = "";
-                        wPrize.value = "";
-                        wPlace.selectedIndex = 0;
-                        window.dispatchEvent(new Event("raffle:winner-saved"));
+                        finishEditing();
                         wTicket.focus();
                         // keep date for batch entry convenience
                         setWinnersStatus("info", "Winner saved.");
                         await loadWinners();
+                        setWinnersStatus("success", wasEditing ? "Winner updated." : "Winner added.");
                     } else {
                         setWinnersStatus("error", data?.error ?? "Save failed.");
                     }
                 } catch {
                     setWinnersStatus("error", "Save failed.");
                 } finally {
+                    raffleMonth.disabled = false; cancelEdit.disabled = false;
                     addWinnerBtn.disabled = false;
                     addWinnerBtn.setAttribute("aria-disabled", "false");
                 }
@@ -619,9 +634,10 @@ export const prerender = false;
     </script>
 
     <style>
+        #cancelWinnerEdit[hidden] { display:none; }
         .automationSwitch { display:flex; align-items:center; gap:.75rem; font-weight:700; margin:1rem 0; }
         #automaticEnabled { width:1.15rem; height:1.15rem; margin:0; flex:none; }
-        section[aria-labelledby="automaticHeading"], section[aria-labelledby="manualHeading"] { background:rgba(7,15,23,.86); border:1px solid rgba(255,255,255,.16); }
+        .adminPanel { background:rgba(7,15,23,.86); border:1px solid rgba(255,255,255,.16); }
         #automaticDetails { display:grid; grid-template-columns:minmax(10rem,1fr) minmax(0,2fr); gap:.65rem 1.25rem; margin:1.25rem 0; }
         #automaticDetails :global(dt) { font-weight:700; color:var(--text); }
         #automaticDetails :global(dd) { margin:0; overflow-wrap:anywhere; }
