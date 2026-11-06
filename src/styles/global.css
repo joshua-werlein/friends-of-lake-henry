@@ -202,7 +202,7 @@ a:hover { text-decoration: none; }
     font-weight: 700;
     font-size: 1rem;
     line-height: 1.2;
-    background: var(--glass-dark-strong);
+    background: var(--shade-control, var(--glass-dark-strong));
     color: var(--text-on-glass);
     border:1px solid var(--border-strong);
     -webkit-backdrop-filter: blur(6px);
@@ -227,7 +227,7 @@ a:hover { text-decoration: none; }
 
 .btn:active {
     transform: translateY(0) scale(0.99);
-    background: var(--glass-dark-pressed);
+    background: var(--shade-control, var(--glass-dark-pressed));
 }
 
 .btn[aria-disabled="true"],
@@ -240,7 +240,7 @@ a:hover { text-decoration: none; }
 .btn--facebook{
     border-color: rgba(24,119,242,0.55);
     color: rgba(24,119,242,0.95);
-    background: rgba(11,18,32,0.68);
+    background: var(--shade-control, rgba(11,18,32,0.68));
 }
 
 .btn--facebook:hover,
@@ -270,7 +270,7 @@ p { color: var(--text-strong); }
     padding: 0.55rem 1.05rem;
     border-radius: 999px;
     border: 1px solid var(--border);
-    background: var(--glass-dark);
+    background: var(--shade-control, var(--glass-dark));
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     color: var(--text-bright);
@@ -285,7 +285,7 @@ p { color: var(--text-strong); }
 .pill:focus-visible{
     transform: translateY(-1px);
     border-color: var(--border-bright);
-    background: var(--glass-dark-strong);
+    background: var(--shade-control, var(--glass-dark-strong));
 }
 
 .pill:active{
@@ -418,7 +418,7 @@ textarea:-webkit-autofill,
 select:-webkit-autofill {
     -webkit-text-fill-color: var(--text-bright) !important;
     transition: background-color 9999s ease-out 0s;
-    box-shadow: 0 0 0 1000px var(--glass-light) inset !important;
+    box-shadow: 0 0 0 1000px var(--shade-control, var(--glass-light)) inset !important;
     border: 1px solid var(--border-strong) !important;
 }
 
@@ -498,4 +498,68 @@ input[type="number"] {
     }
 }
 
+/* Content surfaces use incremental alpha over the same lake backdrop.
+   .60 → .76 → .90 combined. The inset tint is lifted slightly to account
+   for the light card gradient behind the original legal panels. */
+.content-shading {
+    --shade-reference: rgba(7, 15, 23, .9);
+    --shade-shell-ink: 18 27 38;
+    --shade-inset-ink: 9 17 25;
+    --shade-outer: rgb(var(--shade-shell-ink) / .60);
+    --shade-inner: rgb(var(--shade-shell-ink) / .40);
+    --shade-inset: rgb(var(--shade-inset-ink) / .583);
+    --shade-from-outer-to-limit: rgb(var(--shade-inset-ink) / .75);
+    --shade-dialog-shell: rgb(var(--shade-shell-ink) / .76);
+    --shade-control-at-limit: rgb(255 255 255 / .05);
+}
+
+.content-shading :is(.card, .panel, .shade):not(:where(.shade-reference, .shade-reference *)) {
+    --shade-fill: var(--shade-outer);
+    --shade-control: var(--shade-from-outer-to-limit);
+    background: var(--shade-fill);
+}
+
+.content-shading :where(.card, .panel, .shade) :is(.card, .panel, .shade):not(:where(.shade-reference *)) {
+    --shade-fill: var(--shade-inner);
+    --shade-control: var(--shade-inset);
+}
+
+.content-shading :where(.card, .panel, .shade) :where(.card, .panel, .shade) :is(.card, .panel, .shade):not(:where(.shade-reference *)) {
+    --shade-fill: var(--shade-inset);
+    --shade-control: var(--shade-control-at-limit);
+}
+
+.content-shading :where(.card, .panel, .shade) :where(.card, .panel, .shade) :where(.card, .panel, .shade) :is(.card, .panel, .shade):not(:where(.shade-reference *)) {
+    --shade-fill: transparent;
+}
+
+/* Once a form surface reaches the middle shade, reserve the final step for
+   its controls, even when the markup contains further wrappers. */
+.content-shading :where(.card, .panel, .shade) :where(.card, .panel, .shade) :is(.card, .panel, .shade):has(:where(input:not([type=hidden]), select, textarea, button, .btn, .pill)):not(:where(.shade-reference *)) {
+    --shade-fill: transparent;
+    --shade-control: var(--shade-inset);
+}
+
+/* Image-only surfaces need less tint than neighboring text surfaces. */
+.content-shading .card > .shade-media {
+    --shade-fill: rgb(var(--shade-shell-ink) / .27);
+}
+
+.content-shading dialog.shade-dialog {
+    --shade-control: var(--shade-inset);
+    background: var(--shade-dialog-shell);
+}
+
+.content-shading :is(input:not([type=checkbox], [type=radio]), select, textarea) {
+    background-color: var(--shade-control, var(--shade-reference));
+    color-scheme: dark;
+}
+
+.content-shading :is(input, textarea)::placeholder {
+    color: var(--muted);
+}
+
+.content-shading .btn--facebook:not(:hover, :focus-visible) {
+    color: #a4ceff;
+}
 

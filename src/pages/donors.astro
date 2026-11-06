@@ -46,11 +46,11 @@ const description =
             </p>
             <div class="panel enter-block delay-1">
                 <div class="summaryRow enter-block delay-2">
-                    <div class="pillStat">
+                    <div class="pillStat shade">
                         <div class="statNum">{donors.length}</div>
                         <div class="statLbl">Donations listed</div>
                     </div>
-                    <div class="pillStat">
+                    <div class="pillStat shade">
                         <div class="statNum">{fmt.format(totalDollars)}</div>
                         <div class="statLbl">Total (from current list)</div>
                     </div>
@@ -58,7 +58,7 @@ const description =
 
                 <div class="grid enter-block delay-3">
                     {donors.map((d) => (
-                            <article class="donorField">
+                            <article class="donorField shade">
                                 <div class="topRow">
                                     <h2 class="name">{d.display_name ?? d.name}</h2>
                                     <div class="amt">{fmt.format(d.amount_cents / 100)}</div>
@@ -102,7 +102,6 @@ const description =
         }
         .pillStat{
             border: 1px solid var(--border);
-            background: var(--glass-dark);
             border-radius: 999px;
             padding: .55rem .95rem;
             backdrop-filter: blur(6px);
@@ -149,12 +148,10 @@ const description =
             backdrop-filter: blur(var(--panel-blur));
         }
 
-        /* Donor entries should look like light-blue form fields */
         .donorField{
             padding: 1rem 1.1rem;
             border-radius: 12px;
             border: 1px solid var(--border-strong);
-            background: var(--glass-light); /* SAME as inputs */
             color: var(--text-bright);
         }
         .donorField .topRow{

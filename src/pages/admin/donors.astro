@@ -108,7 +108,7 @@ const donors = (await DB
                             <p class="muted">No donors yet.</p>
                     ) : (
                         donors.map((d: any) => (
-                            <div class="donorRow" role="listitem">
+                            <div class="donorRow shade" role="listitem">
                                 <div class="donorMeta">
                                     <div class="donorName">
                                         {d.display_name || d.name}
@@ -191,7 +191,7 @@ const donors = (await DB
         .logoutForm{ margin: 0; }
         .logoutForm .btn{ padding: .6rem .9rem; border-radius: 999px; white-space: nowrap; }
         .donorList { display: grid; gap: .75rem; margin-top: .75rem; }
-        .donorRow { display:flex; align-items:center; justify-content:space-between; gap: 1rem; padding: .75rem; border: 1px solid var(--panel-border); border-radius: 12px; background: var(--panel-bg); }
+        .donorRow { display:flex; align-items:center; justify-content:space-between; gap: 1rem; padding: .75rem; border: 1px solid var(--panel-border); border-radius: 12px; }
         .donorMeta { display:flex; align-items:baseline; justify-content:space-between; gap: 1rem; flex: 1; }
         .donorAmt { font-weight: 750; white-space: nowrap; }
         .donorActions { margin: 0; }

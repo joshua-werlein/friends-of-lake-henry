@@ -162,7 +162,7 @@ export const prerender = false;
 
                 <div class="winnersList" style="margin-top: 1rem;">
                     <div class="muted" id="winnersCount" style="margin:0 0 .5rem;"></div>
-                    <div class="winnersTableWrap" role="region" aria-label="Admin winners list" tabindex="0">
+                    <div class="winnersTableWrap shade" role="region" aria-label="Admin winners list" tabindex="0">
                         <table class="winnersTable" id="winnersTable"><colgroup><col class="colDate"/><col class="colPlace"/><col class="colPrize"/><col class="colTicket"/><col class="colName"/><col class="colTown"/><col class="colActions"/></colgroup>
                             <thead>
                             <tr>
@@ -183,7 +183,7 @@ export const prerender = false;
         </section>
     </div>
 
-    <dialog id="winnerPrizeDialog" aria-labelledby="winnerPrizeHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;background:#16202b;color:#fff;padding:1.5rem;">
+    <dialog id="winnerPrizeDialog" class="shade-dialog" aria-labelledby="winnerPrizeHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;color:#fff;padding:1.5rem;">
         <h2 id="winnerPrizeHeading">Edit winner prize</h2>
         <p id="editPrizeWinner"></p>
         <form id="winnerPrizeForm" class="formGrid">
@@ -637,7 +637,7 @@ export const prerender = false;
         #cancelWinnerEdit[hidden] { display:none; }
         .automationSwitch { display:flex; align-items:center; gap:.75rem; font-weight:700; margin:1rem 0; }
         #automaticEnabled { width:1.15rem; height:1.15rem; margin:0; flex:none; }
-        .adminPanel { background:rgba(7,15,23,.86); border:1px solid rgba(255,255,255,.16); }
+        .adminPanel { border:1px solid rgba(255,255,255,.16); }
         #automaticDetails { display:grid; grid-template-columns:minmax(10rem,1fr) minmax(0,2fr); gap:.65rem 1.25rem; margin:1.25rem 0; }
         #automaticDetails :global(dt) { font-weight:700; color:var(--text); }
         #automaticDetails :global(dd) { margin:0; overflow-wrap:anywhere; }
@@ -692,7 +692,6 @@ export const prerender = false;
             padding: .75rem .85rem;
             border-radius: 12px;
             border: 1px solid var(--border);
-            background: rgba(0,0,0,0.12);
             color: var(--text);
             font: inherit;
             font-size: 16px;
@@ -709,7 +708,6 @@ export const prerender = false;
             padding: 1rem;
             border-radius: 14px;
             border: 1px solid var(--border);
-            background: rgba(0,0,0,0.20);
         }
 
         .winnersTableWrap{
@@ -718,7 +716,6 @@ export const prerender = false;
             border-radius: 12px;
             padding-left: 1.25rem;
             padding-right: .75rem;
-            background: rgba(0,0,0,0.10);
         }
 
         .winnersTable{
@@ -747,7 +744,7 @@ export const prerender = false;
         .winnersTable tbody td{
             border-bottom: 0;
             padding: .65rem 0.75rem;
-            background: rgba(0,0,0,0.12);
+            background: var(--shade-control-at-limit);
         }
 
         .winnersTable tbody tr td:first-child{

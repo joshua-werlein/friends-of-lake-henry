@@ -17,7 +17,7 @@ export const prerender=false;
         <h2>Photos</h2>
         <div id="importList"></div>
         <h2>Posts</h2>
-        <div class="tableWrap"><table class="importTable"><thead><tr><th>Post</th><th>Source</th><th>Status</th><th>Attempts</th><th>Error</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
+        <div class="tableWrap shade"><table class="importTable"><thead><tr><th>Post</th><th>Source</th><th>Status</th><th>Attempts</th><th>Error</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
     </section>
 </main>
 <style>
@@ -45,7 +45,7 @@ export const prerender=false;
         list.replaceChildren();
         if (!data.imports.length) list.textContent = 'No photos processed yet.';
         for (const imp of data.imports) {
-            const card = document.createElement('div'); card.className = 'importCard';
+            const card = document.createElement('div'); card.className = 'importCard shade';
             const head = document.createElement('p');
             const link = document.createElement('a'); link.href = `https://www.facebook.com/photo/?fbid=${imp.photoId}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = `Photo ${imp.photoId}`;
             head.append(link, ` · ${imp.status} · ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : []));
@@ -61,7 +61,7 @@ export const prerender=false;
                     body.append(tr);
                 }
                 table.append(body);
-                const wrap = document.createElement('div'); wrap.className = 'tableWrap'; wrap.append(table); card.append(wrap);
+                const wrap = document.createElement('div'); wrap.className = 'tableWrap shade'; wrap.append(table); card.append(wrap);
             }
             list.append(card);
         }
