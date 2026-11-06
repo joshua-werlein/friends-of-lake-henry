@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createHmac } from 'node:crypto';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
-import { decidePhoto, matchPrize, chicagoDate, composePrize } from '../src/lib/server/raffle-photo-autopublish.ts';
+import { decidePhoto, matchPrize, chicagoDate, composePrize, writeDecision } from '../src/lib/server/raffle-photo-autopublish.ts';
 import { prizeSchedule } from '../src/lib/server/raffle-prizes.ts';
 import { webhookPostIds, qualifies, pollDue, validSignature } from '../workers/facebook-photos/webhook.ts';
 import { checkPhotoWorker } from '../workers/facebook-photos/check-deployment.mjs';
@@ -110,6 +110,35 @@ test('daily Safe & Secure $100 gift certificate is a scheduled prize on every pu
     assert.equal((await prizeSchedule(DB, '2026-12')).length, 0); // No calendar, no invented daily prize.
 });
 
+test('November 5 column reads map both prizes and a cumulative Friday table stays eligible', async t => {
+    const db = await database(t);
+    const schedule = await prizeSchedule(db, '2026-11');
+    const dan = row({ drawDate: '2026-11-05', position: null, ticketNumber: '789',
+        name: 'Dan Heffner', town: 'LaCrosse, WI', prize: 'Firearm' });
+    const brent = { ...dan, ticketNumber: '050', name: 'Brent Janzen', town: 'Blair, WI', prize: 'Gift Card' };
+    const decide = (rows, date) => decidePhoto([pass(rows), pass(structuredClone(rows))], [], schedule, date);
+    const decision = decide([dan, brent], dan.drawDate);
+    assert.deepEqual(decision.rows.map(r => [r.outcome, r.row.ticketNumber, r.prize]), [
+        ['insert', '789', '1st place — Bergara HMR 6.5 Creedmoor'],
+        ['insert', '050', '2nd place — $100 gift certificate from Safe & Secure Firearms'],
+    ]);
+    await writeDecision(db, { photoId: '122333668490073310', postId: '144051422124740_122333668526073310',
+        sha256: null, width: null, height: null, model: null, passes: [pass([dan, brent]), pass([dan, brent])] }, decision, true);
+    assert.deepEqual((await db.prepare("SELECT ticket_number_text FROM raffle_winners WHERE draw_date=? ORDER BY ticket_number").bind(dan.drawDate).all()).results,
+        [{ ticket_number_text: '050' }, { ticket_number_text: '789' }]);
+    const friday = '2026-11-06';
+    const history = Array.from({ length: 10 }, (_, i) => ({ ...dan, drawDate: '2026-11-02', ticketNumber: String(i + 1) }));
+    const fridayRows = [{ ...dan, drawDate: friday }, { ...brent, drawDate: friday },
+        { ...brent, drawDate: friday, ticketNumber: '100', prize: '2nd drawing' }];
+    assert.deepEqual(decide([...history, ...fridayRows], friday).rows.slice(-3).map(r => r.prize), [
+        '1st place — Springfield Armory 1911 Emissary 9MM',
+        '3rd place — $100 gift certificate from Safe & Secure Firearms',
+        '2nd place — Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen',
+    ]);
+    assert.equal(decide([{ ...dan, position: 2 }], dan.drawDate).rows[0].outcome, 'rejected');
+    assert.deepEqual(decide([dan, { ...dan, ticketNumber: '123' }], dan.drawDate).rows.map(r => r.outcome), ['rejected', 'rejected']);
+});
+
 test('visible prize text matches exactly one verified scheduled prize; nothing is inferred from place', async t => {
     const schedule = await prizeSchedule(await database(t), '2026-11');
     assert.deepEqual(matchPrize('Tikka T3X 7MM Rem Mag', '2026-11-03', schedule), { description: 'Tikka T3X Hunter 7MM Rem Mag', match: 'scheduled' });
@@ -157,7 +186,7 @@ test('uncertain, disagreeing or conflicting rows are rejected, never guessed or 
     assert.equal(decidePhoto([pass([row()]), pass([row(), row({ ticketNumber: '1' })])], [], schedule, '2026-11-03').status, 'rejected');
     assert.equal(decidePhoto([pass([row()]), { containsWinners: false, rows: [], warnings: [] }], [], schedule, '2026-11-03').status, 'rejected');
     assert.equal(decidePhoto([{ containsWinners: false, rows: [], warnings: [] }], [], schedule, '2026-11-03').status, 'ignored');
-    // Monthly recap tables and dates outside the announcement window never publish automatically.
+    // An excessive number of eligible rows and dates outside the announcement window never publish automatically.
     assert.equal(decide(Array.from({ length: 30 }, (_, i) => row({ ticketNumber: String(i + 1), position: null }))).status, 'rejected');
     assert.equal(decide([row({ drawDate: '2026-11-01', position: null })], undefined, [art, amos], '2026-11-05').rows[0].outcome, 'outside-window');
     assert.equal(decide([row({ drawDate: '2026-11-04' })]).rows[0].reasons[0], 'draw date is after the announcement');
@@ -206,7 +235,7 @@ test('real column-aware AI reads recover November 3–4 headings, full towns, bl
   const decision=decidePhoto(after.extractionPasses,[],schedule,`2026-11-${day}`);
   const latest=decision.rows.filter(r=>r.row.drawDate===`2026-11-${day}`);
   assert.ok(latest.every(r=>r.outcome==='insert'));
-  assert.deepEqual(latest.map(r=>[r.row.ticketNumber,r.prize]),day==='03'?[['392','Tikka T3X Hunter 7MM Rem Mag'],['047','$100 gift certificate from Safe & Secure Firearms']]:[['226','Henry Big Boy All Weather 44 Mag'],['362','$100 gift certificate from Safe & Secure Firearms']]);
+  assert.deepEqual(latest.map(r=>[r.row.ticketNumber,r.prize]),day==='03'?[['392','1st place — Tikka T3X Hunter 7MM Rem Mag'],['047','2nd place — $100 gift certificate from Safe & Secure Firearms']]:[['226','1st place — Henry Big Boy All Weather 44 Mag'],['362','2nd place — $100 gift certificate from Safe & Secure Firearms']]);
   if(day==='04'){const jim=latest.find(r=>r.row.name==='Jim Wilber');assert.equal(jim.row.town,'');assert.equal(jim.row.townStatus,'blank');const old=decidePhoto(before.extractionPasses,[],schedule,'2026-11-04');assert.ok(old.rows.filter(r=>r.row.drawDate==='2026-11-04').every(r=>r.outcome==='rejected'));}
  }
 });
@@ -311,6 +340,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     await DB.prepare(`INSERT INTO events(id,title,kind,status,date_start) VALUES('e2e','Day 99 - Tikka T3X Hunter 7MM Rem Mag','Raffle','published',?)
         ON CONFLICT(id) DO NOTHING`).bind(D).run();
     await DB.prepare(`UPDATE events SET status='draft' WHERE id<>'e2e'`).run();
+    await DB.prepare("INSERT INTO events(id,title,kind,status,date_start) VALUES('previous-test','Day 98 - Savage 110 High Country 30-06','Raffle','published',?)").bind(prev).run();
     const prevArt = { ...art, id: `${prev.slice(0, 7)}-${prev}-118`, drawDate: prev };
     await DB.prepare('INSERT OR IGNORE INTO raffle_winners(id,raffle_key,draw_date,ticket_number,winner_name,town,prize) VALUES(?,?,?,?,?,?,?)')
         .bind(prevArt.id, prev.slice(0, 7), prev, 118, art.name, art.town, art.prize).run();
@@ -359,7 +389,8 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
 
     // 3. Found only by polling (no webhook), first AI call fails → retried on a later tick → published once.
     const late = post(2, 'Bonus drawing winners #LakeHenryRaffle');
-    aiRows.set(2, [row({ drawDate: D, position: 3, ticketNumber: '5', name: 'Cal Jones', town: 'Osseo', prize: 'Firearm' })]);
+    aiRows.set(2, [row({ drawDate: D, position: 3, ticketNumber: '5', name: 'Cal Jones', town: 'Osseo', prize: 'Bonus knife' })]);
+    await DB.prepare("INSERT INTO raffle_prize_supplements(id,raffle_key,draw_date,category,position,description,status) VALUES('bonus-test',?,?,'Other',3,'Bonus knife','approved')").bind(D.slice(0,7),D).run();
     failNextAi = true;
     // Cron ticks at the first poll-due minute at/after the offset, so the test does not depend on the time of day.
     const dueAt = offsetMs => { let at = new Date(Date.now() + offsetMs); while (!pollDue(at)) at = new Date(at.getTime() + 60000); return at; };
@@ -406,7 +437,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     assert.equal((await DB.prepare(`SELECT source FROM raffle_photo_auto_posts WHERE post_id=?`).bind(`${PAGE}_42`).first()).source, 'admin');
     // An untagged post is ignored by polling/webhooks but processed when an administrator queues it explicitly.
     const untagged = post(4, 'Tonight at the Legion');
-    aiRows.set(4, [row({ drawDate: D, position: null, ticketNumber: '600', name: 'Dee Park', town: 'Arcadia', prize: 'Gift Card' })]);
+    aiRows.set(4, [row({ drawDate: prev, position: 2, ticketNumber: '600', name: 'Dee Park', town: 'Arcadia', prize: 'Gift Card' })]);
     await webhook([untagged]);
     await settle(`SELECT status FROM raffle_photo_auto_posts WHERE post_id=?`, 'ignored', untagged);
     assert.equal((await queue({ action: 'queue', source: `https://www.facebook.com/61552199315213/posts/4` })).status, 200);

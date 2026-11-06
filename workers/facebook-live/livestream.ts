@@ -3,6 +3,7 @@ import {
     isoTime, LIVE_CONTRACT, PUBLIC_PAGE_ID, GRAPH_VERSION, type GraphResult, type Discovery,
 } from './graph';
 import { inDiscoveryWindow, drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
+import { dimensions } from '../../src/lib/video-presentation';
 
 export type LiveDiscovery = Discovery & {
     origin: 'page-video-live-status';
@@ -72,6 +73,20 @@ export async function discoverLivestreams(options: {
         if (discoveries.length > 1 || (discoveries.length && pending.length)) {
             return { ok: false, reason: 'ambiguous-livestream', pending,
                 detail: { phase: 'classification', candidates: discoveries.length + pending.length } };
+        }
+        const video = discoveries[0];
+        if (video) {
+            const prior = priorLiveOrigin(options.prior, video.videoId, video.publishedAt, now);
+            if (prior?.width && prior.height && prior.source) {
+                Object.assign(video, { width: prior.width, height: prior.height, source: prior.source });
+            } else if (!prior) {
+                // One optional format probe per newly verified broadcast. Layout cannot block publication.
+                try {
+                    const getFormat = graphReader(options.token, now, options.fetcher ?? fetch, AbortSignal.timeout(2500));
+                    const format = await getFormat(video.videoId, { fields: 'id,format' });
+                    if (format.id === video.videoId) Object.assign(video, dimensions(format) ?? {});
+                } catch { /* Keep the existing layout fallback if Graph cannot provide dimensions. */ }
+            }
         }
         return { ok: true, candidates: candidates.length, postsExamined: posts.data.length, discoveries, pending };
     } catch (e) {

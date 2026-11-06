@@ -28,11 +28,13 @@ test('signed hint uses the real workerd fetch transport and records Live evidenc
   calls++;const part=new URL(request.url).pathname.split('/').at(-1);
   if(part===graph)return Response.json({id:graph});
   if(part==='published_posts')return Response.json({data:[{id:graph+'_222',created_time:'2026-11-05T00:00:39+0000',attachments:{data:[{type:'video',target:{id:'222',url:'https://www.facebook.com/61552199315213/videos/222/'}}]}}]});
+  if(new URL(request.url).searchParams.get('fields')==='id,format')return Response.json({id:'222',format:[{width:1280,height:720}]});
   return Response.json({id:'222',from:{id:graph},published:true,embeddable:true,live_status:'LIVE'});
  }});t.after(()=>mf.dispose());
  const result=await(await mf.dispatchFetch('https://test/')).json();
- assert.equal(calls,3);assert.equal(result.accepted,true);assert.equal(result.outcome.status,'verification-required');
+ assert.equal(calls,4);assert.equal(result.accepted,true);assert.equal(result.outcome.status,'verification-required');
  assert.equal(JSON.parse(result.data[STATE_KEY]).lastLiveObservation.videoId,'222');
+ assert.equal(JSON.parse(result.data[STATE_KEY]).lastLiveObservation.width,1280);
  assert.equal(JSON.parse(result.data.raffle_live_webhook_state).signedEventReceived,true);
  assert.equal(result.data[automaticKey],undefined);assert.equal(result.data[VERIFICATION_KEY],undefined);
  assert.equal(JSON.parse(result.data[manualKey]).latestVideoUrl,'manual-fallback');

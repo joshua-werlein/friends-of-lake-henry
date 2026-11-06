@@ -3,6 +3,7 @@ import type { KVNamespace } from '@cloudflare/workers-types';
 import {json} from '../../../../lib/http';
 import {normalizeFacebookVideoUrl,parseLiveConfig,RAFFLE_LIVE_KEY} from '../../../../lib/facebook';
 import {loadRaffleSelection,readRecord,selectionMode,STATE_KEY,verificationValid,VERIFICATION_KEY} from '../../../../lib/server/raffle-selection';
+import {FACEBOOK_LIVE_CONTRACT} from '../../../../lib/facebook';
 import {raffleSeason} from '../../../../lib/server/raffle-season';
 import type {SeasonEnv} from '../../../../lib/server/raffle-season';
 import {inDiscoveryWindow} from '../../../../lib/server/raffle-discovery-schedule';
@@ -15,13 +16,19 @@ export const GET:APIRoute=async context=>{
     const [state,webhook,automatic]=await Promise.all([env.CONFIG.get(STATE_KEY),env.CONFIG.get('raffle_live_webhook_state'),env.CONFIG.get('raffle_live_automatic')]);
     let webhookSetup:unknown={configured:false,liveForwarding:false};
     try{webhookSetup=await env.FACEBOOK_PHOTO_STATUS?.webhookStatus()??webhookSetup;}catch{}
-    selection.automaticAllowed=env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true'&&verificationValid(await env.CONFIG.get(VERIFICATION_KEY),now,raffleSeason(env));
+    const receipt=await env.CONFIG.get(VERIFICATION_KEY);
+    const receiptValid=verificationValid(receipt,now,raffleSeason(env));
+    selection.automaticAllowed=env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true'&&receiptValid;
     const health=readRecord(state);const automaticEnabled=selection.selectionMode==='automatic';
+    const observation=readRecord(JSON.stringify(health?.lastLiveObservation));
+    const stage=readRecord(automatic);
     return json({ok:true,config:selection.manualConfig,displayed:selection.config,source:selection.source,reason:selection.reason,
         selectionMode:selection.selectionMode,automaticEnabled,automaticAllowed:selection.automaticAllowed,
         status:!automaticEnabled?'Disabled':health?.lastError||!selection.automaticAllowed?'Error':health?.status==='pending-live-confirmation'?'Waiting':inDiscoveryWindow(now)?'Active':'Waiting',
         lastSuccessfulCheck:health?.lastSuccessAt??health?.lastVerifiedAt??null,lastError:health?.lastError??(!selection.automaticAllowed?{cause:'verification-required'}:null),
-        pendingVideos:health?.pendingVideos??[],lastAutomaticVideo:readRecord(automatic)?.url??null,webhook:{...webhookSetup as object,...readRecord(webhook)}});
+        receiptValid, discoveryStatus:health?.status??null, lastLiveObservation:observation?.originObservedAt??null,
+        lastObservedLiveVideo:observation?.url??null, lastStagedAt:stage?.contract===FACEBOOK_LIVE_CONTRACT?stage.observedAt:null,
+        pendingVideos:health?.pendingVideos??[],lastAutomaticVideo:stage?.url??null,webhook:{...webhookSetup as object,...readRecord(webhook)}});
 };
 export const POST:APIRoute=async context=>{
     const env=context.locals.runtime?.env as Env|undefined;
