@@ -3,7 +3,7 @@ import {winnerTicketLabels} from '../lib/server/raffle-ticket-labels';
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
 import { prizeCells } from "../lib/winner-prize";
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, type LiveConfig } from "../lib/facebook";
+import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, RAFFLE_VIDEO_MESSAGE, RAFFLE_NO_VIDEO_MESSAGE, type LiveConfig } from "../lib/facebook";
 import { loadRaffleSelection } from "../lib/server/raffle-selection";
 import type { SeasonEnv } from "../lib/server/raffle-season";
 export const prerender = false;
@@ -268,7 +268,7 @@ const description =
                         allow="autoplay; encrypted-media; picture-in-picture; web-share" allowfullscreen></iframe></div>}
                 </div>
                 <p id="liveMessage" class="muted" aria-live="polite">
-                    {embedSrc ? "Latest selected drawing. If the player is unavailable, watch directly on Facebook." : "No broadcast selected yet. This page checks for updates automatically."}
+                    {embedSrc ? RAFFLE_VIDEO_MESSAGE : RAFFLE_NO_VIDEO_MESSAGE}
                 </p>
                 <p class="muted" id="liveUpdated">{updatedAtLabel ? `Video selected: ${updatedAtLabel} Central` : ""}</p>
                 <div class="liveFallback">

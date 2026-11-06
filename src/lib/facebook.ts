@@ -4,6 +4,8 @@ export const FACEBOOK_GRAPH_PAGE_ID = '144051422124740';
 export const FACEBOOK_API_VERSION = 'v26.0';
 export const FACEBOOK_LIVE_CONTRACT = 'page-video-live-origin-v3';
 export const FACEBOOK_PAGE_VIDEOS_URL = `https://www.facebook.com/${FACEBOOK_PAGE_ID}/videos/`;
+export const RAFFLE_VIDEO_MESSAGE = 'Watch the latest raffle drawing below, or watch directly on Facebook.';
+export const RAFFLE_NO_VIDEO_MESSAGE = 'Watch raffle drawings directly on Facebook.';
 export type LiveConfig = { latestVideoUrl: string | null; updatedAt: string | null };
 export const RAFFLE_LIVE_KEY = "raffle_live";
 
