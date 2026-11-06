@@ -286,7 +286,20 @@ export const prerender = false;
         btn?.addEventListener('click',()=>videoAction({action:'showVideo',latestVideoUrl:input.value.trim()},'Video selected. Automatic updates keep their current setting.'));
         document.getElementById('saveFallback')?.addEventListener('click',()=>videoAction({action:'saveFallback',latestVideoUrl:input.value.trim()},'Fallback saved. Automatic updates keep their current setting.'));
         document.getElementById('automaticEnabled')?.addEventListener('change',event=>videoAction({action:'setAutomation',enabled:event.target.checked},event.target.checked?'Automatic updates enabled; setup and verification checks still apply.':'Automatic updates disabled.'));
-        document.getElementById('testDiscovery')?.addEventListener('click',async()=>{const data=await videoAction({action:'testDiscovery'},'Discovery checked. The displayed video is unchanged.');if(data)document.getElementById('automaticMessage').textContent=data.result?.status==='error'?'Facebook check failed: '+(data.result?.result?.reason||'unavailable')+'. The displayed video is unchanged.':(data.result?.result?.pending?.length?'Video '+data.result.result.pending.map(v=>v.videoId).join(', ')+' is waiting for manual Live-origin confirmation.':'Check complete. '+(data.result?.result?.discoveries?.length??0)+' verified candidate(s). No video selection was changed.');});
+        document.getElementById('testDiscovery')?.addEventListener('click',async()=>{
+            const data=await videoAction({action:'testDiscovery'},'Discovery checked. The displayed video is unchanged.');
+            if(!data)return;
+            const result=data.result?.result;
+            const discoveries=result?.discoveries??[];
+            const candidate=discoveries.length===1?discoveries[0]:null;
+            const format=candidate?.source==='format'&&Number.isInteger(candidate.width)&&Number.isInteger(candidate.height)
+                ? ` Graph video format: ${candidate.width} × ${candidate.height}.` : '';
+            document.getElementById('automaticMessage').textContent=data.result?.status==='error'
+                ? 'Facebook check failed: '+(result?.reason||'unavailable')+'. The displayed video is unchanged.'
+                : result?.pending?.length
+                    ? 'Video '+result.pending.map(v=>v.videoId).join(', ')+' is waiting for manual Live-origin confirmation.'
+                    : `Check complete. ${discoveries.length} verified candidate(s).${format} No video selection was changed.`;
+        });
         loadVideoSettings().catch(error=>setLiveStatus('error',error.message));
 
         const wDate = document.getElementById("wDate");
