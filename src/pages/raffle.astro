@@ -3,7 +3,7 @@ import {winnerTicketLabels} from '../lib/server/raffle-ticket-labels';
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
 import { prizeCells } from "../lib/winner-prize";
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, type LiveConfig } from "../lib/facebook";
+import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, RAFFLE_VIDEO_MESSAGE, RAFFLE_NO_VIDEO_MESSAGE, type LiveConfig } from "../lib/facebook";
 import { loadRaffleSelection } from "../lib/server/raffle-selection";
 import type { SeasonEnv } from "../lib/server/raffle-season";
 export const prerender = false;
@@ -209,7 +209,7 @@ const description =
     <div class="container  rafflePage">
         <section class="card hero enter-block">
             <div class="heroInfoColumn">
-                <div class="heroLeft">
+                <div class="heroLeft shade">
                     <div class="kicker">Friends of Lake Henry</div>
                     <h1>Raffle Winners & Live Drawings</h1>
                     <p class="lead">
@@ -222,7 +222,7 @@ const description =
                 </div>
 
                 <div class="heroRight">
-                    <div class="infoCard enter-block delay-3">
+                    <div class="infoCard shade enter-block delay-3">
                         <div class="infoTitle">Friends of Lake Henry</div>
                         <div class="muted">P.O. Box 142, Blair, WI 54616</div>
                         <div class="muted">Phone: 608-484-9241</div>
@@ -234,7 +234,7 @@ const description =
             </div>
 
             <button
-                class="heroPoster"
+                class="heroPoster shade shade-media"
                 id="raffleHeroPoster"
                 type="button"
                 style={heroPosterKey ? "" : "display:none;"}
@@ -262,13 +262,13 @@ const description =
             <h2 class="sectionTitle">Live Drawings & Latest Replay</h2>
 
             <div class="panel livePanel enter-block delay-4">
-                <div id="livePlayer" data-video-layout={videoPresentation.orientation} data-video-url={effectiveVideoUrl ?? ""}>
+                <div id="livePlayer" class="shade" data-video-layout={videoPresentation.orientation} data-video-url={effectiveVideoUrl ?? ""}>
                     {embedSrc && <div class="liveFrame"><iframe class="fbFrame" src={embedSrc}
                         title="Friends of Lake Henry — Facebook video" loading="lazy"
                         allow="autoplay; encrypted-media; picture-in-picture; web-share" allowfullscreen></iframe></div>}
                 </div>
                 <p id="liveMessage" class="muted" aria-live="polite">
-                    {embedSrc ? "Latest selected drawing. If the player is unavailable, watch directly on Facebook." : "No broadcast selected yet. This page checks for updates automatically."}
+                    {embedSrc ? RAFFLE_VIDEO_MESSAGE : RAFFLE_NO_VIDEO_MESSAGE}
                 </p>
                 <p class="muted" id="liveUpdated">{updatedAtLabel ? `Video selected: ${updatedAtLabel} Central` : ""}</p>
                 <div class="liveFallback">
@@ -310,7 +310,7 @@ const description =
             </nav>
             <div id="winnersPanel" class="panel winnersPanel enter-block delay-7">
                 <p class="muted winnersScrollHint">Scroll the table sideways to see every winner detail.</p>
-                <div class="winnersTableWrap" id="publicWinnersTableWrap" role="region" aria-label="Raffle winners list" tabindex="0">
+                <div class="winnersTableWrap shade" id="publicWinnersTableWrap" role="region" aria-label="Raffle winners list" tabindex="0">
                     <table class="winnersTable" id="publicWinnersTable">
                         <colgroup>
                             <col class="colDate" />
@@ -365,7 +365,7 @@ const description =
             <h2 class="sectionTitle" id="prizeCalendarHeading">Scheduled prizes — <span id="prizeCalendarMonth"></span></h2>
             <p>Prizes scheduled for upcoming drawings. After each drawing, winners and the prizes they received appear in Daily Winners above.</p>
             <div class="panel prizeCalendarPanel">
-                <ul id="publicPrizeList" class="publicPrizeList"></ul>
+                <ul id="publicPrizeList" class="publicPrizeList shade"></ul>
             </div>
         </section>
 
@@ -683,7 +683,6 @@ const description =
             border: 1px solid var(--border);
             border-radius: 14px;
             padding: 1.25rem;
-            background: rgba(0,0,0,0.22);
             backdrop-filter: blur(2px);
             display: flex;
             flex-direction: column;
@@ -701,7 +700,6 @@ const description =
             border-radius: 18px;
             overflow: hidden;
             border: 1px solid var(--border-strong);
-            background: rgba(0,0,0,0.16);
             padding: 0;
             cursor: zoom-in;
         }
@@ -712,7 +710,6 @@ const description =
             height: 100%;
             object-fit: cover;
             object-position: center;
-            background: rgba(0,0,0,0.08);
         }
 
         .heroRight .infoCard {
@@ -769,7 +766,6 @@ const description =
             border: 1px solid var(--border);
             border-radius: 14px;
             padding: 1.25rem;
-            background: rgba(0,0,0,0.28);
             backdrop-filter: blur(2px);
         }
         .infoTitle { font-weight: 900; margin-bottom: .25rem; }
@@ -787,7 +783,6 @@ const description =
             margin-bottom: calc(var(--section-gap) * 1.25);
             padding: 1.5rem 1.75rem;
             border-radius: 14px;
-            background: rgba(255,255,255,0.03);
             border: 1px solid var(--border);
         }
         .rules ul { margin: 0; padding-left: 1.1rem; color: var(--muted); }
@@ -1008,7 +1003,7 @@ const description =
     </style>
     <script src="../scripts/raffle-live.ts"></script>
     <style is:global>
-        .rafflePage #livePlayer { width: 100%; max-width: 466px; min-width: 0; justify-self: center; padding: clamp(6px, 1vw, 12px); box-sizing: border-box; background: #090d12; border: 1px solid rgba(255,255,255,.14); border-radius: 20px; box-shadow: 0 12px 32px rgba(0,0,0,.18); }
+        .rafflePage #livePlayer { width: 100%; max-width: 466px; min-width: 0; justify-self: center; padding: clamp(6px, 1vw, 12px); box-sizing: border-box; border: 1px solid rgba(255,255,255,.14); border-radius: 20px; box-shadow: 0 12px 32px rgba(0,0,0,.18); }
         .rafflePage #livePlayer:empty { display: none; }
         .rafflePage #livePlayer[data-video-layout="landscape"] { max-width: 986px; }
         .rafflePage #livePlayer .liveFrame { aspect-ratio: var(--live-frame-ratio, 9 / 16); width: 100%; max-width: var(--live-frame-width, 440px); margin-inline: auto; border-radius: 14px; overflow: visible; }
@@ -1021,7 +1016,6 @@ const description =
             padding: 1rem;
             border-radius: 14px;
             border: 1px solid var(--border);
-            background: rgba(0,0,0,0.28);
             backdrop-filter: blur(2px);
             display: flex;
             flex-direction: column;
@@ -1034,7 +1028,6 @@ const description =
             -webkit-overflow-scrolling: touch;
             border-radius: 12px;
             border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(0,0,0,0.18);
             width: min(980px, 100%);
             padding: 0 1.25rem;
             display: flex;
@@ -1116,10 +1109,8 @@ const description =
     .prizeCalendar,
     .prizeCalendar + .rules{ margin-top: var(--raffle-stack-gap); }
 
-    /* Keep the shared light .card outside and the darker winners-style panel inside. */
     .rafflePage .prizeCalendarPanel{
         padding: 1rem;
-        background: var(--panel-bg-strong);
         border-radius: 14px;
         -webkit-backdrop-filter: blur(2px);
         backdrop-filter: blur(2px);
@@ -1130,12 +1121,10 @@ const description =
     }
     .prizeCalendar p{ color: rgba(244, 247, 250, .86); margin: 0 0 .5rem; line-height: 1.55; }
 
-    /* Match the extra inset shading inside the Daily Winners table panel. */
     .publicPrizeList{
         list-style: none;
         margin: 0;
         padding: 0 1rem;
-        background: rgba(0,0,0,0.18);
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 12px;
     }

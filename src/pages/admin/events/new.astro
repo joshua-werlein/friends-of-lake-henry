@@ -37,7 +37,7 @@ const statusMsg =
                 </div>
             </div>
 
-            <div class="panel enter-block delay-2" style="margin-top: 1rem; background: var(--panel-bg-dense);">
+            <div class="panel enter-block delay-2" style="margin-top: 1rem;">
                 <form method="post" action="/api/admin/events/create" class="form">
                     <div class="grid">
                         <label class="field">
@@ -274,9 +274,7 @@ const statusMsg =
         .fileUi{
             min-width: 0;
         }
-        /* Select styling: darker “glass” */
         select{
-            background: var(--glass-light);
             border-color: var(--border-strong);
             color: var(--text-bright);
             /* make the arrow look consistent without changing the menu */
@@ -292,11 +290,6 @@ const statusMsg =
             padding-right: 2.25rem;
         }
 
-        /* Some browsers ignore option styling; still helps where supported */
-        select option{
-            background: var(--surface);
-            color: var(--text);
-        }
         .checkbox{ align-items:center; grid-template-columns: auto 1fr; gap:.6rem; }
         .actions{ display:flex; gap:.6rem; flex-wrap:wrap; margin-top: 1rem; }
         input, select, textarea {

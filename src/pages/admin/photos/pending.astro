@@ -97,7 +97,7 @@ const statusMsg =
 
                                     {/* Details + Actions */}
                                     <div class="itemBody">
-                                        <div class="meta">
+                                        <div class="meta shade">
                                             <div class="metaRow">
                                                 <span class="metaLabel">Submitted</span>
                                                 <span class="metaValue">{formatChicago(p.submitted_at)}</span>
@@ -259,7 +259,6 @@ const statusMsg =
         .pendingCard { margin-top: var(--section-gap); }
 
         .pendingPanel{
-            background: var(--panel-bg-dense);
             border-color: rgba(255,255,255,0.14);
             padding: 1.25rem;
         }
@@ -270,7 +269,6 @@ const statusMsg =
         }
 
         .pendingItem{
-            background: var(--glass-dark);
             border: 1px solid var(--border-strong);
             box-shadow: var(--card-shadow-soft);
             border-radius: 16px;
@@ -342,7 +340,7 @@ const statusMsg =
             border-radius: 14px;
             overflow: hidden;
             border: 1px solid var(--border-strong);
-            background: rgba(0,0,0,0.18);
+            background: var(--shade-control);
             box-shadow: var(--card-shadow-soft);
             transition: transform 140ms ease, box-shadow 160ms ease, border-color 160ms ease;
         }
@@ -370,7 +368,6 @@ const statusMsg =
 
         .selectGlass{
             width: 100%;
-            background: var(--glass-light);
             border: 1px solid var(--border-strong);
             color: var(--text-bright);
             border-radius: 12px;
@@ -399,18 +396,11 @@ const statusMsg =
             box-shadow: 0 0 0 3px rgba(255,255,255,0.12);
         }
 
-        /* Some browsers ignore option styling, but this helps where supported */
-        .selectGlass option{
-            background: var(--surface);
-            color: var(--text);
-        }
-
         .meta{
             display:grid;
             gap: 0.35rem;
             padding: 0.75rem 0.85rem;
             border-radius: 14px;
-            background: rgba(0,0,0,0.18);
             border: 1px solid rgba(255,255,255,0.12);
         }
 
@@ -465,7 +455,7 @@ const statusMsg =
 
         /* Make reject visually distinct but still “site-native” */
         .pill--danger{
-            background: var(--glass-dark);
+            background: var(--shade-control);
             border-color: rgba(255,255,255,0.18);
             color: var(--text-on-dark);
             position: relative;

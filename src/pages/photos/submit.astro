@@ -38,7 +38,7 @@ const description =
                                 required
                             />
 
-                            <div class="fileUi" role="group">
+                            <div class="fileUi shade" role="group">
                                 <button
                                     class="pill fileBtn"
                                     type="button"
@@ -308,7 +308,6 @@ const description =
             padding: .65rem .75rem;
             border-radius: 12px;
             border: 1px solid var(--border-strong);
-            background: var(--glass-light);
             width: 100%;
             max-width: 520px;
         }
@@ -336,9 +335,7 @@ const description =
             font-weight: 750;
         }
 
-        /* Select styling: darker “glass” */
         select{
-            background: var(--glass-light);
             border-color: var(--border-strong);
             color: var(--text-bright);
             /* make the arrow look consistent without changing the menu */
@@ -354,12 +351,6 @@ const description =
             padding-right: 2.25rem;
         }
 
-        /* Some browsers ignore option styling; still helps where supported */
-        select option{
-            background: var(--surface);
-            color: var(--text);
-        }
-
         /* CTA row */
         .ctaRow{
             display:flex;
@@ -371,7 +362,7 @@ const description =
 
         /* Match Photos page green pill */
         .submitPill{
-            background: var(--glass-dark);
+            background: var(--shade-control);
             border-color: var(--border-strong);
             color: var(--text-on-dark);
             box-shadow: var(--card-shadow-soft);

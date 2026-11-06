@@ -123,7 +123,7 @@ const description =
                            data-modal-caption={p.caption ?? ""}
                            aria-haspopup="dialog"
                        >
-                           <figure class="photo">
+                           <figure class="photo shade">
                                <img src={`/api/photos/file?id=${p.id}`} alt={p.alt?.trim() || p.caption?.trim() || p.title?.trim() || "Photo from Friends of Lake Henry"} loading="lazy" />
                            </figure>
                        </a>
@@ -328,7 +328,6 @@ const description =
 
         .galleryPanel{
             padding: 1.75rem var(--gallery-space);
-            background: var(--panel-bg-dense);
             border-color: rgba(255,255,255,0.14);
         }
 
@@ -345,7 +344,6 @@ const description =
             border-radius: 16px;
             overflow:hidden;
             padding: 0;
-            background: var(--glass-dark);
             backdrop-filter: blur(6px);
             border: 1px solid var(--border-strong);
             box-shadow: var(--card-shadow-strong);
@@ -437,7 +435,7 @@ const description =
         /* Submit pill should share the SAME material as the filter pills */
         .filters .pill.submitPill{
             /* use the same base as tabs */
-            background: var(--glass-dark);
+            background: var(--shade-control);
             border-color: var(--border-strong);
             color: var(--text-on-dark);
 
@@ -539,7 +537,7 @@ const description =
                 padding: .85rem 1rem;
                 border-radius: 14px;
 
-                background: var(--panel-bg-dense);
+                background: var(--shade-control);
                 backdrop-filter: none;
             }
 

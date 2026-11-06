@@ -12,30 +12,54 @@ import {checkActivation} from '../workers/facebook-live/check-activation.mjs';
 import {GRAPH_PAGE_ID as graph,PUBLIC_PAGE_ID as page,GRAPH_VERSION as version,LIVE_CONTRACT as contract} from '../workers/facebook-live/graph.ts';
 const automaticKey='raffle_live_automatic',manualKey='raffle_live';
 
-test('signed hint uses the real workerd fetch transport and records Live evidence without a policy receipt', async t => {
+test('signed webhook uses real workerd transport, gates publication on policy, and rolls back to manual', async t => {
  const bundle=await build({stdin:{contents:`import {DiscoveryCoordinator} from './workers/facebook-live/coordinator.ts';
- export default {async fetch(){
-  const data=new Map([['raffle_live',JSON.stringify({latestVideoUrl:'manual-fallback',selectionMode:'manual'})]]);
+ import photos from './workers/facebook-photos/index.ts';
+ import {selectRaffleVideo} from './src/lib/server/raffle-selection.ts';
+ export default {async fetch(request, _env, ctx){
+  const data=new Map([['raffle_live',${JSON.stringify(manual)}]]);
+  if(new URL(request.url).searchParams.has('policy')) data.set('raffle_live_verification',${JSON.stringify(receipt)});
   const saved=new Map();const kv={get:async k=>data.get(k)??null,put:async(k,v)=>{data.set(k,v)}};
   const storage={get:async k=>saved.get(k),put:async(k,v)=>{saved.set(k,v)},getAlarm:async()=>null,setAlarm:async()=>{}};
   const env={CONFIG:kv,FB_AUTOMATION_ENABLED:'true',FB_VIDEO_PROBE_ENABLED:'true',FB_PAGE_ACCESS_TOKEN:'TEST_ONLY',FB_GRAPH_PAGE_ID:'144051422124740',FB_PUBLIC_PAGE_ID:'61552199315213',FB_SEASON_START:'2026-11-01T00:00:00-05:00',FB_SEASON_END:'2026-12-01T00:00:00-06:00'};
   const c=new DiscoveryCoordinator(storage,env,()=>Date.parse('2026-11-05T00:00:45Z'));
-  const accepted=await c.event('a'.repeat(64));const outcome=await c.alarm();
-  return Response.json({accepted,outcome,data:Object.fromEntries(data)});
- }}`,resolveDir:process.cwd(),sourcefile:'coordinator-runtime-test.ts'},bundle:true,write:false,format:'esm',platform:'browser',target:'es2022'});
+  let accepted=false;
+  const webhook=await photos.fetch(request,{FB_APP_SECRET:'test-only',FACEBOOK_LIVE:{async notify(id){accepted=await c.event(id)}}},ctx);
+  const outcome=await c.alarm();
+  const select=(enabled,verificationRaw)=>selectRaffleVideo({enabled,verificationRaw,manualRaw:data.get('raffle_live'),
+      automaticRaw:data.get('raffle_live_automatic'),stateRaw:data.get('raffle_live_automation_state'),now:new Date('2026-11-05T00:01:00Z')});
+  return Response.json({webhook:webhook.status,accepted,outcome,data:Object.fromEntries(data),
+      selection:select(true,data.get('raffle_live_verification')), rollback:select(false,data.get('raffle_live_verification')),
+      revoked:select(true,null)});
+ }}`,resolveDir:process.cwd(),sourcefile:'coordinator-runtime-test.ts'},bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:workers']});
  let calls=0;
  const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2025-09-15',outboundService:request=>{
   calls++;const part=new URL(request.url).pathname.split('/').at(-1);
   if(part===graph)return Response.json({id:graph});
   if(part==='published_posts')return Response.json({data:[{id:graph+'_222',created_time:'2026-11-05T00:00:39+0000',attachments:{data:[{type:'video',target:{id:'222',url:'https://www.facebook.com/61552199315213/videos/222/'}}]}}]});
+  if(new URL(request.url).searchParams.get('fields')==='id,format')return Response.json({id:'222',format:[{width:1280,height:720}]});
   return Response.json({id:'222',from:{id:graph},published:true,embeddable:true,live_status:'LIVE'});
  }});t.after(()=>mf.dispose());
- const result=await(await mf.dispatchFetch('https://test/')).json();
- assert.equal(calls,3);assert.equal(result.accepted,true);assert.equal(result.outcome.status,'verification-required');
+ const {createHmac}=await import('node:crypto');
+ const body=JSON.stringify({object:'page',entry:[{id:graph,changes:[{field:'feed',value:{item:'video',verb:'add',post_id:graph+'_222'}}]}]});
+ const headers={'x-hub-signature-256':'sha256='+createHmac('sha256','test-only').update(body).digest('hex')};
+ const dispatch=async query=>(await mf.dispatchFetch('https://test/facebook/webhook'+query,{method:'POST',body,headers})).json();
+ const result=await dispatch('');
+ assert.equal(result.webhook,200);
+ assert.equal(calls,4);assert.equal(result.accepted,true);assert.equal(result.outcome.status,'verification-required');
  assert.equal(JSON.parse(result.data[STATE_KEY]).lastLiveObservation.videoId,'222');
+ assert.equal(JSON.parse(result.data[STATE_KEY]).lastLiveObservation.width,1280);
  assert.equal(JSON.parse(result.data.raffle_live_webhook_state).signedEventReceived,true);
  assert.equal(result.data[automaticKey],undefined);assert.equal(result.data[VERIFICATION_KEY],undefined);
- assert.equal(JSON.parse(result.data[manualKey]).latestVideoUrl,'manual-fallback');
+ assert.equal(result.data[manualKey],manual);
+ assert.equal(result.selection.source,'manual');
+ const active=await dispatch('?policy');
+ assert.equal(active.outcome.status,'staged');
+ assert.equal(active.selection.source,'automatic');
+ assert.equal(active.selection.videoMetadata.width,1280);
+ assert.equal(active.rollback.config.latestVideoUrl,JSON.parse(manual).latestVideoUrl);
+ assert.equal(active.revoked.config.latestVideoUrl,JSON.parse(manual).latestVideoUrl);
+ assert.equal(active.data[manualKey],manual);
 });
 const receipt=JSON.stringify({schemaVersion:5,graphPageId:graph,publicPageId:page,apiVersion:version,contract,evidence:'page-video-live-origin-policy-reviewed',verifiedVideoId:'222',publicPlaybackVerified:true,rollbackTested:true,verifiedAt:'2026-11-01T23:00:00Z',expiresAt:'2026-12-01T06:00:00Z'});
 const manual=JSON.stringify({latestVideoUrl:`https://www.facebook.com/${page}/videos/111/`,selectionMode:'automatic'});
@@ -133,6 +157,28 @@ test('scheduled checks can retain real Live evidence without publishing while po
  assert.equal(JSON.parse(s.data.get(STATE_KEY)).lastLiveObservation.originStatus,'LIVE');
  assert.equal((await poll(s,'2026-11-03T00:06:00Z',api({liveStatus:'VOD'}))).status,'verification-required');assert.equal(s.data.has(automaticKey),false);
  s.data.set(VERIFICATION_KEY,receipt);assert.equal((await poll(s,'2026-11-03T00:07:00Z',api({liveStatus:'VOD'}))).status,'staged');assert.equal(JSON.parse(s.data.get(automaticKey)).originObservedAt,'2026-11-03T00:05:00.000Z');
+});
+
+test('a format available only on replay updates layout without rewriting the automatic stage', async () => {
+ const s=setup();
+ await poll(s,'2026-11-03T00:05:00Z');
+ const stage=s.data.get(automaticKey);
+ const replay=api({liveStatus:'VOD'});
+ let formatReads=0;
+ const mock={fetcher:(input,init)=>{
+  if(new URL(input).searchParams.get('fields')==='id,format'){
+   formatReads++;
+   return Response.json({id:'222',format:[{width:1080,height:1920}]});
+  }
+  return replay.fetcher(input,init);
+ }};
+ assert.equal((await poll(s,'2026-11-03T00:06:00Z',mock)).status,'unchanged');
+ assert.equal((await poll(s,'2026-11-03T00:07:00Z',mock)).status,'unchanged');
+ assert.equal(formatReads,1);
+ assert.equal(s.data.get(automaticKey),stage);
+ const {presentation}=await import('../src/lib/video-presentation.ts');
+ const selected=selection(s,'2026-11-03T00:07:00Z');
+ assert.deepEqual(presentation(selected.config.latestVideoUrl,selected.videoMetadata),{orientation:'portrait',source:'format'});
 });
 
 test('sanitized diagnostics remove nested pagination credentials and signed image URLs',async()=>{

@@ -101,7 +101,7 @@ const jsonLdRaffle = (Astro.site && isRafflePage) ? {
 <SiteHeader />
 <RaffleBanner />
 
-<main class="siteMain">
+<main class:list={["siteMain", { "content-shading": Astro.url.pathname !== "/events" && Astro.url.pathname !== "/events/" }]}>
     <div class="pageBg pageEnterBg" aria-hidden="true"></div>
     <div class="pageContent">
         <slot />

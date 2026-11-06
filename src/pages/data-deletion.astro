@@ -8,7 +8,7 @@ const description =
 
 <BaseLayout title={title} description={description}>
     <div class="container" style="--maxw: 900px;">
-        <section class="card enter-block" style="margin-top: var(--section-gap);" aria-labelledby="deletionHeading">
+        <section class="card shade-reference enter-block" style="margin-top: var(--section-gap);" aria-labelledby="deletionHeading">
             <div class="panel deletionContent">
                 <h1 id="deletionHeading" class="h1-tight">Data Deletion Instructions</h1>
                 <p class="lead">
@@ -79,7 +79,7 @@ const description =
 
 <style>
     .deletionContent {
-        background: rgba(7, 15, 23, .9);
+        background: var(--shade-reference);
         overflow-wrap: anywhere;
     }
 

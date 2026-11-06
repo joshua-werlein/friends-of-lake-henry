@@ -162,7 +162,7 @@ export const prerender = false;
 
                 <div class="winnersList" style="margin-top: 1rem;">
                     <div class="muted" id="winnersCount" style="margin:0 0 .5rem;"></div>
-                    <div class="winnersTableWrap" role="region" aria-label="Admin winners list" tabindex="0">
+                    <div class="winnersTableWrap shade" role="region" aria-label="Admin winners list" tabindex="0">
                         <table class="winnersTable" id="winnersTable"><colgroup><col class="colDate"/><col class="colPlace"/><col class="colPrize"/><col class="colTicket"/><col class="colName"/><col class="colTown"/><col class="colActions"/></colgroup>
                             <thead>
                             <tr>
@@ -183,7 +183,7 @@ export const prerender = false;
         </section>
     </div>
 
-    <dialog id="winnerPrizeDialog" aria-labelledby="winnerPrizeHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;background:#16202b;color:#fff;padding:1.5rem;">
+    <dialog id="winnerPrizeDialog" class="shade-dialog" aria-labelledby="winnerPrizeHeading" style="max-width:38rem;width:calc(100% - 2rem);max-height:90vh;overflow:auto;border:1px solid #67717e;border-radius:16px;color:#fff;padding:1.5rem;">
         <h2 id="winnerPrizeHeading">Edit winner prize</h2>
         <p id="editPrizeWinner"></p>
         <form id="winnerPrizeForm" class="formGrid">
@@ -274,7 +274,7 @@ export const prerender = false;
             document.getElementById('automaticEnabled').checked=data.automaticEnabled;
             const errorMessages={'token-expired':'Facebook access has expired. An administrator must reconnect Facebook.','permission-denied':'Facebook has not granted the required access.','verification-required':'Livestream verification is incomplete. Use a manual video until setup is complete.','ambiguous-livestream':'Several broadcasts match this drawing. Please choose the correct video manually.','api-failure':'Facebook could not be reached. Your saved video is preserved.'};
             const detail=document.getElementById('automaticDetails');detail.replaceChildren();
-            const values=[['Status',data.status],['Last successful check',data.lastSuccessfulCheck],['Last Facebook event',data.webhook?.lastEventReceivedAt],['Last automatically detected video',data.lastAutomaticVideo],['Videos awaiting confirmation',data.pendingVideos?.length?data.pendingVideos.map(v=>v.videoId+' (Live origin unproven)').join(', '):'None'],['Webhook',data.webhook?.configured?(data.webhook?.signedEventReceived?'Signed event received; processing still requires verification':'Receiver configured; Meta subscription and signed delivery unverified'):'Setup incomplete'],['Last error',data.lastError?(errorMessages[data.lastError.cause]||data.lastError.cause)+' '+(data.lastError.at||''):'None']];
+            const values=[['Status',data.status],['Last successful Graph check',data.lastSuccessfulCheck],['Discovery result',data.discoveryStatus],['Publication receipt',data.receiptValid?'Current':'Missing or invalid for this policy'],['Last verified Live observation',data.lastLiveObservation],['Observed Live video',data.lastObservedLiveVideo],['Last automatic stage under current policy',data.lastStagedAt],['Last Facebook event',data.webhook?.lastEventReceivedAt],['Stored automatic video (may be from an earlier policy)',data.lastAutomaticVideo],['Videos awaiting confirmation',data.pendingVideos?.length?data.pendingVideos.map(v=>v.videoId+' (Live origin unproven)').join(', '):'None'],['Webhook',data.webhook?.configured?(data.webhook?.signedEventReceived?'Signed event received; processing still requires verification':'Receiver configured; Meta subscription and signed delivery unverified'):'Setup incomplete'],['Last error',data.lastError?(errorMessages[data.lastError.cause]||data.lastError.cause)+' '+(data.lastError.at||''):'None']];
             for(const [name,value]of values){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=value||'None yet';dd.style.overflowWrap='anywhere';detail.append(dt,dd);}
             document.getElementById('displayedVideo').textContent='Currently displayed: '+(data.displayed?.latestVideoUrl||'Facebook page link');
             document.getElementById('videoSource').textContent='Video source: '+(data.source==='automatic'?'Automatic':'Manual');
@@ -286,7 +286,20 @@ export const prerender = false;
         btn?.addEventListener('click',()=>videoAction({action:'showVideo',latestVideoUrl:input.value.trim()},'Video selected. Automatic updates keep their current setting.'));
         document.getElementById('saveFallback')?.addEventListener('click',()=>videoAction({action:'saveFallback',latestVideoUrl:input.value.trim()},'Fallback saved. Automatic updates keep their current setting.'));
         document.getElementById('automaticEnabled')?.addEventListener('change',event=>videoAction({action:'setAutomation',enabled:event.target.checked},event.target.checked?'Automatic updates enabled; setup and verification checks still apply.':'Automatic updates disabled.'));
-        document.getElementById('testDiscovery')?.addEventListener('click',async()=>{const data=await videoAction({action:'testDiscovery'},'Discovery checked. The displayed video is unchanged.');if(data)document.getElementById('automaticMessage').textContent=data.result?.status==='error'?'Facebook check failed: '+(data.result?.result?.reason||'unavailable')+'. The displayed video is unchanged.':(data.result?.result?.pending?.length?'Video '+data.result.result.pending.map(v=>v.videoId).join(', ')+' is waiting for manual Live-origin confirmation.':'Check complete. '+(data.result?.result?.discoveries?.length??0)+' verified candidate(s). No video selection was changed.');});
+        document.getElementById('testDiscovery')?.addEventListener('click',async()=>{
+            const data=await videoAction({action:'testDiscovery'},'Discovery checked. The displayed video is unchanged.');
+            if(!data)return;
+            const result=data.result?.result;
+            const discoveries=result?.discoveries??[];
+            const candidate=discoveries.length===1?discoveries[0]:null;
+            const format=candidate?.source==='format'&&Number.isInteger(candidate.width)&&Number.isInteger(candidate.height)
+                ? ` Graph video format: ${candidate.width} × ${candidate.height}.` : '';
+            document.getElementById('automaticMessage').textContent=data.result?.status==='error'
+                ? 'Facebook check failed: '+(result?.reason||'unavailable')+'. The displayed video is unchanged.'
+                : result?.pending?.length
+                    ? 'Video '+result.pending.map(v=>v.videoId).join(', ')+' is waiting for manual Live-origin confirmation.'
+                    : `Check complete. ${discoveries.length} verified candidate(s).${format} No video selection was changed.`;
+        });
         loadVideoSettings().catch(error=>setLiveStatus('error',error.message));
 
         const wDate = document.getElementById("wDate");
@@ -637,7 +650,7 @@ export const prerender = false;
         #cancelWinnerEdit[hidden] { display:none; }
         .automationSwitch { display:flex; align-items:center; gap:.75rem; font-weight:700; margin:1rem 0; }
         #automaticEnabled { width:1.15rem; height:1.15rem; margin:0; flex:none; }
-        .adminPanel { background:rgba(7,15,23,.86); border:1px solid rgba(255,255,255,.16); }
+        .adminPanel { border:1px solid rgba(255,255,255,.16); }
         #automaticDetails { display:grid; grid-template-columns:minmax(10rem,1fr) minmax(0,2fr); gap:.65rem 1.25rem; margin:1.25rem 0; }
         #automaticDetails :global(dt) { font-weight:700; color:var(--text); }
         #automaticDetails :global(dd) { margin:0; overflow-wrap:anywhere; }
@@ -692,7 +705,6 @@ export const prerender = false;
             padding: .75rem .85rem;
             border-radius: 12px;
             border: 1px solid var(--border);
-            background: rgba(0,0,0,0.12);
             color: var(--text);
             font: inherit;
             font-size: 16px;
@@ -709,7 +721,6 @@ export const prerender = false;
             padding: 1rem;
             border-radius: 14px;
             border: 1px solid var(--border);
-            background: rgba(0,0,0,0.20);
         }
 
         .winnersTableWrap{
@@ -718,7 +729,6 @@ export const prerender = false;
             border-radius: 12px;
             padding-left: 1.25rem;
             padding-right: .75rem;
-            background: rgba(0,0,0,0.10);
         }
 
         .winnersTable{
@@ -747,7 +757,7 @@ export const prerender = false;
         .winnersTable tbody td{
             border-bottom: 0;
             padding: .65rem 0.75rem;
-            background: rgba(0,0,0,0.12);
+            background: var(--shade-control-at-limit);
         }
 
         .winnersTable tbody tr td:first-child{

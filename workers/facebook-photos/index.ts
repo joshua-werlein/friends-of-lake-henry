@@ -118,8 +118,8 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
             const decision = decidePhoto(passes, existing, schedule, announcementDate);
             const status = await writeDecision(env.DB, { photoId: photo.photoId, postId, sha256: await hashBytes(image.bytes),
                 width: dimensions.width, height: dimensions.height, model: PHOTO_MODEL, passes }, decision, env.FB_PHOTO_AUTOPUBLISH === 'true');
-            log('photo-processed', { photoId: photo.photoId, status, inserted: decision.rows.filter(r => r.outcome === 'insert').length,
-                rejected: decision.rows.filter(r => r.outcome === 'rejected').length });
+            log('photo-processed', { photoId: photo.photoId, status, plannedInserts: decision.rows.filter(r => r.outcome === 'insert').length,
+                decisionRejections: decision.rows.filter(r => r.outcome === 'rejected').length });
             if (status !== 'ignored') outcome = 'done';
         } catch (e) {
             const code = e instanceof Error ? e.message.slice(0, 80) : 'unknown';
