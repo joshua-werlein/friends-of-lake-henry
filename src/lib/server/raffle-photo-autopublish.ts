@@ -206,13 +206,22 @@ export async function writeDecision(db: D1Database, photo: { photoId: string; po
     for (const d of decision.rows) {
         const row = JSON.stringify(d.row);
         if (d.outcome === 'insert' && publish) {
+            const month = d.row.drawDate.slice(0, 7);
+            const ticket = Number(d.row.ticketNumber);
+            const place = parseWinnerPrize(d.prize).position;
             statements.push(db.prepare(`INSERT INTO raffle_winners (id, raffle_key, draw_date, ticket_number, winner_name, town, prize, ticket_number_text)
-                SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM raffle_winners WHERE raffle_key=? AND draw_date=? AND ticket_number=?)
-                ON CONFLICT DO NOTHING`).bind(d.winnerId, d.row.drawDate.slice(0, 7), d.row.drawDate, Number(d.row.ticketNumber),
-                d.row.name, d.row.town, d.prize, d.row.ticketNumber, d.row.drawDate.slice(0, 7), d.row.drawDate, Number(d.row.ticketNumber)));
+                SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM raffle_winners WHERE raffle_key=? AND draw_date=? AND (ticket_number=? OR prize LIKE ?))
+                ON CONFLICT DO NOTHING`).bind(d.winnerId, month, d.row.drawDate, ticket,
+                d.row.name, d.row.town, d.prize, d.row.ticketNumber, month, d.row.drawDate, ticket,
+                place === null ? null : ordinal(place) + '%'));
             statements.push(db.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
-                VALUES (?,?,CASE WHEN changes()=1 THEN 'inserted' ELSE 'duplicate' END,?,?,?,?)
-                ON CONFLICT(photo_id, row_number) DO UPDATE SET outcome=excluded.outcome, winner_id=excluded.winner_id, prize=excluded.prize, reasons_json=excluded.reasons_json, row_json=excluded.row_json`).bind(photo.photoId, d.rowNumber, d.winnerId, d.prize, JSON.stringify(d.reasons), row));
+                SELECT ?,?,CASE WHEN changes()=1 THEN 'inserted' WHEN w.id IS NOT NULL THEN 'duplicate' ELSE 'rejected' END,
+                    w.id,?,CASE WHEN w.id IS NULL THEN ? ELSE '[]' END,?
+                FROM (SELECT 1) LEFT JOIN raffle_winners w ON w.raffle_key=? AND w.draw_date=? AND w.ticket_number=?
+                WHERE true
+                ON CONFLICT(photo_id, row_number) DO UPDATE SET outcome=excluded.outcome, winner_id=excluded.winner_id, prize=excluded.prize, reasons_json=excluded.reasons_json, row_json=excluded.row_json`)
+                .bind(photo.photoId, d.rowNumber, d.prize, JSON.stringify(['scheduled place became unavailable before publication']),
+                    row, month, d.row.drawDate, ticket));
         } else {
             const outcome = d.outcome === 'insert' ? 'held' : d.outcome;
             statements.push(db.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
@@ -222,14 +231,19 @@ export async function writeDecision(db: D1Database, photo: { photoId: string; po
     }
     const status = !publish && decision.rows.some(d => d.outcome === 'insert') ? 'held' : decision.status;
     statements.push(db.prepare(`INSERT INTO raffle_photo_auto_imports (photo_id, post_id, status, image_sha256, image_width, image_height, model, extraction_json, reasons_json)
-        VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(photo_id) DO UPDATE SET status=excluded.status, image_sha256=excluded.image_sha256,
+        SELECT ?,?,CASE
+            WHEN ? IN ('published','partial') AND inserted=0 THEN CASE WHEN rejected>0 THEN 'rejected' ELSE 'duplicate' END
+            WHEN ? IN ('published','partial') AND rejected>0 THEN 'partial' ELSE ? END,?,?,?,?,?,?
+        FROM (SELECT count(*) FILTER (WHERE outcome='inserted') AS inserted, count(*) FILTER (WHERE outcome='rejected') AS rejected
+            FROM raffle_photo_auto_rows WHERE photo_id=?) WHERE true
+        ON CONFLICT(photo_id) DO UPDATE SET status=excluded.status, image_sha256=excluded.image_sha256,
         image_width=excluded.image_width, image_height=excluded.image_height, model=excluded.model, extraction_json=excluded.extraction_json,
         reasons_json=excluded.reasons_json, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE raffle_photo_auto_imports.status='failed'`)
-        .bind(photo.photoId, photo.postId, status, photo.sha256, photo.width, photo.height, photo.model,
-            JSON.stringify(photo.passes).slice(0, 200000), JSON.stringify(decision.reasons)));
-    await db.batch(statements);
-    return status;
+        WHERE raffle_photo_auto_imports.status='failed' RETURNING status`)
+        .bind(photo.photoId, photo.postId, status, status, status, photo.sha256, photo.width, photo.height, photo.model,
+            JSON.stringify(photo.passes).slice(0, 200000), JSON.stringify(decision.reasons), photo.photoId));
+    const results = await db.batch<{ status: string }>(statements);
+    return results.at(-1)?.results[0]?.status ?? status;
 }
 
 export async function recordPhotoFailure(db: D1Database, photoId: string, postId: string, code: string) {

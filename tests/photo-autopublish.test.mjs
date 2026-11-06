@@ -126,6 +126,13 @@ test('November 5 column reads map both prizes and a cumulative Friday table stay
         sha256: null, width: null, height: null, model: null, passes: [pass([dan, brent]), pass([dan, brent])] }, decision, true);
     assert.deepEqual((await db.prepare("SELECT ticket_number_text FROM raffle_winners WHERE draw_date=? ORDER BY ticket_number").bind(dan.drawDate).all()).results,
         [{ ticket_number_text: '050' }, { ticket_number_text: '789' }]);
+    const anotherPost = {photoId:'111',postId:'144051422124740_111',sha256:null,width:null,height:null,model:null,passes:[]};
+    assert.equal(await writeDecision(db,anotherPost,decision,true),'duplicate');
+    const conflict = decide([{...dan,ticketNumber:'123'}],dan.drawDate);
+    assert.equal(await writeDecision(db,{...anotherPost,photoId:'112'},conflict,true),'rejected');
+    const audit = await db.prepare("SELECT outcome,reasons_json FROM raffle_photo_auto_rows WHERE photo_id='112'").first();
+    assert.equal(audit.outcome,'rejected');
+    assert.match(audit.reasons_json,/place became unavailable/);
     const friday = '2026-11-06';
     const history = Array.from({ length: 10 }, (_, i) => ({ ...dan, drawDate: '2026-11-02', ticketNumber: String(i + 1) }));
     const fridayRows = [{ ...dan, drawDate: friday }, { ...brent, drawDate: friday },
