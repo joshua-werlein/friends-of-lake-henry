@@ -48,14 +48,20 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         && (overrideUrl===null||(typeof overrideUrl==='string'&&!!normalizeFacebookVideoUrl(overrideUrl)));
     const manualDisplay=hasOverride?{latestVideoUrl:overrideUrl===null?null:normalizeFacebookVideoUrl(overrideUrl as string),updatedAt:overrideAt as string}:manualConfig;
     const allowed = input.enabled === true && verificationValid(input.verificationRaw ?? null, season && time >= season.end ? new Date(season.end-1) : now, season);
+    const state = readRecord(input.stateRaw);
+    const observation = state?.lastLiveObservation as Record<string, unknown> | undefined;
+    const observedFormat = observation?.schemaVersion === 2 && observation.contract === FACEBOOK_LIVE_CONTRACT
+        && observation.graphPageId === FACEBOOK_GRAPH_PAGE_ID && observation.publicPageId === FACEBOOK_PAGE_ID
+        && observation.apiVersion === FACEBOOK_API_VERSION && observation.source === 'format' ? observation : undefined;
     const base: Selection = { manualConfig, config: manualDisplay, selectionMode: mode, source: 'manual',
-        reason: 'manual', automaticAllowed: allowed };
+        reason: 'manual', automaticAllowed: allowed,
+        ...(observedFormat && observedFormat.url === manualDisplay.latestVideoUrl ? { videoMetadata: observedFormat } : {}) };
     const fallback = (reason: string): Selection => ({ ...base, reason });
     if (mode === 'manual') return base;
     if (!input.enabled) return fallback('automatic-disabled');
     if (!allowed) return fallback('verification-required');
     if (!season || !Number.isFinite(time) || time < season.start) return fallback('outside-window');
-    const stage = readRecord(input.automaticRaw), state = readRecord(input.stateRaw);
+    const stage = readRecord(input.automaticRaw);
     if (!stage || stage.schemaVersion !== 2 || stage.graphPageId !== FACEBOOK_GRAPH_PAGE_ID
         || stage.publicPageId !== FACEBOOK_PAGE_ID || stage.apiVersion !== FACEBOOK_API_VERSION
         || stage.contract !== FACEBOOK_LIVE_CONTRACT || typeof stage.id !== 'string' || !/^\d{1,40}$/.test(stage.id)
@@ -75,7 +81,8 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
     // Provider failures never erase a previously verified replay. New stages still require an actual successful verification.
     if (!state || state.version!==1 || state.lastVerifiedVideoId!==stage.id || !iso(state.lastVerifiedAt)
         || Date.parse(state.lastVerifiedAt)<Date.parse(stage.observedAt) || Date.parse(state.lastVerifiedAt)>time) return fallback('detection-unavailable');
-    return { ...base, config: { latestVideoUrl: stage.url, updatedAt: stage.observedAt }, source: 'automatic', reason: 'verified-discovery', videoMetadata: stage };
+    return { ...base, config: { latestVideoUrl: stage.url, updatedAt: stage.observedAt }, source: 'automatic',
+        reason: 'verified-discovery', videoMetadata: observedFormat?.url === stage.url ? observedFormat : stage };
 }
 
 export async function loadRaffleSelection(store: { get(key: string): Promise<string | null> }, enabled: boolean, now = new Date(), seasonEnv: SeasonEnv = {}): Promise<Selection> {

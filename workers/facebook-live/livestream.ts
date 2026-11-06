@@ -10,6 +10,7 @@ export type LiveDiscovery = Discovery & {
     originStatus: 'LIVE' | 'LIVE_STOPPED';
     originObservedAt: string;
     drawingDate: string;
+    formatProbe?: 'live' | 'replay';
 };
 export type PendingVideo = { videoId: string; publishedAt: string; reason: 'live-origin-unproven'; liveStatus: string };
 export type LiveResult = GraphResult & { pending?: PendingVideo[] };
@@ -77,10 +78,13 @@ export async function discoverLivestreams(options: {
         const video = discoveries[0];
         if (video) {
             const prior = priorLiveOrigin(options.prior, video.videoId, video.publishedAt, now);
+            const phase = video.liveStatus === 'VOD' ? 'replay' : 'live';
+            video.formatProbe = prior?.formatProbe;
             if (prior?.width && prior.height && prior.source) {
                 Object.assign(video, { width: prior.width, height: prior.height, source: prior.source });
-            } else if (!prior) {
-                // One optional format probe per newly verified broadcast. Layout cannot block publication.
+            } else if (!prior?.formatProbe || (phase === 'replay' && prior.formatProbe === 'live')) {
+                // A format can appear only after replay processing. Retry once on that transition.
+                video.formatProbe = phase;
                 try {
                     const getFormat = graphReader(options.token, now, options.fetcher ?? fetch, AbortSignal.timeout(2500));
                     const format = await getFormat(video.videoId, { fields: 'id,format' });
