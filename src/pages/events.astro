@@ -282,7 +282,7 @@ const description =
                             const iso = `${monthKey(year, monthIndex)}-${String(day).padStart(2, "0")}`;
                             const dayEvents = byDay.get(iso) ?? [];
                             return (
-                                <div class="cell" role="gridcell">
+                                <div class="cell shade" role="gridcell">
                                     <div class="dayNum">{day}</div>
 
                                     {dayEvents.length ? (
@@ -762,7 +762,7 @@ const description =
                     const dayEvents = byDay.get(iso) ?? [];
 
                     const cell = document.createElement("div");
-                    cell.className = "cell";
+                    cell.className = "cell shade";
                     cell.setAttribute("role", "gridcell");
 
                     const num = document.createElement("div");
@@ -905,7 +905,7 @@ const description =
     <style  is:global>
         .pad { margin-top: var(--section-gap); }
         .lead { margin: 0 0 1.25rem; max-width: 75ch; }
-        .calendarPanel { padding: 1.25rem; background: var(--panel-bg-dense); border-color: rgba(255,255,255,0.14); }
+        .calendarPanel { padding: 1.25rem; border-color: rgba(255,255,255,0.14); }
         .calHead { display:flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
         .calHint { font-size: .95rem; display: flex;align-items: center;gap: .6rem;flex-wrap: wrap;}
         .calNav { display:flex; align-items: center; position: relative; gap: .75rem; }
@@ -916,7 +916,6 @@ const description =
             padding: .5rem 1rem;
             border-radius: 999px;
             border: 1px solid var(--border-strong);
-            background: var(--glass-dark);
             color: var(--text-on-glass);
             font-weight: 700;
             line-height: 1;
@@ -940,7 +939,6 @@ const description =
             border: 1px solid rgba(255,255,255,0.14);
             border-radius: 12px;
             padding: .65rem;
-            background: rgba(0,0,0,0.22);
             min-height: 110px;
             backdrop-filter: blur(2px);
             display: grid;
@@ -966,7 +964,7 @@ const description =
             padding: .45rem .55rem;
             border-radius: 12px;
             border: 1px solid var(--border-strong);
-            background: var(--glass-dark);
+            background: var(--shade-control);
             color: var(--text-on-glass);
             text-decoration: none;
             min-width: 0;
@@ -1008,7 +1006,7 @@ const description =
             border-radius: 14px;
             border: 1px solid var(--border-strong);
             box-shadow: var(--card-shadow-soft);
-            background: var(--glass-dark);
+            background: var(--shade-control);
         }
         .monthList { margin-top: 1.25rem; }
         .list { display: grid; gap: 1rem; }
@@ -1023,7 +1021,7 @@ const description =
             padding: .18rem .55rem;
             border-radius: 999px;
             border: 1px solid var(--border-strong);
-            background: var(--glass-dark-strong);
+            background: var(--shade-control);
             color: var(--text-on-glass);
             font-weight: 800;
             font-size: .78rem;
