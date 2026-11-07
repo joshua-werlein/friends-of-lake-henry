@@ -55,6 +55,9 @@ test('public prize cells hide category prefixes and separate verified placement 
     assert.deepEqual(prizeCells('Gift card: $100 gift certificate'),{place:'—',prize:'$100 gift certificate'});
     assert.deepEqual(prizeCells('2nd place — Gift card: Verified certificate'),{place:'2nd',prize:'Verified certificate'});
     assert.deepEqual(prizeCells(null),{place:'—',prize:'Not recorded'});
+    assert.deepEqual(prizeCells('Bonus — Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen'),
+        {place:'3rd',prize:'Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen'});
+    assert.equal(parseWinnerPrize('Bonus — Cutting Board').position, 'Bonus');
 });
 
 test('confirmed November 1 placements encode and display as 1st/2nd with clean descriptions',()=>{

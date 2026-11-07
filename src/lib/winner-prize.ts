@@ -32,7 +32,8 @@ export function cleanPrizeDescription(value: string) {
 }
 export function prizeCells(value: string | null) {
     const parsed = parseWinnerPrize(value);
-    return { place: placementShort(parsed.position), prize: cleanPrizeDescription(parsed.description) || 'Not recorded' };
+    return { place: parsed.position === BONUS ? '3rd' : placementShort(parsed.position),
+        prize: cleanPrizeDescription(parsed.description) || 'Not recorded' };
 }
 export function parseWinnerPrize(value: string | null) {
     let text = value ?? '';

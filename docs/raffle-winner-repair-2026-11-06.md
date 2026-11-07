@@ -245,3 +245,7 @@ Cloudflare D1 blocks its protected internal table access and the local integrity
 After an approved deployment and successful production verification, delete temporary sensitive SQL, SQLite and restore-statement copies. Confirm any separately approved secure recovery backup before cleanup. Refresh the Time Travel bookmark immediately before migration. Restoring that bookmark later would roll back intervening site writes, so use it only under a reviewed recovery plan.
 
 The initial Computer Use phone check was unavailable. Under the subsequent explicit authorization, isolated Playwright verified actual 375px and 390px viewports. Document and body scroll widths matched each viewport. Only the 960px winners table scrolls inside its wrapper. Bonus, tickets, prizes, hometowns, month refresh and admin edit/save passed at both widths with no browser script errors. The owner authorized the production release after these gates.
+
+## Owner display correction during release
+
+After viewing the live board, the owner requested 3rd in the Place column and removal of Bonus and its separator from the displayed prize. Winner-board formatting now renders the approved Bonus slot as 3rd and keeps only the clean prize description. The stored approved slot, ticket 681 and Kent's existing ID remain intact, so photo matching and duplicate protection continue to use the reviewed calendar identity. Regression expectations cover both the cleaned display and preservation of the internal category.

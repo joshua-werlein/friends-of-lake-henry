@@ -106,7 +106,7 @@ test('corrected announcement: Troy 1st with 288, Lyle 2nd and Kent Bonus with no
     assert.deepEqual(pub.winners.filter(w => w.drawDate === DATE).map(w => [w.name, ticketLabel(w.ticketNumberText ?? w.ticketNumber), prizeCells(w.prize).place, prizeCells(w.prize).prize, w.town]), [
         ['Troy Lindberg', '288', '1st', FIREARM, 'Hixton, WI'],
         ['Lyle Schlomer', 'Not published', '2nd', GIFT, 'Osseo, WI'],
-        ['Kent Johnson', 'Not published', 'Bonus', CUTTING, 'Blair, Wi']]);
+        ['Kent Johnson', 'Not published', '3rd', CUTTING, 'Blair, Wi']]);
     assert.deepEqual((await list(DB)).map(w => w.name), ['Troy Lindberg', 'Lyle Schlomer', 'Kent Johnson']);
     const prizes = await DB.prepare('SELECT draw_date AS drawDate, prize FROM raffle_winners WHERE raffle_key=?').bind(MONTH).all();
     assert.ok(completedDrawingDates(await prizeSchedule(DB, MONTH), prizes.results).includes(DATE));
@@ -209,7 +209,7 @@ test('owner-confirmed corrections preserve winner IDs and verified tickets throu
         [w.id, w.name, w.ticketNumber, w.ticketNumberText, prizeCells(w.prize).place, prizeCells(w.prize).prize]), [
         [`${MONTH}-${DATE}-288`, 'Troy Lindberg', 288, '288', '1st', FIREARM],
         [`${MONTH}-${DATE}-838`, 'Lyle Schlomer', 838, '838', '2nd', GIFT],
-        [KENT_ID, 'Kent Johnson', 681, '681', 'Bonus', CUTTING],
+        [KENT_ID, 'Kent Johnson', 681, '681', '3rd', CUTTING],
     ]);
     const jimAfter = pub.winners.find(w => w.id === jimId);
     assert.deepEqual([jimAfter.name, jimAfter.town, jimAfter.ticketNumber, jimAfter.ticketNumberText, jimAfter.prize],
@@ -471,7 +471,7 @@ test('older winners and legacy 3rd records stay intact and readable', async t =>
     await seed('second', 2, 'Second', '2nd place — Old prize');
     await seed('first', 1, 'First', '1st place — Old prize');
     const pub = await (await publicMonth(ctx(DB, 'https://example.test/api/raffle/month?month=2026-02'))).json();
-    assert.deepEqual(pub.winners.map(w => [w.name, prizeCells(w.prize).place]), [['First', '1st'], ['Second', '2nd'], ['Legacy', '3rd'], ['Bonus Winner', 'Bonus'], ['Unknown', '—']]);
+    assert.deepEqual(pub.winners.map(w => [w.name, prizeCells(w.prize).place]), [['First', '1st'], ['Second', '2nd'], ['Legacy', '3rd'], ['Bonus Winner', '3rd'], ['Unknown', '—']]);
     const legacy = pub.winners.find(w => w.name === 'Legacy');
     assert.equal((await admin(DB, { action: 'update', id: 'legacy', expected: legacy, winner: { drawDate: legacy.drawDate, ticketNumber: '3', name: legacy.name, town: 'Taylor', prize: legacy.prize } })).status, 200);
     const row = await DB.prepare(`SELECT prize, prize_slot_id AS slot FROM raffle_winners WHERE id='legacy'`).first();
