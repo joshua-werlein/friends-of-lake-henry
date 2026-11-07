@@ -10,10 +10,19 @@ export function qualifies(message: unknown, marker = '#LakeHenryRaffle') {
     if (typeof message !== 'string') return false;
     return message.split(/\s+/).some(word => word.replace(/[.,!?:;]+$/, '').toLowerCase() === marker.toLowerCase());
 }
-/** Every tick from 17:45 to midnight Central (drawings and their winner posts); otherwise twice an hour. */
+function chicagoClock(now: Date) {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Chicago', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
+    const get = (type: string) => Number(parts.find(p => p.type === type)?.value);
+    return { month: get('month'), h: get('hour'), m: get('minute') };
+}
+/** Graph backup discovery: every tick from 17:55 to 18:05 Central, November only. Webhooks cover everything else. */
 export function pollDue(now: Date) {
-    const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-        .format(now).split(':').map(Number);
+    const { month, h, m } = chicagoClock(now), minute = h * 60 + m;
+    return month === 11 && minute >= 17 * 60 + 55 && minute <= 18 * 60 + 5;
+}
+/** Alert evaluations: every tick from 17:45 to midnight Central; otherwise twice an hour. */
+export function alertsDue(now: Date) {
+    const { h, m } = chicagoClock(now);
     return h > 17 || (h === 17 && m >= 45) || m % 30 < 2;
 }
 

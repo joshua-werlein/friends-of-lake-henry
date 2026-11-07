@@ -17,6 +17,8 @@ const TRACKING_START = 'tracking-start';
 type PostRow = { post_id: string; source: string; status: string; attempts: number; error_code: string | null; last_error_code: string | null; created_at: string };
 type ReviewRow = { photo_id: string; post_id: string; status: string; updated_at: string; held: number; rejected: number };
 export type PhotoAlertInput = { webhookConfigured: boolean; automationEnabled: boolean; pollError?: string | null; seasonStart: string;
+    /** False when this tick skipped the Graph poll: its auth evidence is unknown, not healthy. */
+    pollRan?: boolean;
     /** ALERT_WEBHOOK_DELIVERY_ENABLED: receipt-based webhook-delivery alert, off by default. */
     webhookDeliveryAlert?: boolean };
 
@@ -102,7 +104,7 @@ export async function photoSignals(db: D1Database, now: Date, input: PhotoAlertI
             problem: 'The winner-photo Worker cannot read Facebook posts: its Page access token was rejected or lacks permission.',
             action: 'Check the Page access token and app permissions in Meta, rotate the Worker secret if expired, then confirm the next poll succeeds.',
             detail: { code: pollAuth ?? blocked.code ?? 'unknown', affectedPosts: blocked.n } });
-    }
+    } else if (input.pollRan === false) unknown.add('photo:graph-auth');
     if (!input.webhookConfigured && input.automationEnabled) {
         signals.push({ id: 'photo:webhook-config', system: SYSTEM,
             title: 'Facebook webhook secret missing',

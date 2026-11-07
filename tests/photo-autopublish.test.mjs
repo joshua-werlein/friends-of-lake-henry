@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { decidePhoto, matchPrize, chicagoDate, composePrize, writeDecision } from '../src/lib/server/raffle-photo-autopublish.ts';
 import { prizeSchedule } from '../src/lib/server/raffle-prizes.ts';
-import { webhookPostIds, qualifies, pollDue, validSignature } from '../workers/facebook-photos/webhook.ts';
+import { webhookPostIds, qualifies, pollDue, alertsDue, validSignature } from '../workers/facebook-photos/webhook.ts';
 import { checkPhotoWorker } from '../workers/facebook-photos/check-deployment.mjs';
 import { base64Image } from '../workers/facebook-live/photos.ts';
 import { GET as publicMonth } from '../src/pages/api/raffle/month.ts';
@@ -272,9 +272,22 @@ test('webhook payload parsing, signature verification, post qualification and po
     assert.ok(!qualifies('Drawing winners #LakeHenryRaffleArchive'));
     assert.ok(!qualifies('Ice fishing report and photos'));
     assert.ok(!qualifies('Our raffle poster is here'));
-    assert.ok(pollDue(new Date('2026-11-04T00:10:00Z')));   // 18:10 Central
-    assert.ok(!pollDue(new Date('2026-11-03T16:14:00Z')));  // 10:14 Central
-    assert.ok(pollDue(new Date('2026-11-03T16:30:00Z')));   // half-hourly sweep
+    // Graph backup discovery: 17:55-18:05 Central, November only (CST is UTC-6 after Nov 1 2026).
+    assert.ok(!pollDue(new Date('2026-11-03T23:54:00Z')));  // 17:54 Central
+    assert.ok(pollDue(new Date('2026-11-03T23:55:00Z')));   // 17:55 Central
+    assert.ok(pollDue(new Date('2026-11-04T00:00:00Z')));   // 18:00 Central
+    assert.ok(pollDue(new Date('2026-11-04T00:05:00Z')));   // 18:05 Central
+    assert.ok(!pollDue(new Date('2026-11-04T00:06:00Z')));  // 18:06 Central
+    assert.ok(!pollDue(new Date('2026-11-04T00:10:00Z')));  // 18:10 Central: no evening sweep
+    assert.ok(!pollDue(new Date('2026-11-03T16:30:00Z')));  // no daytime half-hourly sweep
+    assert.ok(pollDue(new Date('2026-12-01T00:00:00Z')));   // Nov 30 18:00 Central
+    assert.ok(!pollDue(new Date('2026-12-02T00:00:00Z')));  // Dec 1 18:00 Central
+    assert.ok(!pollDue(new Date('2026-10-31T23:00:00Z')));  // Oct 31 18:00 Central (CDT)
+    // Alert evaluations keep their schedule independent of the poll window.
+    assert.ok(alertsDue(new Date('2026-11-04T00:10:00Z')));  // 18:10 Central
+    assert.ok(!alertsDue(new Date('2026-11-03T16:14:00Z'))); // 10:14 Central
+    assert.ok(alertsDue(new Date('2026-11-03T16:30:00Z')));  // half-hourly
+    assert.ok(alertsDue(new Date('2026-12-02T00:00:00Z')));  // not limited to November
 });
 
 test('deployment preflight rejects anything that could replace the Live discovery Worker', async () => {

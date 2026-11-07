@@ -306,6 +306,10 @@ test('photo signals: absence never alerts; stuck, repeated AI, failed, auth and 
     const other = await photoSignals(DB, now, input({ webhookConfigured: false, pollError: 'permission-denied' }));
     assert.ok(other.signals.some(s => s.id === 'photo:webhook-config'));
     assert.equal(other.signals.find(s => s.id === 'photo:graph-auth').detail.code, 'permission-denied');
+    // A tick outside the Graph poll window has no poll evidence: graph-auth is unknown, never a recovery.
+    await DB.prepare(`DELETE FROM raffle_photo_auto_posts WHERE error_code='permission-denied' OR error_code='token-expired' OR error_code='missing-token'`).run();
+    assert.ok((await photoSignals(DB, now, input({ pollRan: false }))).unknown.has('photo:graph-auth'));
+    assert.ok(!(await photoSignals(DB, now, input({ pollRan: true }))).unknown.has('photo:graph-auth'));
 });
 
 test('photo alerts end to end: one email per incident across scheduled ticks, recovery once, healthy ticks write nothing', async t => {

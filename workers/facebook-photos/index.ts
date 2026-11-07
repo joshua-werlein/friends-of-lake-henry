@@ -3,7 +3,7 @@
 // can never replace folh-facebook-live-discovery, its DiscoveryScheduler Durable Object, migration or cron.
 import { graphReader, GRAPH_PAGE_ID, isoTime } from '../facebook-live/graph';
 import { pageAccessToken, usesFohlSync, type FacebookCredentials } from '../facebook-live/credentials';
-import { inSeason, qualifies, pollDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
+import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
 import { base64Image, downloadPhoto, extractPhotoCandidates, extractWinners } from '../facebook-live/photos';
 import { PHOTO_MODEL, hashBytes, type Extraction } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
@@ -243,19 +243,20 @@ export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
             if (!enabled(env) || !inSeason(env, now)) return;
             ctx.waitUntil((async () => {
                 let pollError: string | null = null;
-                if (env.FB_PHOTO_POLL_ENABLED === 'true' && pollDue(now)) {
+                const pollRan = env.FB_PHOTO_POLL_ENABLED === 'true' && pollDue(now);
+                if (pollRan) {
                     try { log('poll', { queued: await poll(env, fetcher, now) }); }
                     catch (e) { pollError = sanitizeCode(e); log('poll-failed', { code: pollError }); }
                 }
                 // Posts queued by this tick's poll are stamped after scheduledTime; drain against the real clock.
                 try { await drain(env, fetcher, new Date(Math.max(now.getTime(), Date.now()))); }
                 finally {
-                    // Alerts run after publication and never throw; evaluated on the poll schedule to keep D1 reads low.
-                    if (pollDue(now)) {
+                    // Alerts run after publication and never throw; evaluated on their own schedule to keep D1 reads low.
+                    if (alertsDue(now)) {
                         const sync = usesFohlSync(env);
                         const result = await evaluatePhotoAlerts(env, new Date(Math.max(now.getTime(), Date.now())), {
                             webhookConfigured: sync ? !!env.FOHL_SYNC_APP_SECRET && !!env.FOHL_SYNC_WEBHOOK_VERIFY_TOKEN : !!env.FB_APP_SECRET && !!env.FB_WEBHOOK_VERIFY_TOKEN,
-                            automationEnabled: enabled(env), pollError, webhookDeliveryAlert: trackReceipts(env), seasonStart: new Date(Date.parse(env.FB_SEASON_START!)).toISOString() }, fetcher);
+                            automationEnabled: enabled(env), pollError, pollRan, webhookDeliveryAlert: trackReceipts(env), seasonStart: new Date(Date.parse(env.FB_SEASON_START!)).toISOString() }, fetcher);
                         if (result.status !== 'disabled') log('alerts', { status: result.status, ...('changed' in result ? { changed: result.changed, open: result.open } : {}) });
                     }
                 }
