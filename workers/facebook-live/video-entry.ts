@@ -21,7 +21,17 @@ export { FacebookPhotoReads } from './photo-reads';
 
 import {discoverLivestreams} from './livestream';
 import {inDiscoveryWindow} from '../../src/lib/server/raffle-discovery-schedule';
+import {timingEntry} from './timing';
 export class LiveEvents extends WorkerEntrypoint<Env> {
+    /** Private service-binding diagnostic sink. No public HTTP endpoint or scheduling side effects. */
+    async recordDiagnostic(value:unknown) {
+        const entry=timingEntry(value);
+        if(!entry || !['webhook-received','webhook-forward','public-visible'].includes(entry.stage) || !this.env.DISCOVERY_SCHEDULER) return;
+        // Bound old/replayed diagnostic input; retrieval remains available all month and afterward.
+        if(Math.abs(Date.now()-entry.at)>120000) return;
+        const ns=this.env.DISCOVERY_SCHEDULER;
+        await ns.get(ns.idFromName('november-2026')).fetch('https://discovery.internal/diagnostic',{method:'POST',body:JSON.stringify(entry)});
+    }
     async notify(id:string) {
         if(!inDiscoveryWindow(new Date())||this.env.FB_AUTOMATION_ENABLED!=='true') return {accepted:false};
         if(!/^[a-f0-9]{64}$/.test(id)||!this.env.DISCOVERY_SCHEDULER) throw Error('invalid-event');

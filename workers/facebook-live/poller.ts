@@ -26,7 +26,7 @@ export type Env = SeasonEnv & FacebookCredentials & AlertEnv & {
 type State = { version: 1; accessRevision: string; lastAttemptAt: number; nextAttemptAt: number;
     failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number; lastError?:Record<string,string|number>; lastSuccessAt?:string; pendingVideos?:unknown[]; lastLiveObservation?:unknown; retryAfterUntil?:number };
 /** Sanitized facts for alerting and timing: IDs, counts and codes only. */
-export type PollMonitor = { failures: number; paused: boolean; reason?: string; liveVideoId?: string; selected: boolean };
+export type PollMonitor = { failures: number; paused: boolean; reason?: string; phase?: string; liveVideoId?: string; selected: boolean; pending?:number; candidates?:number; verified?:number; videos?:unknown[] };
 export type Outcome = { status: string; candidates?: number; postsExamined?: number; monitor?: PollMonitor };
 export type Staged = Discovery & { schemaVersion: 2; id: string; graphPageId: string; publicPageId: string;
     apiVersion: string; contract: string; observedAt: string };
@@ -153,7 +153,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         }
         await store.put(STATE_KEY, JSON.stringify(state));
         const liveVideoId = result.ok ? result.discoveries[0]?.videoId : result.reason === 'ambiguous-livestream' ? 'ambiguous' : undefined;
-        const monitor: PollMonitor = { failures: state.failures, paused: state.paused, ...(result.ok ? {} : { reason: result.reason }),
+        const monitor: PollMonitor = { failures: state.failures, paused: state.paused, pending:result.pending?.length??0,videos:result.checks,
+            ...(result.ok ? {candidates:result.candidates,verified:result.discoveries.length} : { reason: result.reason,phase:typeof result.detail?.phase==='string'?result.detail.phase:undefined }),
             ...(liveVideoId ? { liveVideoId } : {}), selected: !!liveVideoId && ['staged', 'unchanged'].includes(state.status) && state.lastVerifiedVideoId === liveVideoId };
         return { status: state.status, ...(state.candidates === undefined ? {} : { candidates: state.candidates, postsExamined: state.postsExamined }), monitor };
     } catch {

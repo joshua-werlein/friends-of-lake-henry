@@ -4,6 +4,7 @@ import { AUTOMATIC_KEY } from '../../src/lib/server/facebook-automation';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
 import { claimLiveDeliveries, planLiveAlerts, recordLiveDelivery } from './alerts';
 import type { Delivery } from '../../src/lib/server/alerts';
+import { TimingJournal } from './timing';
 
 /** First-occurrence timestamps per drawing day (at most a few DO writes a day). Never contains tokens or post data. */
 export type DrawingTimeline = { day: string; firstWebhookAt?: string; firstWebhookRef?: string; firstLiveEvidenceAt?: string;
@@ -22,9 +23,12 @@ type Poll = typeof runPoll;
  * flag also rejects re-entry in tests; no network work occurs in kick(). */
 export class DiscoveryCoordinator {
     private busy = false;
+    private journal: TimingJournal;
     constructor(private storage: Storage, private env: Env,
         private now: () => number = Date.now, private poll: Poll = runPoll,
-        private fetcher: typeof fetch = (input, init) => fetch(input, init)) {}
+        private fetcher: typeof fetch = (input, init) => fetch(input, init)) { this.journal = new TimingJournal(storage); }
+
+    async recordTiming(value: unknown) { await this.journal.append(value); }
 
     async event(id:string):Promise<boolean> {
         if(!/^[a-f0-9]{64}$/.test(id)||!inDiscoveryWindow(new Date(this.now()))) return false;
@@ -37,6 +41,7 @@ export class DiscoveryCoordinator {
         await this.storage.setAlarm(received);
         await this.storage.put('events',[...events.slice(-99),id]);
         await this.mark({firstWebhookAt:new Date(received).toISOString(),firstWebhookRef:id.slice(0,12)},received);
+        await this.journal.append({stage:'do-event',at:received,eventRef:id.slice(0,12),accepted:true});
         return true;
     }
     async kick(): Promise<void> {
@@ -98,27 +103,41 @@ export class DiscoveryCoordinator {
             // Correlated stage timing (logged, not stored): wake lag, Graph time and KV write time.
             const eventAt = webhook ? await this.storage.get<number>('pending-event-at') : undefined;
             const timing = { graphRequests: 0, graphMs: 0, selectionWriteMs: 0, stateWriteMs: 0 };
+            const graph: {phase:string;startedAt:number;completedAt:number;httpStatus:number}[] = [];
+            let selectionCompletedAt: number | undefined, stateCompletedAt: number | undefined;
             const timedStore = { get: store.get, put: async (key: string, value: string) => {
                 const started = this.now();
-                try { await store.put(key, value); }
+                try { await store.put(key, value); if(key===AUTOMATIC_KEY) selectionCompletedAt=this.now(); else if(key===STATE_KEY) stateCompletedAt=this.now(); }
                 finally { if (key === AUTOMATIC_KEY) timing.selectionWriteMs += this.now() - started; else if (key === STATE_KEY) timing.stateWriteMs += this.now() - started; }
             } };
             const pollStarted = this.now();
+            const correlation = {trigger:webhook?'webhook':'poll',eventRef:webhook?pending!.slice(0,12):undefined,alarmAt:time,slotAt:slot};
+            await this.journal.append({stage:'check-start',at:time,...correlation});
             const outcome = await this.poll({ ...this.env, CONFIG: timedStore }, {
                 now: date, trigger:webhook?'webhook':'poll', nextScheduledAt: next ?? time + 60_000,
                 fetcher: async (input, init) => {
                     assertWindow();
                     const started = this.now(); timing.graphRequests++;
-                    try { return await this.fetcher(input, init); } finally { timing.graphMs += this.now() - started; }
+                    const url = new URL(String(input instanceof Request ? input.url : input));
+                    const phase = url.searchParams.get('fields')==='id,format'?'format':url.pathname.endsWith('/published_posts')?'posts':url.searchParams.get('fields')==='id'?'identity':'video';
+                    let httpStatus=0;
+                    try { const response=await this.fetcher(input, init); httpStatus=response.status; return response; }
+                    finally { timing.graphMs += this.now() - started; if(graph.length<11) graph.push({phase,startedAt:started,completedAt:this.now(),httpStatus}); }
                 },
+            }).catch(async error=>{
+                await this.journal.append({stage:'check-result',at:this.now(),...correlation,status:'runtime-failure',graph,...timing,completedAt:this.now()});
+                throw error;
             });
             const finished = this.now();
             const wakeLagMs = webhook && eventAt !== undefined ? time - eventAt : time - slot;
+            await this.journal.append({stage:'check-result',at:finished,...correlation,completedAt:finished,wakeLagMs,
+                ...timing,graph,pollMs:finished-pollStarted,status:outcome.status,selectionCompletedAt,stateCompletedAt,
+                ...outcome.monitor,videoId:outcome.monitor?.liveVideoId});
             console.log(JSON.stringify({ component: 'facebook-live', event: 'live-timing', trigger: webhook ? 'webhook' : 'poll',
                 ...(webhook ? { eventRef: pending!.slice(0, 12), eventReceivedAt: eventAt !== undefined ? new Date(eventAt).toISOString() : null } : { slotAt: new Date(slot).toISOString() }),
                 alarmAt: date.toISOString(), wakeLagMs, ...timing, pollMs: finished - pollStarted, status: outcome.status,
                 liveVideo: !!outcome.monitor?.liveVideoId, selected: !!outcome.monitor?.selected }));
-            if (outcome.monitor?.liveVideoId) await this.mark({ firstLiveEvidenceAt: date.toISOString() }, time);
+            if (outcome.monitor?.liveVideoId && /^\d+$/.test(outcome.monitor.liveVideoId)) await this.mark({ firstLiveEvidenceAt: date.toISOString() }, time);
             if (outcome.status === 'staged') await this.mark({ firstSelectedAt: new Date(finished).toISOString(), firstSelectedTrigger: webhook ? 'webhook' : 'poll',
                 firstSelectedWakeLagMs: wakeLagMs, firstSelectedGraphMs: timing.graphMs }, time);
             // After the selection and state writes, and storage-only: emails are sent by the cron, outside this alarm.
@@ -140,8 +159,8 @@ export class DiscoveryCoordinator {
             if (Object.keys(missing).length) await this.storage.put(timelineKey(day), { ...current, ...missing });
         } catch { /* Diagnostics never affect detection. */ }
     }
-    async timeline(day: string): Promise<DrawingTimeline | null> {
+    async timeline(day: string) {
         if (!/^2026-11-\d{2}$/.test(day)) return null;
-        return await this.storage.get<DrawingTimeline>(timelineKey(day)) ?? null;
+        return {...await this.storage.get<DrawingTimeline>(timelineKey(day)),day,diagnostics:await this.journal.read(day)};
     }
 }

@@ -7,10 +7,18 @@ import {FACEBOOK_LIVE_CONTRACT} from '../../../../lib/facebook';
 import {raffleSeason} from '../../../../lib/server/raffle-season';
 import type {SeasonEnv} from '../../../../lib/server/raffle-season';
 import {inDiscoveryWindow} from '../../../../lib/server/raffle-discovery-schedule';
+import {timingDay} from '../../../../../workers/facebook-live/timing';
 type Env=SeasonEnv&{CONFIG?:KVNamespace;RAFFLE_AUTOMATIC_SELECTION_ENABLED?:string;
-    FACEBOOK_LIVE?:{testDiscovery():Promise<unknown>}; FACEBOOK_PHOTO_STATUS?:{webhookStatus():Promise<unknown>}};
+    FACEBOOK_LIVE?:{testDiscovery():Promise<unknown>;timeline(day:string):Promise<unknown>}; FACEBOOK_PHOTO_STATUS?:{webhookStatus():Promise<unknown>}};
 export const GET:APIRoute=async context=>{
     const env=context.locals.runtime?.env as Env|undefined;
+    const day=new URL(context.request.url).searchParams.get('timeline');
+    if(day!==null){
+        if(!timingDay(day))return json({ok:false,error:'Choose a November 2026 date (YYYY-MM-DD).'},400);
+        if(!env?.FACEBOOK_LIVE)return json({ok:false,error:'Discovery is not connected.'},503);
+        try{return json({ok:true,day,...await env.FACEBOOK_LIVE.timeline(day) as object});}
+        catch{return json({ok:false,error:'Timing diagnostics are unavailable.'},503);}
+    }
     if(!env?.CONFIG)return json({ok:false,error:'Video settings are unavailable.'},500);
     const now=new Date();const selection=await loadRaffleSelection(env.CONFIG,env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true',now,env);
     const [state,webhook,automatic]=await Promise.all([env.CONFIG.get(STATE_KEY),env.CONFIG.get('raffle_live_webhook_state'),env.CONFIG.get('raffle_live_automatic')]);

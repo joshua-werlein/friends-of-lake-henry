@@ -13,7 +13,7 @@ import type { AlertEnv } from '../../src/lib/server/alerts';
 
 export type Env = FacebookCredentials & AlertEnv & {
     DB: D1Database;
-    FACEBOOK_LIVE?:{notify(id:string):Promise<unknown>};
+    FACEBOOK_LIVE?:{notify(id:string):Promise<unknown>;recordDiagnostic?(value:unknown):Promise<unknown>};
     FACEBOOK_READS?: { read(path:string,params:Record<string,string>):Promise<Record<string,unknown>> };
     AI?: { run(model: string, input: unknown): Promise<unknown> };
     FB_APP_SECRET?: string;            // secret: verifies X-Hub-Signature-256
@@ -66,22 +66,32 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, 
     const activeRoute = syncRoute === usesFohlSync(env);
     log('webhook-signature-accepted', { syncRoute, activeRoute, posts: ids.length, liveHint });
     if (!activeRoute) return new Response('EVENT_RECEIVED');
+    // Independent, best-effort capture also survives photo D1 failures. Never records the payload.
+    const liveEventId=env.FACEBOOK_LIVE&&liveHint?await hashBytes(new Uint8Array(body)):null;
+    const diagnostic=(value:Record<string,unknown>)=>{
+        if(!env.FACEBOOK_LIVE?.recordDiagnostic)return;
+        ctx.waitUntil(Promise.resolve().then(()=>env.FACEBOOK_LIVE!.recordDiagnostic!({eventRef:liveEventId?.slice(0,12),...value})).catch(()=>{}));
+    };
+    if(liveEventId) diagnostic({stage:'webhook-received',at:receivedAt,receivedAt});
     // Receipt evidence for the webhook-delivery alert, separate from queue ownership. Best effort; never blocks the queue.
     if (trackReceipts(env)) await recordWebhookReceipts(env.DB, ids, new Date(receivedAt));
     // Durably queue before acknowledging; a D1 failure returns 500 so Meta redelivers. Redeliveries dedupe on post_id.
     const fresh: string[] = [];
-    for (const id of ids) if (await enqueuePost(env.DB, id, 'webhook')) fresh.push(id);
+    try { for (const id of ids) if (await enqueuePost(env.DB, id, 'webhook')) fresh.push(id); }
+    catch(error){if(liveEventId)diagnostic({stage:'webhook-forward',at:Date.now(),receivedAt,accepted:false,status:'queue-failed'});throw error;}
     if(env.FACEBOOK_LIVE && liveHint) {
-        const id=await hashBytes(new Uint8Array(body));
+        const id=liveEventId!;
         // Timing correlation: eventRef is the first 12 hex of the body hash the Live coordinator logs too.
         const forwardAt = Date.now();
         try {
             const result = await env.FACEBOOK_LIVE.notify(id) as { accepted?: boolean } | undefined;
             log('webhook-live-forwarded', { eventRef: id.slice(0, 12), receivedAt: new Date(receivedAt).toISOString(), queueMs: forwardAt - receivedAt,
                 notifyMs: Date.now() - forwardAt, accepted: result?.accepted === true });
+            diagnostic({stage:'webhook-forward',at:Date.now(),receivedAt,forwardAt,queueMs:forwardAt-receivedAt,notifyMs:Date.now()-forwardAt,accepted:result?.accepted===true});
         }
         catch {
             log('webhook-live-forward-failed', { eventRef: id.slice(0, 12), receivedAt: new Date(receivedAt).toISOString(), notifyMs: Date.now() - forwardAt });
+            diagnostic({stage:'webhook-forward',at:Date.now(),receivedAt,forwardAt,queueMs:forwardAt-receivedAt,notifyMs:Date.now()-forwardAt,accepted:false,status:'forward-failed'});
             if(fresh.length&&enabled(env))ctx.waitUntil(drain(env,fetcher,new Date(),fresh));return new Response('Retry event delivery',{status:503});
         }
     }
