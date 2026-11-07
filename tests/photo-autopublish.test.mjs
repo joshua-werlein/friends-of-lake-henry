@@ -272,13 +272,14 @@ test('webhook payload parsing, signature verification, post qualification and po
     assert.ok(!qualifies('Drawing winners #LakeHenryRaffleArchive'));
     assert.ok(!qualifies('Ice fishing report and photos'));
     assert.ok(!qualifies('Our raffle poster is here'));
-    // Graph backup discovery: 17:55-18:05 Central, November only (CST is UTC-6 after Nov 1 2026).
+    // Graph backup discovery: 17:55-18:15 Central, November only (CST is UTC-6 after Nov 1 2026).
     assert.ok(!pollDue(new Date('2026-11-03T23:54:00Z')));  // 17:54 Central
     assert.ok(pollDue(new Date('2026-11-03T23:55:00Z')));   // 17:55 Central
     assert.ok(pollDue(new Date('2026-11-04T00:00:00Z')));   // 18:00 Central
-    assert.ok(pollDue(new Date('2026-11-04T00:05:00Z')));   // 18:05 Central
-    assert.ok(!pollDue(new Date('2026-11-04T00:06:00Z')));  // 18:06 Central
-    assert.ok(!pollDue(new Date('2026-11-04T00:10:00Z')));  // 18:10 Central: no evening sweep
+    assert.ok(pollDue(new Date('2026-11-04T00:10:00Z')));   // 18:10 Central
+    assert.ok(pollDue(new Date('2026-11-04T00:15:00Z')));   // 18:15 Central
+    assert.ok(!pollDue(new Date('2026-11-04T00:16:00Z')));  // 18:16 Central
+    assert.ok(!pollDue(new Date('2026-11-04T00:30:00Z')));  // 18:30 Central: no evening sweep
     assert.ok(!pollDue(new Date('2026-11-03T16:30:00Z')));  // no daytime half-hourly sweep
     assert.ok(pollDue(new Date('2026-12-01T00:00:00Z')));   // Nov 30 18:00 Central
     assert.ok(!pollDue(new Date('2026-12-02T00:00:00Z')));  // Dec 1 18:00 Central

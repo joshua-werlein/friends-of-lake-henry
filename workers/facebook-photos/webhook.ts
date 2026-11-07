@@ -15,10 +15,10 @@ function chicagoClock(now: Date) {
     const get = (type: string) => Number(parts.find(p => p.type === type)?.value);
     return { month: get('month'), h: get('hour'), m: get('minute') };
 }
-/** Graph backup discovery: every tick from 17:55 to 18:05 Central, November only. Webhooks cover everything else. */
+/** Graph backup discovery: every tick from 17:55 to 18:15 Central, November only. Webhooks cover everything else. */
 export function pollDue(now: Date) {
     const { month, h, m } = chicagoClock(now), minute = h * 60 + m;
-    return month === 11 && minute >= 17 * 60 + 55 && minute <= 18 * 60 + 5;
+    return month === 11 && minute >= 17 * 60 + 55 && minute <= 18 * 60 + 15;
 }
 /** Alert evaluations: every tick from 17:45 to midnight Central; otherwise twice an hour. */
 export function alertsDue(now: Date) {

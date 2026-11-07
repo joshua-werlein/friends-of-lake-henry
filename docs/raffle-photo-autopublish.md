@@ -26,7 +26,7 @@ Facebook Page post ──webhook (signed)──┐
 
 * **Discovery.** Webhook `POST /facebook/webhook` (verifies `X-Hub-Signature-256` with the App Secret, constant
   time; queues before replying 200 so Meta redelivers on failure) **and** a polling fallback that uses only the
-  Page token's already-working `published_posts` read: every 2 minutes from 17:55 to 18:05 Central, November
+  Page token's already-working `published_posts` read: every 2 minutes from 17:55 to 18:15 Central, November
   only, and only inside `FB_SEASON_START/END`. Either path, and Meta redeliveries, land on the same
   `post_id` row, so a post is processed once.
 * **Qualifying posts.** Caption contains `#LakeHenryRaffle`, or "winner(s)" plus raffle/calendar/drawing/ticket.

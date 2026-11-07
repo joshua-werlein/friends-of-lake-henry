@@ -76,7 +76,7 @@ Never alerted:
 - Admin-disabled automation.
 - `candidates-only` (probing off).
 
-Photo alerts are evaluated on their own schedule (every 2 minutes from 17:45 to midnight Central, otherwise twice an hour), independent of the 17:55–18:05 November Graph poll window. Each evaluation runs:
+Photo alerts are evaluated on their own schedule (every 2 minutes from 17:45 to midnight Central, otherwise twice an hour), independent of the 17:55–18:15 November Graph poll window. Each evaluation runs:
 - one D1 batch of 3 bounded SELECTs
 - an incident load
 - primary-key re-reads for active post/review incidents that the bounded discovery read didn't return. Absence from a limited read is treated as unknown, not healthy.
