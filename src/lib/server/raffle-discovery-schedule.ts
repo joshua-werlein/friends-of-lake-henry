@@ -11,11 +11,16 @@ export function inDiscoveryWindow(now: Date): boolean {
     const local = localTime(now);
     return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < END;
 }
+/** 5:59:00-6:01:59 PM Central, the start of the drawing, is checked every 15 seconds. */
+export function burstCadence(now: Date): boolean {
+    if (!inDiscoveryWindow(now)) return false;
+    const minute = localTime(now)!.minute;
+    return minute >= 17 * 60 + 59 && minute <= 18 * 60 + 1;
+}
 /** Latest due slot; missed slots are never replayed as a catch-up burst. */
 export function discoverySlot(now: Date): number | null {
     if (!inDiscoveryWindow(now)) return null;
-    const minute = localTime(now)!.minute;
-    const interval = minute >= 17 * 60 + 59 && minute <= 18 * 60 + 1 ? 15_000 : 60_000;
+    const interval = burstCadence(now) ? 15_000 : 60_000;
     return Math.floor(now.getTime() / interval) * interval;
 }
 export function nextDiscoverySlot(now: Date): number | null {
@@ -40,5 +45,10 @@ export function offHoursReplayHealthy(now: Date, verifiedAt: Date, attemptedAt: 
 }
 
 export const drawingDate = (now:Date) => localTime(now)?.day ?? null;
+/** Live alert emails are sent by the cron from the window's start until 8 PM Central, so retries/recoveries can finish. */
+export function inAlertDeliveryWindow(now: Date): boolean {
+    const local = localTime(now);
+    return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < 20 * 60;
+}
 
 export function lastDiscoverySlot(now:Date):number|null {const local=localTime(now);return local&&inDiscoveryWindow(now)?Math.floor(now.getTime()/60000)*60000+(END-1-local.minute)*60000:null;}

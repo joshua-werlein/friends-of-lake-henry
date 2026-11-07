@@ -76,18 +76,41 @@ test('Graph lag alone can produce 6:00:15: stage time is the first slot after th
     assert.equal(firstStaged(sim), at(59 + 1, 15) + 40);
 });
 
-test('one failed poll at 5:58:00 PM alone can also produce 6:00:15: backoff suppresses the whole 15-second burst', async () => {
+test('one failed poll at 5:58:00 PM no longer suppresses the 15-second burst: the transient failure retries on the 5:59:00 slot', async () => {
+    // Before Nov 7 the failed poll set nextAttemptAt to its own start + 120s, so every burst slot until 6:00 returned not-due
+    // and a video visible from 5:58:48 waited for 6:00:00 or 6:00:15. A transient failure now retries on the next drawing slot.
     const fail = t => t >= at(58) && t < at(58, 30);
-    // The failed poll sets nextAttemptAt to its own start + 120s, so alarm jitter decides between the two slots at 6:00.
-    assert.equal(firstStaged(await simulate({ visibleFrom: at(58, 48), fail, lag: () => 40 })), at(59 + 1) + 40);
+    assert.equal(firstStaged(await simulate({ visibleFrom: at(58, 48), fail, lag: () => 40 })), at(59) + 40);
     const sim = await simulate({ visibleFrom: at(58, 48), fail, lag: scheduled => scheduled === at(58) ? 200 : 40 });
-    assert.equal(firstStaged(sim), at(59 + 1, 15) + 40);
-    const during = sim.outcomes.filter(o => o.at > at(58, 30) && o.at < at(59 + 1, 15));
-    assert.ok(during.length >= 5);
-    assert.ok(during.every(o => o.status === 'not-due'), JSON.stringify(during));
-    // No Facebook request was made for any of the 15-second slots while the video was already visible.
-    assert.equal(sim.calls.filter(c => c.time > at(58, 30) && c.time < at(59 + 1, 15)).length, 0);
+    assert.equal(firstStaged(sim), at(59) + 40);
+    assert.equal(sim.outcomes.filter(o => o.at > at(58, 30) && o.at < at(59 + 1, 15) && o.status === 'not-due').length, 0);
     assert.equal(JSON.parse(sim.store.data.get(STATE_KEY)).failures, 0);
+});
+
+test('burst retry stays bounded: rate limits, Retry-After and persistent failures keep the exponential backoff', async () => {
+    const state = store => JSON.parse(store.data.get(STATE_KEY));
+    const failing = (status, headers = {}) => async () => new Response(status === 429 ? '{}' : JSON.stringify({ error: { code: 1 } }), { status, headers });
+    // Transient 5xx inside the burst: next slot.
+    let store = kv();
+    await runPoll(env(store), { now: new Date(at(59, 15)), fetcher: failing(500), nextScheduledAt: at(59, 30), random: () => 0 });
+    assert.equal(state(store).nextAttemptAt, at(59, 30));
+    // Rate limited: honored, no burst retry.
+    store = kv();
+    await runPoll(env(store), { now: new Date(at(59, 15)), fetcher: failing(429), nextScheduledAt: at(59, 30), random: () => 0 });
+    assert.ok(state(store).nextAttemptAt >= at(59, 15) + 60_000);
+    // Retry-After: honored.
+    store = kv();
+    await runPoll(env(store), { now: new Date(at(59, 15)), fetcher: failing(503, { 'retry-after': '90' }), nextScheduledAt: at(59, 30), random: () => 0 });
+    assert.ok(state(store).nextAttemptAt >= at(59, 15) + 90_000);
+    // Outside the burst (60s cadence, 5:53 PM): unchanged two-minute backoff.
+    store = kv();
+    await runPoll(env(store), { now: new Date(at(58) - 300_000), fetcher: failing(500), nextScheduledAt: at(58) - 240_000, random: () => 0 });
+    assert.equal(state(store).nextAttemptAt, at(58) - 300_000 + 120_000);
+    // Persistent failures: after BURST_RETRY_LIMIT consecutive failures the backoff resumes.
+    const sim = await simulate({ start: at(59), end: at(59 + 3), visibleFrom: at(58), fail: () => true });
+    const attempted = sim.outcomes.filter(o => o.status !== 'not-due').length;
+    assert.ok(attempted >= 4 && attempted <= 6, JSON.stringify(sim.outcomes));
+    assert.ok(sim.outcomes.some(o => o.status === 'not-due'));
 });
 
 test('webhook arrival: a signed event wakes the coordinator immediately and bypasses the slot claim', async () => {
@@ -107,13 +130,14 @@ test('webhook arrival: a signed event wakes the coordinator immediately and bypa
 });
 
 test('webhook during backoff: a signed event bypasses a failure backoff', async () => {
-    const store = kv(), storage = doStorage(); let clock = at(58), failing = true;
-    const fetcher = graph({ now: () => clock, visibleFrom: at(58), fail: () => failing });
+    // 5:53 PM: one-minute cadence, so the ordinary two-minute backoff applies.
+    const store = kv(), storage = doStorage(); let clock = at(58) - 300_000, failing = true;
+    const fetcher = graph({ now: () => clock, visibleFrom: at(58) - 420_000, created: new Date(at(58) - 420_000), fail: () => failing });
     const coordinator = new DiscoveryCoordinator(storage, env(store), () => clock, runPoll, fetcher);
     await coordinator.alarm();
-    assert.ok(JSON.parse(store.data.get(STATE_KEY)).nextAttemptAt >= at(58) + 120_000);
+    assert.ok(JSON.parse(store.data.get(STATE_KEY)).nextAttemptAt >= at(58) - 300_000 + 120_000);
     failing = false;
-    clock = at(58, 48);
+    clock = at(58) - 240_000;
     await coordinator.event('c'.repeat(64));
     assert.equal((await coordinator.alarm()).status, 'staged');
 });

@@ -30,6 +30,13 @@ export class LiveEvents extends WorkerEntrypoint<Env> {
         if(!response.ok) throw Error('event-queue-unavailable');
         return response.json();
     }
+    /** Read-only per-day detection timeline (first webhook, first Live evidence, first selection). */
+    async timeline(day:string) {
+        if(!/^2026-11-\d{2}$/.test(day)||!this.env.DISCOVERY_SCHEDULER) return {timeline:null};
+        const ns=this.env.DISCOVERY_SCHEDULER;
+        const response=await ns.get(ns.idFromName('november-2026')).fetch('https://discovery.internal/timeline?day='+day);
+        return response.ok?response.json():{timeline:null};
+    }
     /** Explicit administrator diagnostic: no scheduler calls, state writes or publication. */
     async testDiscovery() {
         const previous=this.env.CONFIG?await this.env.CONFIG.get('raffle_live_automatic'):null;

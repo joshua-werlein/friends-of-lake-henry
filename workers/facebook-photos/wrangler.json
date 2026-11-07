@@ -18,7 +18,10 @@
     "FB_PHOTO_EXTRACTION_PASSES": "2",
     "FB_RAFFLE_MARKER": "#LakeHenryRaffle",
     "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
-    "FB_SEASON_END": "2026-12-01T00:00:00-06:00"
+    "FB_SEASON_END": "2026-12-01T00:00:00-06:00",
+    "ALERTS_ENABLED": "false",
+    "ALERTS_MODE": "test",
+    "ALERT_WEBHOOK_DELIVERY_ENABLED": "false"
   },
   "d1_databases": [
     {

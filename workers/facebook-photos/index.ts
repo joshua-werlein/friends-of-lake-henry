@@ -8,8 +8,10 @@ import { base64Image, downloadPhoto, extractPhotoCandidates, extractWinners } fr
 import { PHOTO_MODEL, hashBytes, type Extraction } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
     removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
+import { evaluatePhotoAlerts, recordWebhookReceipts } from './alerts';
+import type { AlertEnv } from '../../src/lib/server/alerts';
 
-export type Env = FacebookCredentials & {
+export type Env = FacebookCredentials & AlertEnv & {
     DB: D1Database;
     FACEBOOK_LIVE?:{notify(id:string):Promise<unknown>};
     FACEBOOK_READS?: { read(path:string,params:Record<string,string>):Promise<Record<string,unknown>> };
@@ -25,7 +27,9 @@ export type Env = FacebookCredentials & {
     FB_RAFFLE_MARKER?: string;
     FB_SEASON_START?: string;
     FB_SEASON_END?: string;
+    ALERT_WEBHOOK_DELIVERY_ENABLED?: string; // receipt-based webhook-delivery alert; default off
 };
+const trackReceipts = (env: Env) => env.ALERTS_ENABLED === 'true' && env.ALERT_WEBHOOK_DELIVERY_ENABLED === 'true';
 type Fetcher = typeof fetch;
 
 const POST_FIELDS = 'id,message,created_time,attachments{type,target,url,subattachments{type,target,url,subattachments{type,target,url}}}';
@@ -35,6 +39,7 @@ const log = (event: string, detail: Record<string, string | number | boolean> = 
 const enabled = (env: Env) => env.FB_PHOTO_AUTOMATION_ENABLED === 'true';
 
 async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, fetcher: Fetcher, syncRoute: boolean) {
+    const receivedAt = Date.now();
     const verifyToken = syncRoute ? env.FOHL_SYNC_WEBHOOK_VERIFY_TOKEN : env.FB_WEBHOOK_VERIFY_TOKEN;
     const appSecret = syncRoute ? env.FOHL_SYNC_APP_SECRET : env.FB_APP_SECRET;
     if (request.method === 'GET') {
@@ -61,13 +66,24 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, 
     const activeRoute = syncRoute === usesFohlSync(env);
     log('webhook-signature-accepted', { syncRoute, activeRoute, posts: ids.length, liveHint });
     if (!activeRoute) return new Response('EVENT_RECEIVED');
+    // Receipt evidence for the webhook-delivery alert, separate from queue ownership. Best effort; never blocks the queue.
+    if (trackReceipts(env)) await recordWebhookReceipts(env.DB, ids, new Date(receivedAt));
     // Durably queue before acknowledging; a D1 failure returns 500 so Meta redelivers. Redeliveries dedupe on post_id.
     const fresh: string[] = [];
     for (const id of ids) if (await enqueuePost(env.DB, id, 'webhook')) fresh.push(id);
     if(env.FACEBOOK_LIVE && liveHint) {
         const id=await hashBytes(new Uint8Array(body));
-        try { await env.FACEBOOK_LIVE.notify(id); }
-        catch { if(fresh.length&&enabled(env))ctx.waitUntil(drain(env,fetcher,new Date(),fresh));return new Response('Retry event delivery',{status:503}); }
+        // Timing correlation: eventRef is the first 12 hex of the body hash the Live coordinator logs too.
+        const forwardAt = Date.now();
+        try {
+            const result = await env.FACEBOOK_LIVE.notify(id) as { accepted?: boolean } | undefined;
+            log('webhook-live-forwarded', { eventRef: id.slice(0, 12), receivedAt: new Date(receivedAt).toISOString(), queueMs: forwardAt - receivedAt,
+                notifyMs: Date.now() - forwardAt, accepted: result?.accepted === true });
+        }
+        catch {
+            log('webhook-live-forward-failed', { eventRef: id.slice(0, 12), receivedAt: new Date(receivedAt).toISOString(), notifyMs: Date.now() - forwardAt });
+            if(fresh.length&&enabled(env))ctx.waitUntil(drain(env,fetcher,new Date(),fresh));return new Response('Retry event delivery',{status:503});
+        }
     }
     log('webhook-received', { posts: ids.length, queued: fresh.length });
     if (fresh.length && enabled(env)) ctx.waitUntil(drain(env, fetcher, new Date(), fresh));
@@ -216,12 +232,23 @@ export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
             const now = new Date(controller.scheduledTime);
             if (!enabled(env) || !inSeason(env, now)) return;
             ctx.waitUntil((async () => {
+                let pollError: string | null = null;
                 if (env.FB_PHOTO_POLL_ENABLED === 'true' && pollDue(now)) {
                     try { log('poll', { queued: await poll(env, fetcher, now) }); }
-                    catch (e) { log('poll-failed', { code: sanitizeCode(e) }); }
+                    catch (e) { pollError = sanitizeCode(e); log('poll-failed', { code: pollError }); }
                 }
                 // Posts queued by this tick's poll are stamped after scheduledTime; drain against the real clock.
-                await drain(env, fetcher, new Date(Math.max(now.getTime(), Date.now())));
+                try { await drain(env, fetcher, new Date(Math.max(now.getTime(), Date.now()))); }
+                finally {
+                    // Alerts run after publication and never throw; evaluated on the poll schedule to keep D1 reads low.
+                    if (pollDue(now)) {
+                        const sync = usesFohlSync(env);
+                        const result = await evaluatePhotoAlerts(env, new Date(Math.max(now.getTime(), Date.now())), {
+                            webhookConfigured: sync ? !!env.FOHL_SYNC_APP_SECRET && !!env.FOHL_SYNC_WEBHOOK_VERIFY_TOKEN : !!env.FB_APP_SECRET && !!env.FB_WEBHOOK_VERIFY_TOKEN,
+                            automationEnabled: enabled(env), pollError, webhookDeliveryAlert: trackReceipts(env), seasonStart: new Date(Date.parse(env.FB_SEASON_START!)).toISOString() }, fetcher);
+                        if (result.status !== 'disabled') log('alerts', { status: result.status, ...('changed' in result ? { changed: result.changed, open: result.open } : {}) });
+                    }
+                }
             })());
         },
     };

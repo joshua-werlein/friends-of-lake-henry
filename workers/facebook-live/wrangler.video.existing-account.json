@@ -17,7 +17,9 @@
     "FB_POLL_INTERVAL_SECONDS": "60",
     "FB_ACCESS_REVISION": "1",
     "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
-    "FB_SEASON_END": "2026-12-01T00:00:00-06:00"
+    "FB_SEASON_END": "2026-12-01T00:00:00-06:00",
+    "ALERTS_ENABLED": "false",
+    "ALERTS_MODE": "test"
   },
   "kv_namespaces": [
     {

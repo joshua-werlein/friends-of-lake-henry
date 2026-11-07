@@ -4,12 +4,15 @@ import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTR
 
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
-import { inDiscoveryWindow, lastDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
+import { burstCadence, inDiscoveryWindow, lastDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
 import { pageAccessToken, type FacebookCredentials } from './credentials';
+import type { AlertEnv } from '../../src/lib/server/alerts';
 const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
+// Consecutive transient failures retried on the next 15-second drawing slot before exponential backoff resumes.
+export const BURST_RETRY_LIMIT = 3;
 export { STATE_KEY, VERIFICATION_KEY, verificationValid };
 type Store = { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
-export type Env = SeasonEnv & FacebookCredentials & {
+export type Env = SeasonEnv & FacebookCredentials & AlertEnv & {
     CONFIG?: Store;
     DISCOVERY_SCHEDULER?: {idFromName(name:string):any;get(id:any):{fetch(url:string,init?:RequestInit):Promise<Response>}};
     FB_AUTOMATION_ENABLED?: string;
@@ -22,7 +25,9 @@ export type Env = SeasonEnv & FacebookCredentials & {
 };
 type State = { version: 1; accessRevision: string; lastAttemptAt: number; nextAttemptAt: number;
     failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number; lastError?:Record<string,string|number>; lastSuccessAt?:string; pendingVideos?:unknown[]; lastLiveObservation?:unknown; retryAfterUntil?:number };
-export type Outcome = { status: string; candidates?: number; postsExamined?: number };
+/** Sanitized facts for alerting and timing: IDs, counts and codes only. */
+export type PollMonitor = { failures: number; paused: boolean; reason?: string; liveVideoId?: string; selected: boolean };
+export type Outcome = { status: string; candidates?: number; postsExamined?: number; monitor?: PollMonitor };
 export type Staged = Discovery & { schemaVersion: 2; id: string; graphPageId: string; publicPageId: string;
     apiVersion: string; contract: string; observedAt: string };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -76,7 +81,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         if (manual?.automaticEnabled === false) return {status:'disabled-by-admin'};
         let previousState = parseState(await store.get(STATE_KEY));
         if (previousState?.accessRevision !== accessRevision) previousState = null;
-        if (previousState?.paused) return { status: 'access-paused' };
+        if (previousState?.paused) return { status: 'access-paused', monitor: { failures: previousState.failures, paused: true, reason: previousState.status, selected: false } };
         // Cron ticks land a few seconds either side of the minute. Without slack, a tick that arrives
         // just before lastAttempt+interval is skipped and healthy polling silently halves.
         // Backoff/Retry-After schedules (failures > 0) are honored exactly.
@@ -105,6 +110,12 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
             state.nextAttemptAt = time + Math.max(interval, result.retryAfterSeconds ?? 0, Math.min(120, Math.ceil(backoff * (1 + random * 0.2)))) * 1000;
             const closing=lastDiscoverySlot(now);
             if(closing!==null&&closing>time&&!result.retryAfterSeconds) state.nextAttemptAt=Math.min(state.nextAttemptAt,closing);
+            // A lone transient error (timeout, 5xx, malformed body) must not suppress the drawing's 15-second burst for
+            // two minutes. Retrying on the next scheduled slot never exceeds the healthy request rate; rate limits,
+            // Retry-After, paused access and persistent failures keep the exponential backoff above.
+            const next = dependencies.nextScheduledAt;
+            if (next !== undefined && next > time && burstCadence(new Date(next)) && !state.paused && !result.retryAfterSeconds
+                && result.reason !== 'rate-limited' && state.failures <= BURST_RETRY_LIMIT) state.nextAttemptAt = Math.min(state.nextAttemptAt, next);
         } else {
             state.failures = 0;
             state.lastSuccessAt = now.toISOString();
@@ -141,7 +152,10 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
             }
         }
         await store.put(STATE_KEY, JSON.stringify(state));
-        return { status: state.status, ...(state.candidates === undefined ? {} : { candidates: state.candidates, postsExamined: state.postsExamined }) };
+        const liveVideoId = result.ok ? result.discoveries[0]?.videoId : result.reason === 'ambiguous-livestream' ? 'ambiguous' : undefined;
+        const monitor: PollMonitor = { failures: state.failures, paused: state.paused, ...(result.ok ? {} : { reason: result.reason }),
+            ...(liveVideoId ? { liveVideoId } : {}), selected: !!liveVideoId && ['staged', 'unchanged'].includes(state.status) && state.lastVerifiedVideoId === liveVideoId };
+        return { status: state.status, ...(state.candidates === undefined ? {} : { candidates: state.candidates, postsExamined: state.postsExamined }), monitor };
     } catch {
         // No raw exception, token, request URL, post message or pagination data escapes.
         return { status: 'storage-or-state-failure' };

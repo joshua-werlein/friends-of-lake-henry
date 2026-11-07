@@ -24,7 +24,8 @@ export function checkDeployment(config, expectedAccount, profile = 'new-account'
     if (config.kv_namespaces?.length !== 1 || config.kv_namespaces[0].binding !== 'CONFIG') throw Error('Only an isolated CONFIG namespace is allowed.');
     const id = config.kv_namespaces[0].id;
     if (!/^[a-f0-9]{32}$/.test(id) || /^0+$/.test(id) || (existing ? id !== oldConfig : id === oldConfig)) throw Error('CONFIG must match the verified namespace for this deployment profile.');
-    const vars = new Set(['FB_AUTOMATION_ENABLED', 'FB_VIDEO_PROBE_ENABLED', 'FB_GRAPH_PAGE_ID', 'FB_PUBLIC_PAGE_ID', 'FB_RAFFLE_MARKER', 'FB_POLL_INTERVAL_SECONDS', 'FB_ACCESS_REVISION', 'FB_SEASON_START', 'FB_SEASON_END']);
+    const vars = new Set(['FB_AUTOMATION_ENABLED', 'FB_VIDEO_PROBE_ENABLED', 'FB_GRAPH_PAGE_ID', 'FB_PUBLIC_PAGE_ID', 'FB_RAFFLE_MARKER', 'FB_POLL_INTERVAL_SECONDS', 'FB_ACCESS_REVISION', 'FB_SEASON_START', 'FB_SEASON_END',
+        'ALERTS_ENABLED', 'ALERTS_MODE', 'ALERT_EMAIL_FROM']); // Alert key and recipients are secrets, never vars.
     if (Object.keys(config.vars ?? {}).some(key => !vars.has(key))) throw Error('Unexpected variables or inline credentials. Use an encrypted secret.');
     if (config.vars?.FB_GRAPH_PAGE_ID !== '144051422124740' || config.vars?.FB_PUBLIC_PAGE_ID !== '61552199315213'
         || config.vars?.FB_RAFFLE_MARKER !== '#LakeHenryRaffle' || !raffleSeason(config.vars)

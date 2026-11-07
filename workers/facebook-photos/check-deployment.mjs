@@ -15,7 +15,8 @@ export function checkPhotoWorker(config) {
     const crons = config.triggers?.crons ?? [];
     if (crons.length > 1 || (crons[0] && !/^\*\/[1-9]\d? \* \* \* \*$/.test(crons[0]))) throw Error('Only one simple minute cron is expected.');
     const vars = config.vars ?? {};
-    const known = new Set(['FB_PHOTO_AUTOMATION_ENABLED', 'FB_PHOTO_AUTOPUBLISH', 'FB_PHOTO_POLL_ENABLED', 'FB_PHOTO_EXTRACTION_PASSES', 'FB_RAFFLE_MARKER', 'FB_SEASON_START', 'FB_SEASON_END']);
+    const known = new Set(['FB_PHOTO_AUTOMATION_ENABLED', 'FB_PHOTO_AUTOPUBLISH', 'FB_PHOTO_POLL_ENABLED', 'FB_PHOTO_EXTRACTION_PASSES', 'FB_RAFFLE_MARKER', 'FB_SEASON_START', 'FB_SEASON_END',
+        'ALERTS_ENABLED', 'ALERTS_MODE', 'ALERT_EMAIL_FROM', 'ALERT_WEBHOOK_DELIVERY_ENABLED']); // Alert key and recipients are secrets, never vars.
     if (Object.keys(vars).some(k => !known.has(k))) throw Error('Unexpected variables or inline credentials; tokens and secrets must be Worker secrets.');
     if (vars.FB_RAFFLE_MARKER !== '#LakeHenryRaffle') throw Error('Raffle hashtag changed.');
     const start = Date.parse(vars.FB_SEASON_START), end = Date.parse(vars.FB_SEASON_END);
