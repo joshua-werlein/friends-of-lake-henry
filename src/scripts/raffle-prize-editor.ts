@@ -1,4 +1,4 @@
-import { parseWinnerPrize } from '../lib/winner-prize';
+import { BONUS, parseWinnerPrize, ticketLabel } from '../lib/winner-prize';
 const dialog = document.getElementById('winnerPrizeDialog') as HTMLDialogElement | null;
 const form = document.getElementById('winnerPrizeForm') as HTMLFormElement | null;
 const category = document.getElementById('editPrizeCategory') as HTMLSelectElement | null;
@@ -19,7 +19,7 @@ window.addEventListener('raffle:edit-prize', event => {
     place.value = parsed.position === null ? '' : String(parsed.position);
     confirmPlace.checked = false;
     approve.checked = false;
-    document.getElementById('editPrizeWinner')!.textContent = `${row.drawDate} · Ticket ${row.ticketNumber} · ${row.name}, ${row.town}`;
+    document.getElementById('editPrizeWinner')!.textContent = `${row.drawDate} · Ticket ${ticketLabel(row.ticketNumberText ?? row.ticketNumber)} · ${row.name}, ${row.town}`;
     status.textContent = '';
     dialog.showModal();
 });
@@ -31,7 +31,7 @@ form?.addEventListener('submit',async event=>{
     try {
         const response = await fetch('/api/admin/raffle/winner-prize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
             id:selected.id,expectedPrize:selected.prize,category:category.value,description:description.value,
-            position:place.value ? Number(place.value) : null,positionConfirmed:confirmPlace.checked,approved:approve.checked,
+            position:place.value === BONUS ? BONUS : place.value ? Number(place.value) : null,positionConfirmed:confirmPlace.checked,approved:approve.checked,
         })});
         const data = await response.json();
         if (!response.ok || !data.ok) { status.textContent=data.error ?? 'Unable to save.'; return; }

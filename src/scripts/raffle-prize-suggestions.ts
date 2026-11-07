@@ -19,7 +19,7 @@ async function refresh() {
 choice?.addEventListener('change',()=>{
     if(!description||choice.value==='')return;
     const row=options[Number(choice.value)];
-    if(row)description.value=(row.category==='Main prize'?'':row.category+': ')+row.description;
+    if(row)description.value=(row.category==='Main prize'||row.category==='Bonus drawing'?'':row.category+': ')+row.description;
     // Date/position are deliberately untouched; a date match is not proof of placement.
 });
 date?.addEventListener('change',()=>void refresh());

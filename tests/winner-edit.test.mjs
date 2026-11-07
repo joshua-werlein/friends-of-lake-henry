@@ -9,7 +9,7 @@ import {onRequest} from '../src/middleware.ts';
 test('editing changes all fields on one ID, preserves printed tickets and rejects stale/duplicate edits',async t=>{
  const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response()}}',d1Databases:['DB'],d1Persist:false});t.after(()=>mf.dispose());
  const DB=await mf.getD1Database('DB');
- for(const file of ['001_schema.sql','migrations/00x_raffle_poster.sql','004_raffle_photo_autopublish.sql','005_winner_ticket_text.sql']) {
+ for(const file of ['001_schema.sql','migrations/00x_raffle_poster.sql','004_raffle_photo_autopublish.sql','005_winner_ticket_text.sql','006_bonus_winner_tickets.sql']) {
   const sql=(await readFile(new URL('../migrations/'+file,import.meta.url),'utf8')).replace(/--[^\n]*/g,'');
   for(const statement of sql.split(';').filter(s=>s.trim()))await DB.prepare(statement).run();
  }

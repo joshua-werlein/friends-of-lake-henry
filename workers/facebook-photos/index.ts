@@ -6,8 +6,8 @@ import { pageAccessToken, usesFohlSync, type FacebookCredentials } from '../face
 import { inSeason, qualifies, pollDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
 import { base64Image, downloadPhoto, extractPhotoCandidates, extractWinners } from '../facebook-live/photos';
 import { PHOTO_MODEL, hashBytes, type Extraction } from '../../src/lib/raffle-photo-import';
-import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext,
-    photoAlreadyFinal, recordPhotoFailure, validPostId, writeDecision } from '../../src/lib/server/raffle-photo-autopublish';
+import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
+    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
 
 export type Env = FacebookCredentials & {
     DB: D1Database;
@@ -84,63 +84,106 @@ function photoReader(env:Env, now:Date, fetcher:Fetcher) {
 }
 class Permanent extends Error {}
 
-async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announcementDate: string): Promise<Extraction[]> {
+type AttemptContext = { postId: string; photoId: string; attempt: number | null };
+async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announcementDate: string, context: AttemptContext): Promise<Extraction[]> {
     const passes = Math.min(3, Math.max(2, Number(env.FB_PHOTO_EXTRACTION_PASSES) || 2));
     const out: Extraction[] = [], dataUrl = `data:${mime};base64,${base64Image(bytes)}`; // Encode once for all passes.
     for (let i = 0; i < passes; i++) {
-        out.push(await extractWinners(env.AI!, dataUrl, mime, announcementDate.slice(0, 7), PHOTO_MODEL, announcementDate, i));
+        const started = Date.now(), passNumber = i + 1;
+        try {
+            const pass = await extractWinners(env.AI!, dataUrl, mime, announcementDate.slice(0, 7), PHOTO_MODEL, announcementDate, i);
+            out.push(pass);
+            const detail = { containsWinners: pass.containsWinners, rows: pass.rows.length, warnings: pass.warnings.length, durationMs: Date.now() - started };
+            log('extraction-pass', { ...context, attempt: context.attempt ?? 0, passNumber, ...detail });
+            await recordAttempts(env.DB, [{ ...context, stage: 'pass', passNumber, outcome: 'ok', detail }]);
+        } catch (e) {
+            const code = sanitizeCode(e);
+            log('extraction-pass-failed', { ...context, attempt: context.attempt ?? 0, passNumber, code, durationMs: Date.now() - started });
+            await recordAttempts(env.DB, [{ ...context, stage: 'pass', passNumber, outcome: 'failed', code, detail: { durationMs: Date.now() - started } }]);
+            throw e;
+        }
         if (i === 0 && !out[0].containsWinners) break; // A non-winner photo needs no confirmation pass.
     }
     return out;
 }
+// Photos already final on an earlier run report their stored status; this run's rows supply the counts.
+function summaryFor(statuses: string[], counts: Omit<PublicationSummary, 'status' | 'photos'>): PublicationSummary {
+    const has = (status: string) => statuses.includes(status);
+    const published = counts.inserted > 0 || has('published') || has('partial');
+    const rejected = counts.rejected > 0 || has('rejected'), held = counts.held > 0 || has('held');
+    return { ...counts, photos: statuses.length, status: published && (rejected || held || has('partial')) ? 'partial' : published ? 'published'
+        : rejected ? 'rejected' : held ? 'held' : counts.duplicate > 0 || has('duplicate') ? 'duplicate' : 'none' };
+}
 
 /** `adminQueued` posts were chosen explicitly by an administrator, so caption and age filters are skipped;
  * every row still has to pass the same date-window, agreement and conflict checks. */
-export async function processPost(env: Env, postId: string, fetcher: Fetcher, now = new Date(), adminQueued = false) {
+export async function processPost(env: Env, postId: string, fetcher: Fetcher, now = new Date(), adminQueued = false, attempt: number | null = null): Promise<{ queue: 'done' | 'ignored'; publication?: PublicationSummary }> {
     if (!env.AI) throw Error('worker-not-configured');
     const get = photoReader(env, now, fetcher);
     const post = await get(postId, { fields: POST_FIELDS });
     if (post.id !== postId || !postId.startsWith(GRAPH_PAGE_ID + '_') || !isoTime(post.created_time)) throw new Permanent('identity-mismatch');
     const published = new Date(post.created_time);
     if (!inSeason(env, published) || (!adminQueued && (!qualifies(post.message, env.FB_RAFFLE_MARKER)
-        || now.getTime() - published.getTime() > MAX_POST_AGE_MS))) return 'ignored';
+        || now.getTime() - published.getTime() > MAX_POST_AGE_MS))) return { queue: 'ignored' };
     const photos = extractPhotoCandidates([post], false, now).slice(0, 4);
-    if (!photos.length) return 'ignored';
+    if (!photos.length) return { queue: 'ignored' };
     const announcementDate = chicagoDate(published);
-    let outcome: 'done' | 'ignored' = 'ignored';
+    let queue: 'done' | 'ignored' = 'ignored';
+    const statuses: string[] = [], counts = { inserted: 0, duplicate: 0, held: 0, rejected: 0, outsideWindow: 0 };
     for (const photo of photos) {
-        if (await photoAlreadyFinal(env.DB, photo.photoId)) { outcome = 'done'; continue; }
+        const context = { postId, photoId: photo.photoId, attempt };
+        const finalStatus = await photoFinalStatus(env.DB, photo.photoId);
+        if (finalStatus) { queue = 'done'; statuses.push(finalStatus); continue; }
         try {
             const { image, dimensions } = await downloadPhoto(get, fetcher, photo.photoId);
-            const passes = await extractPasses(env, image.bytes, image.mime, announcementDate);
-            const months = new Set([announcementDate.slice(0, 7), ...passes[0].rows.map(r => r.drawDate.slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m))]);
+            const passes = await extractPasses(env, image.bytes, image.mime, announcementDate, context);
+            const months = new Set([announcementDate.slice(0, 7), ...passes.flatMap(p => p.rows.map(r => r.drawDate.slice(0, 7))).filter(m => /^\d{4}-\d{2}$/.test(m))]);
             const { existing, schedule } = await loadContext(env.DB, [...months]);
-            const decision = decidePhoto(passes, existing, schedule, announcementDate);
+            const decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId) });
             const status = await writeDecision(env.DB, { photoId: photo.photoId, postId, sha256: await hashBytes(image.bytes),
                 width: dimensions.width, height: dimensions.height, model: PHOTO_MODEL, passes }, decision, env.FB_PHOTO_AUTOPUBLISH === 'true');
-            log('photo-processed', { photoId: photo.photoId, status, plannedInserts: decision.rows.filter(r => r.outcome === 'insert').length,
-                decisionRejections: decision.rows.filter(r => r.outcome === 'rejected').length });
-            if (status !== 'ignored') outcome = 'done';
+            // Stored outcomes, not the plan: a row can lose a race with manual entry during the write.
+            const stored = (await env.DB.prepare(`SELECT outcome, count(*) AS n FROM raffle_photo_auto_rows WHERE photo_id=? GROUP BY outcome`).bind(photo.photoId).all<{ outcome: string; n: number }>()).results;
+            const stat = (o: string) => stored.find(r => r.outcome === o)?.n ?? 0;
+            counts.inserted += stat('inserted'); counts.duplicate += stat('duplicate'); counts.held += stat('held'); counts.rejected += stat('rejected'); counts.outsideWindow += stat('outside-window');
+            statuses.push(status);
+            const rows = decision.rows.map(rowDiagnostics);
+            log('photo-processed', { ...context, attempt: attempt ?? 0, status, plannedInserts: decision.rows.filter(r => r.outcome === 'insert').length,
+                decisionRejections: decision.rows.filter(r => r.outcome === 'rejected').length, decisionHolds: decision.rows.filter(r => r.outcome === 'held').length,
+                imageReasons: decision.reasons.length });
+            for (const row of rows) console.log(JSON.stringify({ event: 'row-decision', ...context, ...row }));
+            await recordAttempts(env.DB, [{ ...context, stage: 'photo', outcome: status, detail: { imageReasons: decision.reasons.map(r => sanitizeCode(r.split(':')[0])) } },
+                ...rows.map(r => ({ ...context, stage: 'row' as const, rowNumber: r.rowNumber, outcome: r.outcome, detail: r }))]);
+            if (status !== 'ignored') queue = 'done';
         } catch (e) {
-            const code = e instanceof Error ? e.message.slice(0, 80) : 'unknown';
+            const code = sanitizeCode(e);
             await recordPhotoFailure(env.DB, photo.photoId, postId, code);
+            await recordAttempts(env.DB, [{ ...context, stage: 'photo', outcome: 'failed', code }]);
             throw e; // Retry the post; photos already finalized above are skipped next time.
         }
     }
-    return outcome;
+    return { queue, publication: summaryFor(statuses, counts) };
 }
 
 export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?: string[]) {
     const ids = only ?? await duePosts(env.DB, now);
     for (const id of ids) {
         if (!(await claimPost(env.DB, id, now))) continue;
-        const source = await env.DB.prepare(`SELECT source FROM raffle_photo_auto_posts WHERE post_id=?`).bind(id).first<{ source: string }>();
-        try { await finishPost(env.DB, id, await processPost(env, id, fetcher, now, source?.source === 'admin')); }
-        catch (e) {
-            const code = e instanceof Error ? e.message.slice(0, 80) : 'unknown';
+        const claimed = await env.DB.prepare(`SELECT source, attempts FROM raffle_photo_auto_posts WHERE post_id=?`).bind(id).first<{ source: string; attempts: number }>();
+        const attempt = claimed?.attempts ?? 1;
+        try {
+            const result = await processPost(env, id, fetcher, now, claimed?.source === 'admin', attempt);
+            await finishPost(env.DB, id, result.queue, result.publication, attempt);
+            // Queue completion and winner publication are separate facts.
+            log('post-finished', { postId: id, attempt: attempt ?? 0, queue: result.queue, publication: result.publication?.status ?? 'none', inserted: result.publication?.inserted ?? 0,
+                duplicate: result.publication?.duplicate ?? 0, held: result.publication?.held ?? 0, rejected: result.publication?.rejected ?? 0 });
+            await recordAttempts(env.DB, [{ postId: id, attempt, stage: 'post', outcome: result.queue, code: result.publication?.status ?? 'none', detail: result.publication ?? {} }]);
+        } catch (e) {
+            const code = sanitizeCode(e);
             const retryAfter = Number((e as any)?.retryAfterSeconds) || 0;
-            await failPost(env.DB, id, code, now, retryAfter, e instanceof Permanent);
-            log('post-failed', { postId: id, code });
+            await failPost(env.DB, id, code, attempt, now, retryAfter, e instanceof Permanent);
+            log('post-failed', { postId: id, attempt: attempt ?? 0, code, retryAfterSeconds: retryAfter });
+            await recordAttempts(env.DB, [{ postId: id, attempt, stage: 'post', outcome: 'failed', code, detail: { retryAfterSeconds: retryAfter, permanent: e instanceof Permanent } }]);
         }
     }
 }
@@ -175,7 +218,7 @@ export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
             ctx.waitUntil((async () => {
                 if (env.FB_PHOTO_POLL_ENABLED === 'true' && pollDue(now)) {
                     try { log('poll', { queued: await poll(env, fetcher, now) }); }
-                    catch (e) { log('poll-failed', { code: e instanceof Error ? e.message.slice(0, 80) : 'unknown' }); }
+                    catch (e) { log('poll-failed', { code: sanitizeCode(e) }); }
                 }
                 // Posts queued by this tick's poll are stamped after scheduledTime; drain against the real clock.
                 await drain(env, fetcher, new Date(Math.max(now.getTime(), Date.now())));

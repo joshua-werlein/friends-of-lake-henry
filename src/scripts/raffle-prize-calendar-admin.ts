@@ -18,7 +18,7 @@ function card(row:any,proposal=false) {
     }
     const field=(label:string,input:HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement)=>{const wrap=node('label',label);input.className='input';wrap.append(input);box.append(wrap);return input;};
     const date=field('Draw date',document.createElement('input')) as HTMLInputElement;date.type='date';date.value=row.drawDate;
-    const category=field('Category',document.createElement('select')) as HTMLSelectElement;for(const v of ['Firearm','Gift card','Cash','Other'])category.add(new Option(v,v));category.value=row.category;
+    const category=field('Category',document.createElement('select')) as HTMLSelectElement;for(const v of ['Firearm','Gift card','Cash','Other','Bonus drawing'])category.add(new Option(v,v));category.value=row.category;
     const description=field('Prize description',document.createElement('textarea')) as HTMLTextAreaElement;description.maxLength=250;description.value=row.description;
     const position=field('Independently verified position',document.createElement('select')) as HTMLSelectElement;
     position.add(new Option('Unknown / not confirmed',''));for(const v of [1,2,3])position.add(new Option(String(v),String(v)));position.value=row.position===null?'':String(row.position);

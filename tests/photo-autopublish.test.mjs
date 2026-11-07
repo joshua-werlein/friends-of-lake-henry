@@ -91,7 +91,7 @@ async function database(t) {
     return DB;
 }
 async function migrate(DB, seedWinners = true) {
-    for (const name of ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '004_raffle_photo_autopublish.sql', '005_winner_ticket_text.sql']) {
+    for (const name of ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '004_raffle_photo_autopublish.sql', '005_winner_ticket_text.sql', '006_bonus_winner_tickets.sql', '007_photo_import_diagnostics.sql']) {
         const sql = (await readFile(new URL('../migrations/' + name, import.meta.url), 'utf8')).replace(/--[^\n]*/g, '');
         for (const statement of sql.split(';').filter(v => v.trim())) await DB.prepare(statement).run();
     }
@@ -139,11 +139,11 @@ test('November 5 column reads map both prizes and a cumulative Friday table stay
         { ...brent, drawDate: friday, ticketNumber: '100', prize: '2nd drawing' }];
     assert.deepEqual(decide([...history, ...fridayRows], friday).rows.slice(-3).map(r => r.prize), [
         '1st place — Springfield Armory 1911 Emissary 9MM',
-        '3rd place — $100 gift certificate from Safe & Secure Firearms',
-        '2nd place — Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen',
+        '2nd place — $100 gift certificate from Safe & Secure Firearms',
+        'Bonus — Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen',
     ]);
-    assert.equal(decide([{ ...dan, position: 2 }], dan.drawDate).rows[0].outcome, 'rejected');
-    assert.deepEqual(decide([dan, { ...dan, ticketNumber: '123' }], dan.drawDate).rows.map(r => r.outcome), ['rejected', 'rejected']);
+    assert.equal(decide([{ ...dan, position: 2 }], dan.drawDate).rows[0].outcome, 'held');
+    assert.deepEqual(decide([dan, { ...dan, ticketNumber: '123' }], dan.drawDate).rows.map(r => r.outcome), ['held', 'held']);
 });
 
 test('visible prize text matches exactly one verified scheduled prize; nothing is inferred from place', async t => {
@@ -167,17 +167,17 @@ test('a representative daily announcement publishes verified rows with matched p
         ['insert', '2nd place — $100 gift certificate from Safe & Secure Firearms', '2026-11-2026-11-03-77']]);
 });
 
-test('uncertain, disagreeing or conflicting rows are rejected, never guessed or overwritten', async t => {
+test('uncertain or disagreeing rows are held and conflicting rows rejected, never guessed or overwritten', async t => {
     const DB = await database(t), schedule = await prizeSchedule(DB, '2026-11');
     const decide = (a, b = a, existing = [art, amos], date = '2026-11-03') => decidePhoto([pass(a), pass(b)], existing, schedule, date);
     // Passes disagree on the ticket of row 2 → only row 2 is held back.
     const d1 = decide([row(), row({ position: 2, ticketNumber: '77', name: 'Bob Smith' })], [row(), row({ position: 2, ticketNumber: '71', name: 'Bob Smith' })]);
     assert.equal(d1.status, 'partial');
-    assert.deepEqual(d1.rows.map(r => r.outcome), ['insert', 'rejected']);
+    assert.deepEqual(d1.rows.map(r => r.outcome), ['insert', 'held']);
     assert.match(d1.rows[1].reasons.join(), /disagree on ticketNumber/);
     // Model notes, missing fields or question marks are uncertainty.
     for (const bad of [row({ notes: 'last digit unclear' }), row({ town: '' }), row({ name: 'J?ne Doe' }), row({ drawDate: '' }), row({ ticketNumber: '4l2' })])
-        assert.equal(decide([bad]).rows[0].outcome, 'rejected');
+        assert.equal(decide([bad]).rows[0].outcome, 'held');
     // November 2 is already filled: a different 1st place for that day conflicts; the stored winner is untouched.
     const takeover = decide([row({ drawDate: '2026-11-02', ticketNumber: '555', name: 'Someone Else' })]);
     assert.equal(takeover.rows[0].outcome, 'rejected');
@@ -187,10 +187,14 @@ test('uncertain, disagreeing or conflicting rows are rejected, never guessed or 
     // An exact re-announcement is a duplicate.
     const repeat = decide([row({ drawDate: '2026-11-02', ticketNumber: '118', name: 'Art Soborowicz', town: 'Galesville' })]);
     assert.equal(repeat.status, 'duplicate');
-    // The same ticket or place twice in one image rejects both rows.
-    assert.deepEqual(decide([row(), row({ ticketNumber: '99', name: 'Other Person' })]).rows.map(r => r.outcome), ['rejected', 'rejected']);
-    // Passes that disagree on row count or on being a winner photo reject the whole photo.
-    assert.equal(decidePhoto([pass([row()]), pass([row(), row({ ticketNumber: '1' })])], [], schedule, '2026-11-03').status, 'rejected');
+    // The same ticket or place twice in one image holds both rows.
+    assert.deepEqual(decide([row(), row({ ticketNumber: '99', name: 'Other Person' })]).rows.map(r => r.outcome), ['held', 'held']);
+    // A row only one pass read is held; the row both passes agree on still publishes.
+    const counts = decidePhoto([pass([row()]), pass([row(), row({ ticketNumber: '1', position: null })])], [], schedule, '2026-11-03');
+    assert.equal(counts.status, 'partial');
+    assert.deepEqual(counts.rows.map(r => [r.row.ticketNumber, r.outcome]), [['412', 'insert'], ['1', 'held']]);
+    assert.match(counts.rows[1].reasons.join(), /only 1 of 2 extraction passes/);
+    // Passes that disagree on being a winner photo reject the whole photo.
     assert.equal(decidePhoto([pass([row()]), { containsWinners: false, rows: [], warnings: [] }], [], schedule, '2026-11-03').status, 'rejected');
     assert.equal(decidePhoto([{ containsWinners: false, rows: [], warnings: [] }], [], schedule, '2026-11-03').status, 'ignored');
     // An excessive number of eligible rows and dates outside the announcement window never publish automatically.
@@ -199,7 +203,7 @@ test('uncertain, disagreeing or conflicting rows are rejected, never guessed or 
     assert.equal(decide([row({ drawDate: '2026-11-04' })]).rows[0].reasons[0], 'draw date is after the announcement');
     // Unmatched or absent prize evidence holds the row for review.
     const unmatched = decide([row({ prize: 'Remington 700' })]);
-    assert.equal(unmatched.rows[0].outcome, 'rejected');
+    assert.equal(unmatched.rows[0].outcome, 'held');
     assert.equal(unmatched.rows[0].prize, null);
     assert.match(unmatched.rows[0].reasons.join(), /exactly one approved scheduled prize/);
 });
@@ -219,14 +223,14 @@ test('blank hometown needs both reads to verify the empty cell; incomplete prize
  const stored={id:'blank-town-winner',drawDate:a.drawDate,ticketNumber:Number(a.ticketNumber),name:a.name,town:'',prize:'Tikka T3X Hunter 7MM Rem Mag'};
  assert.equal(decidePhoto([pass([a]),pass([a])],[stored],schedule,'2026-11-03').rows[0].outcome,'duplicate');
  assert.equal(decidePhoto([pass([a])],[],schedule,'2026-11-03').status,'rejected');
- for(const bad of [{...a,townStatus:undefined},{...a,townStatus:'uncertain'},{...a,notes:'hometown clipped'},{...a,prize:''}])assert.equal(decide(bad).rows[0].outcome,'rejected');
- assert.equal(decide(a,{...a,townStatus:undefined}).rows[0].outcome,'rejected');
- assert.equal(decide(a,{...a,notes:'hometown clipped'}).rows[0].outcome,'rejected');
- assert.equal(decide({...a,ticketNumber:'047'},{...a,ticketNumber:'47'}).rows[0].outcome,'rejected');
+ for(const bad of [{...a,townStatus:undefined},{...a,townStatus:'uncertain'},{...a,notes:'hometown clipped'},{...a,prize:''}])assert.equal(decide(bad).rows[0].outcome,'held');
+ assert.equal(decide(a,{...a,townStatus:undefined}).rows[0].outcome,'held');
+ assert.equal(decide(a,{...a,notes:'hometown clipped'}).rows[0].outcome,'held');
+ assert.equal(decide({...a,ticketNumber:'047'},{...a,ticketNumber:'47'}).rows[0].outcome,'held');
  assert.equal(decide(a,a,['right winner column is clipped']).status,'rejected');
- assert.equal(decidePhoto([pass([a]),pass([a])],[],[],'2026-11-03').rows[0].outcome,'rejected');
+ assert.equal(decidePhoto([pass([a]),pass([a])],[],[],'2026-11-03').rows[0].outcome,'held');
  const duplicate=schedule.find(p=>p.drawDate==='2026-11-03'&&p.category==='Main prize');
- assert.equal(decidePhoto([pass([a]),pass([a])],[],[...schedule,{...duplicate,id:'other-main'}],'2026-11-03').rows[0].outcome,'rejected');
+ assert.equal(decidePhoto([pass([a]),pass([a])],[],[...schedule,{...duplicate,id:'other-main'}],'2026-11-03').rows[0].outcome,'held');
 });
 
 test('real column-aware AI reads recover November 3–4 headings, full towns, blank hometown and 047 without inventing places',async t=>{

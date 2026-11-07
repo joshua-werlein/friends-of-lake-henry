@@ -7,7 +7,7 @@ export const prerender=false;
     <section class="card">
         <a class="pill" href="/admin/raffle">Back to raffle admin</a>
         <h1>Facebook winner-photo imports</h1>
-        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published; they are listed here with the reason. Correct or add them in raffle admin, then requeue the post if needed.</p>
+        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published; they are listed here with the reason. Correct or add them in raffle admin, then requeue the post if needed. A post's <em>queue</em> status only means processing finished. Its <em>winners</em> column shows what actually happened.</p>
         <form id="queueForm" class="panel">
             <label>Queue a Facebook post link<input class="input" id="queueSource" placeholder="https://www.facebook.com/61552199315213/posts/…" maxlength="2000" /></label>
             <button class="btn" type="submit">Queue post</button>
@@ -17,7 +17,7 @@ export const prerender=false;
         <h2>Photos</h2>
         <div id="importList"></div>
         <h2>Posts</h2>
-        <div class="tableWrap shade"><table class="importTable"><thead><tr><th>Post</th><th>Source</th><th>Status</th><th>Attempts</th><th>Error</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
+        <div class="tableWrap shade"><table class="importTable"><thead><tr><th>Post</th><th>Source</th><th>Queue</th><th>Winners</th><th>Attempts</th><th>Current error</th><th>Last failure</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
     </section>
 </main>
 <style>
@@ -57,7 +57,7 @@ export const prerender=false;
                 for (const r of imp.rows) {
                     const tr = document.createElement('tr');
                     tr.append(cell(String(r.rowNumber)), cell(r.outcome, 'outcome-' + r.outcome), cell(r.row.drawDate), cell(r.row.position ?? '—'),
-                        cell(r.row.ticketNumber), cell(r.row.name), cell(r.row.town), cell(r.prize ?? r.row.prize ?? ''), cell(r.reasons.join('; ')));
+                        cell(r.row.ticketNumber || 'None published'), cell(r.row.name), cell(r.row.town), cell(r.prize ?? r.row.prize ?? ''), cell(r.reasons.join('; ')));
                     body.append(tr);
                 }
                 table.append(body);
@@ -73,7 +73,9 @@ export const prerender=false;
                 const b = document.createElement('button'); b.type = 'button'; b.className = 'pill'; b.textContent = 'Requeue';
                 b.addEventListener('click', () => void requeue(p.postId)); action.append(b);
             }
-            tr.append(cell(p.postId), cell(p.source), cell(p.status), cell(String(p.attempts)), cell(p.errorCode ?? ''), cell(local(p.updatedAt)), action);
+            const winners = p.publication ? `${p.publicationStatus ?? 'none'}: ${p.publication.inserted ?? 0} published, ${p.publication.duplicate ?? 0} already stored, ${p.publication.held ?? 0} held, ${p.publication.rejected ?? 0} rejected` : (p.publicationStatus ?? 'not recorded');
+            tr.append(cell(p.postId), cell(p.source), cell(p.status), cell(winners), cell(String(p.attempts)), cell(p.errorCode ?? ''),
+                cell(p.lastErrorCode ? `${p.lastErrorCode} (${local(p.lastErrorAt)})` : ''), cell(local(p.updatedAt)), action);
             posts.append(tr);
         }
     }

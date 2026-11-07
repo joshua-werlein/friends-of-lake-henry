@@ -1,6 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { chicagoDatetimeLocalToUtcIso } from '../datetime';
-import { cleanPrizeDescription } from '../winner-prize';
+import { BONUS, cleanPrizeDescription, type WinnerPosition } from '../winner-prize';
 export type ScheduledPrize = { id:string; drawDate:string; category:string; position:number|null; description:string;
     source:'event'|'supplement'|'daily'; status:'approved'|'draft'|'rejected'; eventId?:string; notes:string; version?:number };
 // Recurring prizes printed on a month's verified poster for every drawing day. They attach only to dates
@@ -29,9 +29,9 @@ export async function prizeSchedule(db:D1Database,month:string,includeDrafts=fal
         main.push({id:'event:'+e.id,eventId:e.id,drawDate:date,category:'Main prize',position:null,
             description:String(e.title).replace(/^Day\s+\d+\s*[-—:]\s*/i,'').trim(),source:'event',status:'approved',notes:String(e.summary??'')});
         // Published summaries already announce weekend/holiday bonus drawings ("2nd drawing: Gun Safe").
-        // Derive them read-only instead of re-entering them as supplements.
-        const bonus=String(e.summary??'').match(/2nd drawing\s*:\s*([^\r\n]{2,250})/i)?.[1].trim();
-        if(bonus) main.push({id:'event-bonus:'+e.id,eventId:e.id,drawDate:date,category:'Bonus drawing',position:null,
+        // Derive them read-only instead of re-entering them as supplements. Each listed drawing is its own slot.
+        const bonuses=[...String(e.summary??'').matchAll(/\b(?:\d+(?:st|nd|rd|th)|bonus) drawing\s*:\s*([^\r\n]{2,250})/gi)].map(m=>m[1].trim());
+        for(const [i,bonus] of bonuses.entries()) main.push({id:'event-bonus:'+e.id+(i?`:${i+1}`:''),eventId:e.id,drawDate:date,category:'Bonus drawing',position:null,
             description:bonus,source:'event',status:'approved',notes:String(e.summary)});
     }
     for(const date of new Set(main.map(p=>p.drawDate))) for(const [i,d] of (DAILY_PRIZES[month]??[]).entries())
@@ -43,6 +43,27 @@ export async function prizeSchedule(db:D1Database,month:string,includeDrafts=fal
 }
 // Same-day order: published main prize, published bonus drawing, poster daily prize, then approved supplements.
 const rank=(p:ScheduledPrize)=>p.category==='Main prize'?0:p.category==='Bonus drawing'?1:p.source==='daily'?2:3;
+const slotText=(v:string)=>cleanPrizeDescription(v).normalize('NFKC').toLowerCase().replace(/[^a-z0-9$]+/g,' ').trim();
+/** The one approved calendar entry a stored or typed prize names, ignoring punctuation. Null unless exactly one matches. */
+export function matchApprovedSlot(schedule:ScheduledPrize[],drawDate:string,description:string):ScheduledPrize|null {
+    if(slotText(description).length<2) return null;
+    const matches=schedule.filter(p=>p.status==='approved'&&p.drawDate===drawDate&&slotText(p.description)===slotText(description));
+    return matches.length===1?matches[0]:null;
+}
+// The approved calendar, not row or column order, decides the place: main prize 1st, daily gift card 2nd, each bonus drawing Bonus.
+// Any other approved entry on the day leaves the places unproven, so they stay null rather than guessed.
+export function calendarPosition(prize:ScheduledPrize,schedule:ScheduledPrize[]):WinnerPosition {
+    if(prize.position!==null) return prize.position as WinnerPosition;
+    if(!prize.drawDate.startsWith('2026-11-')) return null;
+    const day=schedule.filter(p=>p.status==='approved'&&p.drawDate===prize.drawDate);
+    const main=day.filter(p=>p.category==='Main prize'&&p.source==='event');
+    const gifts=day.filter(p=>p.category==='Gift card'&&p.source==='daily');
+    const bonus=day.filter(p=>p.category==='Bonus drawing');
+    if(main.length!==1||gifts.length!==1||day.length!==2+bonus.length) return null;
+    if(prize===main[0]) return 1;
+    if(prize===gifts[0]) return 2;
+    return bonus.includes(prize)?BONUS:null;
+}
 export function suggestPrizes(prizes:ScheduledPrize[],drawDate:string,position:number|null=null) {
     const options=prizes.filter(p=>p.status==='approved' && p.drawDate===drawDate && (position===null || p.position===null || p.position===position));
     return { status:options.length===0?'unavailable':options.length===1?'review-suggestion':'selection-required',options,
@@ -51,8 +72,8 @@ export function suggestPrizes(prizes:ScheduledPrize[],drawDate:string,position:n
 export function supplementDraft(value:unknown,month:string) {
     if(!value || typeof value!=='object') throw Error('Invalid supplemental prize.');
     const v=value as Record<string,unknown>;
-    if(!validDrawDate(v.drawDate,month) || typeof v.category!=='string' || !['Firearm','Gift card','Cash','Other'].includes(v.category)
-        || (v.position!==null && (typeof v.position!=='number'||![1,2,3].includes(v.position)))
+    if(!validDrawDate(v.drawDate,month) || typeof v.category!=='string' || !['Firearm','Gift card','Cash','Other','Bonus drawing'].includes(v.category)
+        || (v.position!==null && (v.category==='Bonus drawing'||typeof v.position!=='number'||![1,2,3].includes(v.position)))
         || typeof v.description!=='string' || v.description.trim().length<2 || v.description.length>250) throw Error('Review the date, category, description and optional verified position.');
     const description=cleanPrizeDescription(v.description);
     if(description.length<2) throw Error('Review the date, category, description and optional verified position.');

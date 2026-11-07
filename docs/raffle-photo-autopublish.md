@@ -1,3 +1,5 @@
+> Publication rules below are superseded by the [November 6 repair packet](raffle-winner-repair-2026-11-06.md), pending its release.
+
 > Current production status after token rotation: [follow-up report](facebook-automation-production-2026-11-03.md).
 
 > Superseded production status: see [November 3 automation repair](raffle-automation-repair-2026-11-03.md). The historical setup/status below predates that repair.

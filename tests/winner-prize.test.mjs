@@ -13,7 +13,7 @@ const cases = [
 test('editing existing prizes preserves every identity field and publishes descriptions without numeric placement', async t => {
     const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response()}}',d1Databases:['DB'],d1Persist:false});t.after(()=>mf.dispose());
     const DB=await mf.getD1Database('DB');
-    for (const file of ['../migrations/001_schema.sql','../migrations/migrations/00x_raffle_poster.sql']) {
+    for (const file of ['../migrations/001_schema.sql','../migrations/migrations/00x_raffle_poster.sql','../migrations/005_winner_ticket_text.sql','../migrations/006_bonus_winner_tickets.sql']) {
         const sql=(await readFile(new URL(file,import.meta.url),'utf8')).replace(/--[^\n]*/g,'');
         for (const statement of sql.split(';').filter(v=>v.trim())) await DB.prepare(statement).run();
     }

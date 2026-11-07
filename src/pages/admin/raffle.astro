@@ -123,6 +123,7 @@ export const prerender = false;
                     <div class="field">
                         <label class="label" for="wTicket">Ticket #</label>
                         <input id="wTicket" class="input" inputmode="numeric" placeholder="66" autocomplete="off" />
+                        <label class="muted"><input type="checkbox" id="wTicketMissing" /> Verified: the official announcement names this winner for this prize and published no ticket.</label>
                     </div>
 
                     <div class="field span2">
@@ -141,7 +142,8 @@ export const prerender = false;
                             <option value="">Unknown / not confirmed</option>
                             <option value="1st place">First place</option>
                             <option value="2nd place">Second place</option>
-                            <option value="3rd place">Third place</option>
+                            <option value="Bonus">Bonus</option>
+                            <option value="3rd place">Third place (historical records)</option>
                         </select>
                     </div>
                     <div class="field">
@@ -189,8 +191,8 @@ export const prerender = false;
         <form id="winnerPrizeForm" class="formGrid">
             <div class="field span2"><label for="editPrizeCategory">Prize category</label><select id="editPrizeCategory" class="input"><option value="">Not specified</option><option>Firearm</option><option>Gift card</option><option>Cash</option><option>Other</option></select></div>
             <div class="field span2"><label for="editPrizeDescription">Prize description</label><textarea id="editPrizeDescription" class="input" rows="3" maxlength="250" required></textarea></div>
-            <div class="field span2"><label for="editPrizePosition">Verified place</label><select id="editPrizePosition" class="input"><option value="">Unknown / not confirmed</option><option value="1">First place</option><option value="2">Second place</option><option value="3">Third place</option></select></div>
-            <label class="span2"><input type="checkbox" id="editPrizePositionConfirmed" /> If a numeric place is selected, I verified it from an independent source.</label>
+            <div class="field span2"><label for="editPrizePosition">Verified place</label><select id="editPrizePosition" class="input"><option value="">Unknown / not confirmed</option><option value="1">First place</option><option value="2">Second place</option><option value="Bonus">Bonus</option><option value="3">Third place (historical records)</option></select></div>
+            <label class="span2"><input type="checkbox" id="editPrizePositionConfirmed" /> If a place is selected, I verified it from an independent source.</label>
             <label class="span2"><input type="checkbox" id="editPrizeApproved" required /> I reviewed and approve this prize description for publication.</label>
             <p id="editPrizeStatus" class="span2" role="status"></p>
             <div class="actions span2"><button class="btn" type="submit">Approve and save prize</button><button class="btn" type="button" id="cancelPrizeEdit">Cancel</button></div>
@@ -200,7 +202,7 @@ export const prerender = false;
     <script>import "../../scripts/raffle-prize-suggestions";</script>
     <script>import "../../scripts/raffle-orientation-admin";</script>
     <script>
-        import { prizeCells, parseWinnerPrize } from "../../lib/winner-prize";
+        import { prizeCells, parseWinnerPrize, placementLabel, ticketLabel } from "../../lib/winner-prize";
         function currentMonthKeyChicago() {
             // en-CA => YYYY-MM formatting is easy to slice
             return new Intl.DateTimeFormat("en-CA", {
@@ -306,6 +308,7 @@ export const prerender = false;
         const wTicket = document.getElementById("wTicket");
         const wName = document.getElementById("wName");
         const wPlace = document.getElementById("wPlace");
+        const wTicketMissing = document.getElementById("wTicketMissing");
         const wPrize = document.getElementById("wPrize");
         const wTown = document.getElementById("wTown");
         const addWinnerBtn = document.getElementById("addWinner");
@@ -330,6 +333,7 @@ export const prerender = false;
             !(wName instanceof HTMLInputElement) ||
             !(wTown instanceof HTMLInputElement) ||
             !(wPlace instanceof HTMLSelectElement) ||
+            !(wTicketMissing instanceof HTMLInputElement) ||
             !(wPrize instanceof HTMLInputElement) ||
             !(addWinnerBtn instanceof HTMLButtonElement) ||
             !(winnersTable instanceof HTMLTableElement) ||
@@ -355,7 +359,7 @@ export const prerender = false;
             }
 
             function updatePrizeSchedule() {
-                document.getElementById("prizeSchedule").textContent = "Use the approved prize calendar or a verified announcement. Leave numeric place unknown unless independently confirmed.";
+                document.getElementById("prizeSchedule").textContent = "Use the approved prize calendar or a verified announcement. Leave the place unknown unless independently confirmed. A bonus drawing is Bonus, not a numbered place. A winner may be saved without a ticket only when the official announcement verifies them for one approved prize.";
             }
             wDate.addEventListener("change", () => {
                 wPlace.selectedIndex = 0;
@@ -387,7 +391,7 @@ export const prerender = false;
                 heading.textContent = 'Add Winner';
                 addWinnerBtn.textContent = 'Add Winner';
                 cancelEdit.hidden = true;
-                wTicket.value = ''; wName.value = ''; wTown.value = ''; wPrize.value = ''; wPlace.value = '';
+                wTicket.value = ''; wName.value = ''; wTown.value = ''; wPrize.value = ''; wPlace.value = ''; wTicketMissing.checked = false;
                 window.dispatchEvent(new Event('raffle:winner-saved'));
             }
             cancelEdit.addEventListener('click', () => { finishEditing(); setWinnersStatus('info','Editing canceled. No changes saved.'); });
@@ -399,10 +403,11 @@ export const prerender = false;
                 const parsed = parseWinnerPrize(row.prize);
                 wDate.value = row.drawDate;
                 wDate.dispatchEvent(new Event('change'));
-                wTicket.value = row.ticketNumberText ?? String(row.ticketNumber);
+                wTicket.value = row.ticketNumberText ?? String(row.ticketNumber ?? '');
+                wTicketMissing.checked = row.ticketNumber === null;
                 wName.value = row.name; wTown.value = row.town;
                 wPrize.value = parsed.category ? parsed.category + ': ' + parsed.description : parsed.description;
-                wPlace.value = parsed.position === null ? '' : parsed.position + (parsed.position===1?'st':parsed.position===2?'nd':'rd') + ' place';
+                wPlace.value = placementLabel(parsed.position) ?? '';
                 heading.textContent = 'Edit Winner — ' + row.name;
                 addWinnerBtn.textContent = 'Save Changes'; cancelEdit.hidden = false;
                 setWinnersStatus('info','Editing the selected winner. Save Changes updates this entry.');
@@ -430,7 +435,7 @@ export const prerender = false;
 
                     // Ticket cell
                     const tdTicket = document.createElement("td");
-                    tdTicket.textContent = String(r.ticketNumberText ?? r.ticketNumber ?? "");
+                    tdTicket.textContent = ticketLabel(r.ticketNumberText ?? r.ticketNumber);
 
                     // Name cell
                     const tdName = document.createElement("td");
@@ -454,7 +459,7 @@ export const prerender = false;
                     details.type = "button";
                     details.className = "pill";
                     details.textContent = "Edit";
-                    details.setAttribute("aria-label", `Edit winner for ticket ${r.ticketNumberText ?? r.ticketNumber}, ${r.name}`);
+                    details.setAttribute("aria-label", `Edit winner for ticket ${ticketLabel(r.ticketNumberText ?? r.ticketNumber)}, ${r.name}`);
                     details.addEventListener("click", () => window.dispatchEvent(new CustomEvent("raffle:edit-winner", {detail:r})));
                     tdActions.append(details, btn);
 
@@ -559,7 +564,12 @@ export const prerender = false;
                     return;
                 }
 
-                if (!wDate.value || !/^[0-9]{1,9}$/.test(wTicket.value.trim()) || Number(wTicket.value)<=0 || wName.value.trim().length<2) {
+                const ticketText = wTicket.value.trim();
+                if (ticketText === '' ? !(wTicketMissing.checked && wPlace.value && wPrize.value.trim()) : wTicketMissing.checked) {
+                    setWinnersStatus('error', ticketText === '' ? 'Enter a ticket, or for a verified winner select the place, enter the approved prize and confirm no ticket was published.'
+                        : 'Clear the no-ticket confirmation when a ticket number is entered.'); return;
+                }
+                if (!wDate.value || (ticketText !== '' && (!/^[0-9]{1,9}$/.test(ticketText) || Number(ticketText)<=0)) || wName.value.trim().length<2) {
                     setWinnersStatus('error','Enter a valid date, a positive ticket with 1–9 digits, and a winner name.'); return;
                 }
                 const wasEditing = !!editing;
@@ -571,7 +581,8 @@ export const prerender = false;
                 try {
                     const payload = {
                         drawDate: wDate.value.trim(),
-                        ticketNumber: wTicket.value.trim(),
+                        ticketNumber: ticketText,
+                        ticketMissingVerified: ticketText === '' && wTicketMissing.checked,
                         name: wName.value.trim(),
                         town: wTown.value.trim(),
                         prize: [wPlace.value, wPrize.value.trim()].filter(Boolean).join(" — ") || null,

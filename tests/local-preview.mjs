@@ -24,7 +24,7 @@ const mf = new Miniflare({
     } },
 });
 const DB = await mf.getD1Database('DB');
-for (const file of ['migrations/001_schema.sql', 'migrations/migrations/00x_raffle_poster.sql', 'migrations/005_winner_ticket_text.sql']) {
+for (const file of ['migrations/001_schema.sql', 'migrations/migrations/00x_raffle_poster.sql', 'migrations/005_winner_ticket_text.sql', 'migrations/006_bonus_winner_tickets.sql']) {
     const sql = (await readFile(file, 'utf8')).replace(/--[^\n]*/g, '');
     for (const statement of sql.split(';').filter(s => s.trim())) await DB.prepare(statement).run();
 }

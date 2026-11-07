@@ -1,4 +1,5 @@
 import { FACEBOOK_GRAPH_PAGE_ID, FACEBOOK_PAGE_ID } from './facebook';
+import { BONUS, parseWinnerPrize, placementLabel, type WinnerPosition } from './winner-prize';
 
 // Mistral Small 3.1 (Apache-2.0) needs no click-through license on Workers AI and scored 120/120 fields on the
 // November 2025 winner table (2026-11-02). Llama 3.2 Vision stays supported but requires the account owner's
@@ -7,9 +8,15 @@ export const PHOTO_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 export const LLAMA_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 export const MAX_IMPORT_ROWS = 100;
 export type PhotoCandidate = { photoId: string; postId: string | null; sourceUrl: string; publishedAt: string | null };
-export type DraftWinner = { drawDate: string; position: number | null; ticketNumber: string; name: string; town: string; notes: string; prize?: string;
-    townStatus?: 'readable' | 'blank' | 'uncertain' };
-export type Extraction = { containsWinners: boolean; rows: DraftWinner[]; warnings: string[] };
+export type CellStatus = 'readable' | 'blank' | 'uncertain';
+export type DraftWinner = { drawDate: string; position: WinnerPosition; ticketNumber: string; name: string; town: string; notes: string; prize?: string;
+    townStatus?: CellStatus; ticketStatus?: CellStatus; cellText?: string };
+export const WARNING_CODES = ['clipped', 'ambiguous-layout', 'uncertain-association', 'missing-heading', 'illegible', 'blank-cell', 'other'] as const;
+export type StructuredWarning = { scope: 'image' | 'row' | 'cell'; code: typeof WARNING_CODES[number]; drawDate?: string; ticketNumber?: string; name?: string;
+    field?: 'drawDate' | 'ticketNumber' | 'name' | 'town' | 'prize'; message?: string };
+// Plain strings remain valid: older captures and models that ignore the requested warning shape still parse.
+export type ExtractionWarning = string | StructuredWarning;
+export type Extraction = { containsWinners: boolean; rows: DraftWinner[]; warnings: ExtractionWarning[] };
 export type PhotoCapture = { photoId: string; sourceUrl: string; bytes: Uint8Array; mime: string;
     sha256: string; width: number; height: number; extraction: Extraction; model: string };
 export type PhotoService = { discover(source?: string): Promise<PhotoCandidate[]>;
@@ -40,11 +47,23 @@ export function draftRows(value: unknown): DraftWinner[] {
     if (!Array.isArray(value) || value.length > MAX_IMPORT_ROWS) throw Error('Invalid or oversized row list.');
     return value.map(v => {
         if (!v || typeof v !== 'object' || Array.isArray(v)) throw Error('Invalid row.');
-        return { drawDate: text(v.drawDate, 30), position: [1, 2, 3].includes(v.position) ? v.position : null,
+        return { drawDate: text(v.drawDate, 30), position: [1, 2, 3].includes(v.position) ? v.position : typeof v.position === 'string' && v.position.trim().toLowerCase() === 'bonus' ? BONUS : null,
             ticketNumber: typeof v.ticketNumber === 'number' ? String(v.ticketNumber) : text(v.ticketNumber, 30),
             name: text(v.name, 200), town: text(v.town, 200), notes: text(v.notes, 500), prize: text(v.prize, 250),
-            ...(['readable', 'blank', 'uncertain'].includes(v.townStatus) ? { townStatus: v.townStatus } : {}) };
+            ...(['readable', 'blank', 'uncertain'].includes(v.townStatus) ? { townStatus: v.townStatus } : {}),
+            ...(['readable', 'blank', 'uncertain'].includes(v.ticketStatus) ? { ticketStatus: v.ticketStatus } : {}),
+            ...(typeof v.cellText === 'string' ? { cellText: text(v.cellText, 300) } : {}) };
     });
+}
+function draftWarning(v: unknown): ExtractionWarning {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return text(v, 500);
+    const w = v as Record<string, unknown>;
+    // An unknown scope or code cannot be trusted as row-specific, so it stays free text and is handled image-wide.
+    if (!['image', 'row', 'cell'].includes(w.scope as string) || !WARNING_CODES.includes(w.code as never)) return text(w.message, 500) || 'unrecognized warning';
+    return { scope: w.scope as StructuredWarning['scope'], code: w.code as StructuredWarning['code'], drawDate: text(w.drawDate, 30),
+        ticketNumber: typeof w.ticketNumber === 'number' ? String(w.ticketNumber) : text(w.ticketNumber, 30), name: text(w.name, 200),
+        ...(['drawDate', 'ticketNumber', 'name', 'town', 'prize'].includes(w.field as string) ? { field: w.field as StructuredWarning['field'] } : {}),
+        message: text(w.message, 500) };
 }
 export function parseExtraction(response: unknown): Extraction {
     if (!response || typeof response !== 'object' || !('response' in response)) throw Error('invalid-extraction');
@@ -58,7 +77,7 @@ export function parseExtraction(response: unknown): Extraction {
     if (!value || typeof value.containsWinners !== 'boolean' || !Array.isArray(value.warnings) || value.warnings.length > 30) throw Error('invalid-extraction');
     const rows = draftRows(value.rows);
     if (!value.containsWinners && rows.length) throw Error('invalid-extraction');
-    return { containsWinners: value.containsWinners, rows, warnings: value.warnings.map((v: unknown) => text(v, 500)) };
+    return { containsWinners: value.containsWinners, rows, warnings: value.warnings.map(draftWarning) };
 }
 export function approvalRows(value: unknown, month: string): DraftWinner[] {
     if (!monthValid(month)) throw Error('Select the correct raffle month.');
@@ -78,8 +97,8 @@ export function approvalRows(value: unknown, month: string): DraftWinner[] {
     }
     return rows;
 }
-export function positionPrize(position: number | null): string | null {
-    return position === null ? null : `${position}${position === 1 ? 'st' : position === 2 ? 'nd' : 'rd'} place`;
+export function positionPrize(position: WinnerPosition): string | null {
+    return placementLabel(position);
 }
 export async function hashBytes(bytes: Uint8Array): Promise<string> {
     const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
@@ -87,7 +106,7 @@ export async function hashBytes(bytes: Uint8Array): Promise<string> {
 }
 
 export type ExistingWinner = { id: string; drawDate: string | null; ticketNumber: number | null;
-    name: string | null; town: string | null; prize?: string | null };
+    name: string | null; town: string | null; prize?: string | null; prizeSlotId?: string | null };
 export type Comparison = { status: 'complete' | 'incomplete' | 'missing' | 'conflicting';
     existingId: string | null; missingFields: string[]; conflicts: string[]; issues: string[] };
 const normalized = (v: string | null) => (v ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -100,7 +119,9 @@ export function compareWinner(row: DraftWinner, existing: ExistingWinner[]): Com
         const sameName = !!name && name === normalized(v.name);
         return sameTicket || sameName || (v.drawDate === date && !positiveTicket(v.ticketNumber) && !normalized(v.name));
     });
-    const issues = [row.notes, ...(!row.drawDate || !ticket || !row.name || (!row.town && row.townStatus !== 'blank') ? ['Missing or uncertain extracted fields.'] : [])].filter(Boolean);
+    // A ticket-free read is verified only when the row itself says the ticket cell was visibly blank.
+    const ticketFree = !row.ticketNumber && row.ticketStatus === 'blank';
+    const issues = [row.notes, ...(!row.drawDate || (!ticket && !ticketFree) || !row.name || (!row.town && row.townStatus !== 'blank') ? ['Missing or uncertain extracted fields.'] : [])].filter(Boolean);
     if (matches.length > 1) return { status: 'conflicting', existingId: null, missingFields: [], conflicts: ['Several existing winners could match.'], issues };
     if (!matches.length) return { status: 'missing', existingId: null, missingFields: [], conflicts: [], issues };
     const found = matches[0], missingFields: string[] = [], conflicts: string[] = [];
@@ -108,12 +129,14 @@ export function compareWinner(row: DraftWinner, existing: ExistingWinner[]): Com
         const old = field === 'ticketNumber' ? positiveTicket(found[field]) : field === 'town' ? normalized(found.town).replace(/[\s,]+/g, '') : normalized(found[field]);
         const next = field === 'ticketNumber' ? ticket : field === 'town' ? normalized(row.town).replace(/[\s,]+/g, '') : normalized(row[field]);
         if (field === 'town' && !old && !next && row.townStatus === 'blank') continue;
+        // An announcement that prints no ticket says nothing about a stored one. The caller compares prize slots before calling this a duplicate.
+        if (field === 'ticketNumber' && ticketFree) continue;
         if (!old) missingFields.push(field);
         else if (!next || old !== next) conflicts.push(field);
     }
     if (row.position !== null && found.prize) {
-        const position = found.prize.match(/^([123])(?:st|nd|rd) place\b/i);
-        if (position && Number(position[1]) !== row.position) conflicts.push('position');
+        const position = parseWinnerPrize(found.prize).position;
+        if (position !== null && position !== row.position) conflicts.push('position');
     }
     return { status: conflicts.length ? 'conflicting' : missingFields.length ? 'incomplete' : 'complete',
         existingId: found.id, missingFields, conflicts, issues };

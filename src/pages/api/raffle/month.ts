@@ -2,6 +2,7 @@ import {winnerTicketLabels} from '../../../lib/server/raffle-ticket-labels';
 import type { APIRoute } from "astro";
 import type { D1Database } from "@cloudflare/workers-types";
 import { json } from "../../../lib/http";
+import { WINNER_PLACEMENT_ORDER_SQL } from "../../../lib/winner-prize";
 
 function isMonthKey(s: string) {
   return /^\d{4}-\d{2}$/.test(s);
@@ -77,7 +78,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
            prize
     FROM raffle_winners
     WHERE raffle_key = ?
-    ORDER BY draw_date DESC, CASE WHEN prize LIKE '1st place%' THEN 1 WHEN prize LIKE '2nd place%' THEN 2 WHEN prize LIKE '3rd place%' THEN 3 ELSE 4 END, created_at DESC
+    ORDER BY draw_date DESC, ${WINNER_PLACEMENT_ORDER_SQL}, created_at DESC
   `).bind(raffleKey).all();
 
   const metaRes = await DB.prepare(`

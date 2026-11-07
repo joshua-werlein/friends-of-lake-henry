@@ -1,7 +1,7 @@
 ---
 import {winnerTicketLabels} from '../lib/server/raffle-ticket-labels';
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
-import { prizeCells } from "../lib/winner-prize";
+import { prizeCells, ticketLabel, WINNER_PLACEMENT_ORDER_SQL } from "../lib/winner-prize";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, RAFFLE_VIDEO_MESSAGE, RAFFLE_NO_VIDEO_MESSAGE, type LiveConfig } from "../lib/facebook";
 import { loadRaffleSelection } from "../lib/server/raffle-selection";
@@ -21,7 +21,7 @@ const rules = [
 type WinnerRow = {
     id: string;
     drawDate: string;
-    ticketNumber: number; ticketNumberText?: string;
+    ticketNumber: number | null; ticketNumberText?: string;
     name: string;
     town: string;
     prize: string | null;
@@ -110,7 +110,7 @@ if (DB) {
             prize
      FROM raffle_winners
      WHERE raffle_key = ?
-     ORDER BY draw_date DESC, CASE WHEN prize LIKE '1st place%' THEN 1 WHEN prize LIKE '2nd place%' THEN 2 WHEN prize LIKE '3rd place%' THEN 3 ELSE 4 END, created_at DESC`
+     ORDER BY draw_date DESC, ${WINNER_PLACEMENT_ORDER_SQL}, created_at DESC`
     ).bind(raffleKey).all();
     winners = await winnerTicketLabels(DB, (results ?? []) as any);
 }
@@ -347,7 +347,7 @@ const description =
                                 </td>
                                 <td class="tdPlace">{prizeCells(w.prize).place}</td>
                                 <td class="tdPrize">{prizeCells(w.prize).prize}</td>
-                                <td>{w.ticketNumberText ?? w.ticketNumber}</td>
+                                <td>{ticketLabel(w.ticketNumberText ?? w.ticketNumber)}</td>
                                 <td class="tdName">{w.name}</td>
                                 <td class="tdTown">{w.town}</td>
                             </tr>
@@ -382,7 +382,7 @@ const description =
         set:html={JSON.stringify(initial)}
     ></script>
     <script>
-        import { prizeCells } from "../lib/winner-prize";
+        import { prizeCells, ticketLabel } from "../lib/winner-prize";
         const initialEl = document.getElementById("raffleInitialState");
         const initial = /** @type {{monthKey:string, prevMonthKey:string|null, nextMonthKey:string|null}} */ (
             JSON.parse((initialEl?.textContent || "{}").trim())
@@ -526,7 +526,7 @@ const description =
 
                 // Ticket cell
                 const tdTicket = document.createElement("td");
-                tdTicket.textContent = String(w.ticketNumberText ?? w.ticketNumber ?? "");
+                tdTicket.textContent = ticketLabel(w.ticketNumberText ?? w.ticketNumber);
 
                 // Name cell
                 const tdName = document.createElement("td");

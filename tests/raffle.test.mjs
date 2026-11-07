@@ -17,7 +17,7 @@ test('November title, poster, winner and history workflow against local D1/R2', 
     t.after(() => mf.dispose());
     const DB = await mf.getD1Database('DB');
     const PHOTOS_BUCKET = await mf.getR2Bucket('PHOTOS_BUCKET');
-    for (const file of ['../migrations/001_schema.sql', '../migrations/migrations/00x_raffle_poster.sql', '../migrations/005_winner_ticket_text.sql']) {
+    for (const file of ['../migrations/001_schema.sql', '../migrations/migrations/00x_raffle_poster.sql', '../migrations/005_winner_ticket_text.sql', '../migrations/006_bonus_winner_tickets.sql']) {
         const sql = (await readFile(new URL(file, import.meta.url), 'utf8')).replace(/--[^\n]*/g, '');
         for (const statement of sql.split(';').filter(s => s.trim())) await DB.prepare(statement).run();
     }
