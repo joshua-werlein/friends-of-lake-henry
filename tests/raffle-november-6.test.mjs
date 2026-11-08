@@ -7,7 +7,7 @@ import { Miniflare } from 'miniflare';
 import { decidePhoto, finishPost, failPost, claimPost, matchPrize, reconcileRows, reasonCode, requeuePost, rowDiagnostics, sanitizeCode, writeDecision } from '../src/lib/server/raffle-photo-autopublish.ts';
 import { calendarPosition, matchApprovedSlot, prizeSchedule, supplementDraft } from '../src/lib/server/raffle-prizes.ts';
 import { parseExtraction } from '../src/lib/raffle-photo-import.ts';
-import { composeWinnerPrize, parseWinnerPrize, prizeCells, ticketLabel, ticketlessWinnerId } from '../src/lib/winner-prize.ts';
+import { composeWinnerPrize, parseWinnerPrize, prizeCells, publicTicketLabel, ticketLabel, ticketlessWinnerId } from '../src/lib/winner-prize.ts';
 import { winnerPrompt } from '../workers/facebook-live/photos.ts';
 import { completedDrawingDates } from '../src/pages/api/raffle/prizes.ts';
 import { GET as adminWinners, POST as adminPost } from '../src/pages/api/admin/raffle/winners.ts';
@@ -113,6 +113,11 @@ test('corrected announcement: Troy 1st with 288, Lyle 2nd and Kent Bonus with no
     for (const value of [null, '', 0, '0', '000', undefined]) assert.equal(ticketLabel(value), 'Not published', String(value));
     assert.equal(ticketLabel('047'), '047');
     assert.equal(ticketLabel(681), '681');
+    // The public table shows only an em dash for a missing ticket; real labels keep leading zeros.
+    for (const value of [null, '', 0, '0', '000', undefined]) assert.equal(publicTicketLabel(value), '—', String(value));
+    assert.equal(publicTicketLabel('047'), '047');
+    assert.equal(publicTicketLabel('050'), '050');
+    assert.equal(publicTicketLabel(338), '338');
 });
 
 test('the revised prompt still reads the genuine two-column November 3 and 4 images', async t => {

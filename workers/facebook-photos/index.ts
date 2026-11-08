@@ -38,7 +38,7 @@ const MAX_WEBHOOK_BYTES = 256 * 1024;
 const log = (event: string, detail: Record<string, string | number | boolean> = {}) => console.log(JSON.stringify({ event, ...detail }));
 const enabled = (env: Env) => env.FB_PHOTO_AUTOMATION_ENABLED === 'true';
 
-async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, fetcher: Fetcher, syncRoute: boolean) {
+async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, syncRoute: boolean) {
     const receivedAt = Date.now();
     const verifyToken = syncRoute ? env.FOHL_SYNC_WEBHOOK_VERIFY_TOKEN : env.FB_WEBHOOK_VERIFY_TOKEN;
     const appSecret = syncRoute ? env.FOHL_SYNC_APP_SECRET : env.FB_APP_SECRET;
@@ -92,11 +92,11 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, 
         catch {
             log('webhook-live-forward-failed', { eventRef: id.slice(0, 12), receivedAt: new Date(receivedAt).toISOString(), notifyMs: Date.now() - forwardAt });
             diagnostic({stage:'webhook-forward',at:Date.now(),receivedAt,forwardAt,queueMs:forwardAt-receivedAt,notifyMs:Date.now()-forwardAt,accepted:false,status:'forward-failed'});
-            if(fresh.length&&enabled(env))ctx.waitUntil(drain(env,fetcher,new Date(),fresh));return new Response('Retry event delivery',{status:503});
+            return new Response('Retry event delivery',{status:503});
         }
     }
     log('webhook-received', { posts: ids.length, queued: fresh.length });
-    if (fresh.length && enabled(env)) ctx.waitUntil(drain(env, fetcher, new Date(), fresh));
+    // Queued posts are processed by the two-minute cron; AI extraction outlasts the webhook's post-response waitUntil budget.
     return new Response('EVENT_RECEIVED', { headers: { 'content-type': 'text/plain' } });
 }
 
@@ -234,7 +234,7 @@ export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
         async fetch(request: Request, env: Env, ctx: ExecutionContext) {
             const { pathname } = new URL(request.url);
             if (pathname === '/facebook/webhook' || pathname === '/facebook/webhook/fohl-sync') {
-                return handleWebhook(request, env, ctx, fetcher, pathname.endsWith('/fohl-sync'));
+                return handleWebhook(request, env, ctx, pathname.endsWith('/fohl-sync'));
             }
             return new Response('Not found', { status: 404 });
         },

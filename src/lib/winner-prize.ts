@@ -17,6 +17,8 @@ export const WINNER_PLACEMENT_ORDER_SQL = `CASE WHEN prize LIKE '1st place%' THE
 export const TICKET_NOT_PUBLISHED = 'Not published';
 // A missing ticket is never shown as 0 or null. Real labels, including leading zeros such as 047, pass through unchanged.
 export const ticketLabel = (value: unknown) => { const label = String(value ?? '').trim(); return !label || /^0+$/.test(label) ? TICKET_NOT_PUBLISHED : label; };
+// Public winners table: a missing ticket shows only an em dash, never placeholder text.
+export const publicTicketLabel = (value: unknown) => { const label = ticketLabel(value); return label === TICKET_NOT_PUBLISHED ? '—' : label; };
 const slug = (v: string) => v.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 /** Stable identity for a winner with no published ticket, from the approved calendar slot. Manual entry and the importer must agree, and adding a ticket later keeps it. */
 export function ticketlessWinnerId(drawDate: string, prizeSlotId: string) {

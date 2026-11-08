@@ -389,9 +389,13 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     const deliverVideo=signature=>mf.dispatchFetch('https://photos.test/facebook/webhook',{method:'POST',body:videoBody,headers:{'x-hub-signature-256':signature}});
     assert.equal((await deliverVideo('sha256='+'0'.repeat(64))).status,403);assert.equal(liveForwardCalls,0);
     assert.equal((await deliverVideo(sign(videoBody))).status,200);assert.equal((await deliverVideo(sign(videoBody))).status,200);assert.equal(liveEvents.size,1);assert.equal(aiCalls,0);
-    // 1. Signed delivery → processed in the background → two winners published.
+    // 1. Signed delivery → durably queued, no extraction in webhook background → the cron tick publishes two winners.
     const res = await webhook([daily]);
     assert.equal(res.status, 200);
+    await new Promise(r => setTimeout(r, 300));
+    assert.equal((await DB.prepare('SELECT status FROM raffle_photo_auto_posts WHERE post_id=?').bind(daily).first()).status, 'queued');
+    assert.equal(aiCalls, 0);
+    await mf.getWorker('photos').then(w => w.scheduled({ scheduledTime: now, cron: '*/2 * * * *' }));
     await settle(`SELECT status FROM raffle_photo_auto_posts WHERE post_id=?`, 'done', daily);
     assert.equal(aiCalls, 2); // Two independent reads that had to agree.
     const published = (await winners()).filter(w => w.drawDate === D);
@@ -433,6 +437,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     const bad = post(3, 'Correction: yesterday’s winners #LakeHenryRaffle');
     aiRows.set(3, [row({ drawDate: prev, ticketNumber: '555', name: 'Someone Else', town: 'Hixton' })]);
     await webhook([bad]);
+    await tick(new Date(first.getTime() + 7 * 60000));
     await settle(`SELECT status FROM raffle_photo_auto_posts WHERE post_id=?`, 'done', bad);
     assert.equal((await DB.prepare(`SELECT status FROM raffle_photo_auto_imports WHERE photo_id='900000000000003'`).first()).status, 'rejected');
     assert.deepEqual((await winners()).filter(w => w.drawDate === prev).map(w => [w.name, w.prize]), [['Art Soborowicz', '1st place — Savage 110 High Country 30-06']]);
@@ -464,6 +469,7 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     const untagged = post(4, 'Tonight at the Legion');
     aiRows.set(4, [row({ drawDate: prev, position: 2, ticketNumber: '600', name: 'Dee Park', town: 'Arcadia', prize: 'Gift Card' })]);
     await webhook([untagged]);
+    await tick(new Date(first.getTime() + 12 * 60000));
     await settle(`SELECT status FROM raffle_photo_auto_posts WHERE post_id=?`, 'ignored', untagged);
     assert.equal((await queue({ action: 'queue', source: `https://www.facebook.com/61552199315213/posts/4` })).status, 200);
     await tick(new Date(first.getTime() + 15 * 60000));

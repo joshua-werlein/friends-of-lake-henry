@@ -1,7 +1,7 @@
 ---
 import {winnerTicketLabels} from '../lib/server/raffle-ticket-labels';
 import type { D1Database, KVNamespace  } from "@cloudflare/workers-types";
-import { prizeCells, ticketLabel, WINNER_PLACEMENT_ORDER_SQL } from "../lib/winner-prize";
+import { prizeCells, publicTicketLabel, WINNER_PLACEMENT_ORDER_SQL } from "../lib/winner-prize";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, RAFFLE_VIDEO_MESSAGE, RAFFLE_NO_VIDEO_MESSAGE, type LiveConfig } from "../lib/facebook";
 import { loadRaffleSelection } from "../lib/server/raffle-selection";
@@ -347,7 +347,7 @@ const description =
                                 </td>
                                 <td class="tdPlace">{prizeCells(w.prize).place}</td>
                                 <td class="tdPrize">{prizeCells(w.prize).prize}</td>
-                                <td>{ticketLabel(w.ticketNumberText ?? w.ticketNumber)}</td>
+                                <td class="tdTicket">{publicTicketLabel(w.ticketNumberText ?? w.ticketNumber)}</td>
                                 <td class="tdName">{w.name}</td>
                                 <td class="tdTown">{w.town}</td>
                             </tr>
@@ -382,7 +382,7 @@ const description =
         set:html={JSON.stringify(initial)}
     ></script>
     <script>
-        import { prizeCells, ticketLabel } from "../lib/winner-prize";
+        import { prizeCells, publicTicketLabel } from "../lib/winner-prize";
         const initialEl = document.getElementById("raffleInitialState");
         const initial = /** @type {{monthKey:string, prevMonthKey:string|null, nextMonthKey:string|null}} */ (
             JSON.parse((initialEl?.textContent || "{}").trim())
@@ -526,7 +526,8 @@ const description =
 
                 // Ticket cell
                 const tdTicket = document.createElement("td");
-                tdTicket.textContent = ticketLabel(w.ticketNumberText ?? w.ticketNumber);
+                tdTicket.className = "tdTicket";
+                tdTicket.textContent = publicTicketLabel(w.ticketNumberText ?? w.ticketNumber);
 
                 // Name cell
                 const tdName = document.createElement("td");
@@ -1156,5 +1157,6 @@ const description =
 #publicWinnersTable col.colTown{width:9rem}
 #publicWinnersTable td.tdPrize{white-space:normal;overflow-wrap:break-word;min-width:0;line-height:1.55}
 #publicWinnersTable .tdPlace{white-space:nowrap;font-variant-numeric:tabular-nums}
+#publicWinnersTable .tdTicket{white-space:nowrap;font-variant-numeric:tabular-nums}
 #publicWinnersTable th:first-child,#publicWinnersTable td:first-child{padding-left:.75rem}
 </style>
