@@ -89,7 +89,10 @@ test('admin rejects malformed bodies and unsupported links without writes', asyn
         assert.equal((await POST(context(kv, body))).status, 400);
     }
     assert.equal(kv.writes.length, 0);
-    assert.equal((await GET({ locals: {} })).status, 500);
+    assert.equal((await GET({
+        locals: {},
+        request: new Request('https://example.test/api/admin/raffle/live')
+    })).status, 500);
 });
 test('broadcast contract validates identity, availability, Page and raffle classification', () => {
     assert.deepEqual(validateBroadcast(broadcast()), broadcast());
