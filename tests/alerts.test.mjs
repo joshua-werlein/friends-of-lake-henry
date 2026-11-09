@@ -468,7 +468,8 @@ test('photo Worker: signed webhook records a receipt without changing queue owne
     await DB.prepare(`INSERT INTO raffle_photo_auto_posts (post_id, source) VALUES ('144051422124740_42','webhook')`).run();
     await post(DB, '144051422124740_43', { status: 'failed', attempts: 6, created: new Date(Date.now() - 3600_000).toISOString() });
     const worker = await mf.getWorker('photos');
-    const offTick = new Date(Math.max(Date.now(), Date.parse('2026-11-07T16:10:00Z'))); offTick.setUTCMinutes(10);
+    // Fixed 10:10 AM Central: outside the poll window and the 5:45 PM–midnight every-tick alert window, whatever the real clock says.
+    const offTick = new Date('2026-11-07T16:10:00Z');
     await worker.scheduled({ scheduledTime: offTick, cron: '*/2 * * * *' });
     for (let i = 0; i < 100 && (await DB.prepare(`SELECT status FROM raffle_photo_auto_posts WHERE post_id='144051422124740_42'`).first()).status !== 'ignored'; i++) await new Promise(r => setTimeout(r, 50));
     assert.equal((await DB.prepare(`SELECT status FROM raffle_photo_auto_posts WHERE post_id='144051422124740_42'`).first()).status, 'ignored');
