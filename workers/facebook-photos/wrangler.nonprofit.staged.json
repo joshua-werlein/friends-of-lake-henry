@@ -1,0 +1,46 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "folh-facebook-winner-photos",
+  "main": "index.ts",
+  "compatibility_date": "2025-09-15",
+  "account_id": "ffe1aa6f4a533743f8f1b624f43c6d3d",
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": {
+    "crons": []
+  },
+  "vars": {
+    "FB_PHOTO_AUTOMATION_ENABLED": "false",
+    "FB_PHOTO_AUTOPUBLISH": "false",
+    "FB_PHOTO_POLL_ENABLED": "false",
+    "FB_PHOTO_EXTRACTION_PASSES": "2",
+    "FB_RAFFLE_MARKER": "#LakeHenryRaffle",
+    "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
+    "FB_SEASON_END": "2026-12-01T00:00:00-06:00",
+    "ALERTS_ENABLED": "false",
+    "ALERTS_MODE": "test",
+    "ALERT_WEBHOOK_DELIVERY_ENABLED": "false"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "folh-db",
+      "database_id": "ecde3f50-a040-415b-ae61-06045302c37e"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "services": [
+    {
+      "binding": "FACEBOOK_READS",
+      "service": "folh-facebook-live-discovery",
+      "entrypoint": "FacebookPhotoReads"
+    },
+    {
+      "binding": "FACEBOOK_LIVE",
+      "service": "folh-facebook-live-discovery",
+      "entrypoint": "LiveEvents"
+    }
+  ]
+}

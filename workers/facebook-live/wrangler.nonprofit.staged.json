@@ -1,0 +1,47 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "folh-facebook-live-discovery",
+  "main": "video-entry.ts",
+  "compatibility_date": "2025-09-15",
+  "account_id": "ffe1aa6f4a533743f8f1b624f43c6d3d",
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": {
+    "crons": []
+  },
+  "vars": {
+    "FB_AUTOMATION_ENABLED": "false",
+    "FB_VIDEO_PROBE_ENABLED": "false",
+    "FB_GRAPH_PAGE_ID": "144051422124740",
+    "FB_PUBLIC_PAGE_ID": "61552199315213",
+    "FB_RAFFLE_MARKER": "#LakeHenryRaffle",
+    "FB_POLL_INTERVAL_SECONDS": "60",
+    "FB_ACCESS_REVISION": "rotated-metadata-v3",
+    "FB_SEASON_START": "2026-11-01T00:00:00-05:00",
+    "FB_SEASON_END": "2026-12-01T00:00:00-06:00",
+    "ALERTS_ENABLED": "false",
+    "ALERTS_MODE": "test"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CONFIG",
+      "id": "c4ea8ffeb28a419abc8dafc250a0b6ba"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DISCOVERY_SCHEDULER",
+        "class_name": "DiscoveryScheduler"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "discovery-scheduler-v1",
+      "new_sqlite_classes": [
+        "DiscoveryScheduler"
+      ]
+    }
+  ]
+}
