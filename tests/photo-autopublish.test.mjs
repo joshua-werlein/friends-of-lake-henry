@@ -235,12 +235,18 @@ test('blank hometown needs both reads to verify the empty cell; incomplete prize
 
 test('November 8: a lone ambiguous-layout remark is outvoted by an identical clean read; clipping, free text and disagreement still reject',async t=>{
  const schedule=await prizeSchedule(await database(t),'2026-11');
- const {extractionPasses:[clean,flagged]}=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-08.extraction.json',import.meta.url),'utf8'));
+ const fixture=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-08.extraction.json',import.meta.url),'utf8'));
+ const {extractionPasses:[clean,flagged]}=fixture;
  assert.deepEqual([clean.warnings.length,flagged.warnings.length,flagged.warnings[0].code],[0,1,'ambiguous-layout']);
- const decision=decidePhoto([clean,flagged],[],schedule,'2026-11-08');
- const today=decision.rows.filter(r=>r.row.drawDate==='2026-11-08');
- assert.deepEqual(today.map(r=>[r.outcome,r.row.ticketNumber,r.row.name,r.row.town]),[['insert','619','Dale Schaub','Blair, WI'],['insert','291','Ryan Casper','Black River Falls, WI'],['insert','','John Kraemer','Neillsville, WI']]);
- assert.match(today[0].prize,/^1st place/);assert.match(today[1].prize,/^2nd place/);assert.match(today[2].prize,/^Bonus/);
+ // Both real production reads: the second added blank-cell notes beside the same layout remark.
+ for(const passes of [[clean,flagged],fixture.requeue.extractionPasses]){
+  const today=decidePhoto(passes,[],schedule,'2026-11-08').rows.filter(r=>r.row.drawDate==='2026-11-08');
+  assert.deepEqual(today.map(r=>[r.outcome,r.row.ticketNumber,r.row.name,r.row.town]),[['insert','619','Dale Schaub','Blair, WI'],['insert','291','Ryan Casper','Black River Falls, WI'],['insert','','John Kraemer','Neillsville, WI']]);
+  assert.match(today[0].prize,/^1st place/);assert.match(today[1].prize,/^2nd place/);assert.match(today[2].prize,/^Bonus/);
+ }
+ // Row-level notes beside an outvoted layout remark are still judged: a blank-cell note the reads contradict holds that row.
+ const contradicted=decidePhoto([clean,{...flagged,warnings:[...flagged.warnings,{scope:'cell',code:'blank-cell',drawDate:'2026-11-08',ticketNumber:'619',name:'Dale Schaub',field:'ticketNumber',message:'blank'}]}],[],schedule,'2026-11-08');
+ assert.equal(contradicted.rows.find(r=>r.row.ticketNumber==='619').outcome,'held');
  // Order of passes does not matter.
  assert.notEqual(decidePhoto([flagged,clean],[],schedule,'2026-11-08').status,'rejected');
  const warn=w=>({...flagged,warnings:[{...flagged.warnings[0],...w}]});

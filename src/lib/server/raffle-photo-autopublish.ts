@@ -105,14 +105,17 @@ function classifyWarnings(passes: Extraction[]) {
 }
 
 // A lone ambiguous-layout remark (November 8: "additional prize labels within cells", which the prompt calls normal) is
-// outvoted only when another pass read the image with no warnings at all and every row, raw cell text included, reads
+// outvoted only when another pass read the image with no image-wide warning and every row, raw cell text included, reads
 // identically in every pass. Clipping and legibility remarks always block: identical reads cannot disprove them.
 const ROW_FIELDS = ['drawDate', 'position', 'ticketNumber', 'ticketStatus', 'name', 'town', 'townStatus', 'prize', 'notes', 'cellText'] as const;
 const OUTVOTABLE = (w: ExtractionWarning) => typeof w !== 'string' && w.scope === 'image' && w.code === 'ambiguous-layout'
     && !/clip|cut[\s-]?off|truncat|crop/i.test(w.message ?? '') && !UNREADABLE_TEXT.test(w.message ?? '');
+// Row-level remarks (blank-cell notes) are judged per row as usual; only image-wide ones decide the vote.
 function outvotedLayoutWarning(passes: Extraction[]) {
-    const flagged = passes.filter(p => p.warnings.length);
-    if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.every(OUTVOTABLE)) return false;
+    const imageWide = (p: Extraction) => classifyWarnings([p]).imageWide.length > 0;
+    const flagged = passes.filter(imageWide);
+    if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.some(OUTVOTABLE)
+        || imageWide({ ...flagged[0], warnings: flagged[0].warnings.filter(w => !OUTVOTABLE(w)) })) return false;
     const read = (p: Extraction) => JSON.stringify(p.rows.map(r => ROW_FIELDS.map(f => r[f] ?? null)));
     return passes.every(p => p.rows.length > 0 && read(p) === read(passes[0]));
 }

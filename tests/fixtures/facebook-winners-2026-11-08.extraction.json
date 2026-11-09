@@ -482,5 +482,523 @@
     }
    ]
   }
- ]
+ ],
+ "requeue": {
+  "source": "production admin requeue, rejected 2026-11-09T00:20Z (blank-cell notes beside the layout remark)",
+  "extractionPasses": [
+   {
+    "containsWinners": true,
+    "rows": [
+     {
+      "drawDate": "2026-11-01",
+      "position": null,
+      "ticketNumber": "360",
+      "name": "Tim Hartley",
+      "town": "LaCrosse, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "360 - Tim Hartley, LaCrosse, WI"
+     },
+     {
+      "drawDate": "2026-11-01",
+      "position": null,
+      "ticketNumber": "894",
+      "name": "Troy Zigler",
+      "town": "Cashton, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "894 - Troy Zigler, Cashton, WI"
+     },
+     {
+      "drawDate": "2026-11-02",
+      "position": null,
+      "ticketNumber": "709",
+      "name": "Art Soborowicz",
+      "town": "Hixton, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "709 - Art Soborowicz, Hixton, WI"
+     },
+     {
+      "drawDate": "2026-11-02",
+      "position": null,
+      "ticketNumber": "323",
+      "name": "Amos Carvalho",
+      "town": "Auburn,WA",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "323 - Amos Carvalho, Auburn,WA"
+     },
+     {
+      "drawDate": "2026-11-03",
+      "position": null,
+      "ticketNumber": "392",
+      "name": "Nate Berg",
+      "town": "Brainerd, MN",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "392 - Nate Berg, Brainerd, MN"
+     },
+     {
+      "drawDate": "2026-11-03",
+      "position": null,
+      "ticketNumber": "047",
+      "name": "Kerry & Jeff Jacobson",
+      "town": "Monona, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "047 - Kerry & Jeff Jacobson, Monona, WI"
+     },
+     {
+      "drawDate": "2026-11-04",
+      "position": null,
+      "ticketNumber": "226",
+      "name": "Jim Wilber",
+      "town": "",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "blank",
+      "ticketStatus": "readable",
+      "cellText": "226 - Jim Wilber"
+     },
+     {
+      "drawDate": "2026-11-04",
+      "position": null,
+      "ticketNumber": "362",
+      "name": "Rob Stanton",
+      "town": "Dakota, MN",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "362 - Rob Stanton, Dakota, MN"
+     },
+     {
+      "drawDate": "2026-11-05",
+      "position": null,
+      "ticketNumber": "789",
+      "name": "Dan Heffner",
+      "town": "LaCrosse, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "789 - Dan Heffner, LaCrosse, WI"
+     },
+     {
+      "drawDate": "2026-11-05",
+      "position": null,
+      "ticketNumber": "050",
+      "name": "Brent Janzen",
+      "town": "Blair, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "050 - Brent Janzen, Blair, WI"
+     },
+     {
+      "drawDate": "2026-11-06",
+      "position": null,
+      "ticketNumber": "288",
+      "name": "Troy Lindberg",
+      "town": "Hixton, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "288 - Troy Lindberg, Hixton, WI"
+     },
+     {
+      "drawDate": "2026-11-06",
+      "position": null,
+      "ticketNumber": "",
+      "name": "Lyle Schlomer",
+      "town": "Osseo, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Lyle Schlomer, Osseo, WI"
+     },
+     {
+      "drawDate": "2026-11-06",
+      "position": null,
+      "ticketNumber": "",
+      "name": "Kent Johnson",
+      "town": "Blair, Wi",
+      "notes": "",
+      "prize": "Cutting Board",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Cutting Board - Kent Johnson, Blair, Wi"
+     },
+     {
+      "drawDate": "2026-11-07",
+      "position": null,
+      "ticketNumber": "338",
+      "name": "Joe Rabuck",
+      "town": "Augusta, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "338 - Joe Rabuck, Augusta, WI"
+     },
+     {
+      "drawDate": "2026-11-07",
+      "position": null,
+      "ticketNumber": "375",
+      "name": "Troy Gilson",
+      "town": "Tomah, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "375 - Troy Gilson, Tomah, WI"
+     },
+     {
+      "drawDate": "2026-11-07",
+      "position": null,
+      "ticketNumber": "",
+      "name": "Gage Everson",
+      "town": "Independence, WI",
+      "notes": "",
+      "prize": "Meat Bundle",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Meat Bundle - Gage Everson, Independence, WI"
+     },
+     {
+      "drawDate": "2026-11-08",
+      "position": null,
+      "ticketNumber": "619",
+      "name": "Dale Schaub",
+      "town": "Blair, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "619 - Dale Schaub, Blair, WI"
+     },
+     {
+      "drawDate": "2026-11-08",
+      "position": null,
+      "ticketNumber": "291",
+      "name": "Ryan Casper",
+      "town": "Black River Falls, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "291 - Ryan Casper, Black River Falls, WI"
+     },
+     {
+      "drawDate": "2026-11-08",
+      "position": null,
+      "ticketNumber": "",
+      "name": "John Kraemer",
+      "town": "Neillsville, WI",
+      "notes": "",
+      "prize": "Paddle board",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Paddle board - John Kraemer, Neillsville, WI"
+     }
+    ],
+    "warnings": []
+   },
+   {
+    "containsWinners": true,
+    "rows": [
+     {
+      "drawDate": "2026-11-01",
+      "position": null,
+      "ticketNumber": "360",
+      "name": "Tim Hartley",
+      "town": "LaCrosse, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "360 - Tim Hartley, LaCrosse, WI"
+     },
+     {
+      "drawDate": "2026-11-01",
+      "position": null,
+      "ticketNumber": "894",
+      "name": "Troy Zigler",
+      "town": "Cashton, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "894 - Troy Zigler, Cashton, WI"
+     },
+     {
+      "drawDate": "2026-11-02",
+      "position": null,
+      "ticketNumber": "709",
+      "name": "Art Soborowicz",
+      "town": "Hixton, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "709 - Art Soborowicz, Hixton, WI"
+     },
+     {
+      "drawDate": "2026-11-02",
+      "position": null,
+      "ticketNumber": "323",
+      "name": "Amos Carvalho",
+      "town": "Auburn,WA",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "323 - Amos Carvalho, Auburn,WA"
+     },
+     {
+      "drawDate": "2026-11-03",
+      "position": null,
+      "ticketNumber": "392",
+      "name": "Nate Berg",
+      "town": "Brainerd, MN",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "392 - Nate Berg, Brainerd, MN"
+     },
+     {
+      "drawDate": "2026-11-03",
+      "position": null,
+      "ticketNumber": "047",
+      "name": "Kerry & Jeff Jacobson",
+      "town": "Monona, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "047 - Kerry & Jeff Jacobson, Monona, WI"
+     },
+     {
+      "drawDate": "2026-11-04",
+      "position": null,
+      "ticketNumber": "226",
+      "name": "Jim Wilber",
+      "town": "",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "blank",
+      "ticketStatus": "readable",
+      "cellText": "226 - Jim Wilber"
+     },
+     {
+      "drawDate": "2026-11-04",
+      "position": null,
+      "ticketNumber": "362",
+      "name": "Rob Stanton",
+      "town": "Dakota, MN",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "362 - Rob Stanton, Dakota, MN"
+     },
+     {
+      "drawDate": "2026-11-05",
+      "position": null,
+      "ticketNumber": "789",
+      "name": "Dan Heffner",
+      "town": "LaCrosse, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "789 - Dan Heffner, LaCrosse, WI"
+     },
+     {
+      "drawDate": "2026-11-05",
+      "position": null,
+      "ticketNumber": "050",
+      "name": "Brent Janzen",
+      "town": "Blair, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "050 - Brent Janzen, Blair, WI"
+     },
+     {
+      "drawDate": "2026-11-06",
+      "position": null,
+      "ticketNumber": "288",
+      "name": "Troy Lindberg",
+      "town": "Hixton, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "288 - Troy Lindberg, Hixton, WI"
+     },
+     {
+      "drawDate": "2026-11-06",
+      "position": null,
+      "ticketNumber": "",
+      "name": "Lyle Schlomer",
+      "town": "Osseo, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Lyle Schlomer, Osseo, WI"
+     },
+     {
+      "drawDate": "2026-11-06",
+      "position": null,
+      "ticketNumber": "",
+      "name": "Kent Johnson",
+      "town": "Blair, Wi",
+      "notes": "",
+      "prize": "Cutting Board",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Cutting Board - Kent Johnson, Blair, Wi"
+     },
+     {
+      "drawDate": "2026-11-07",
+      "position": null,
+      "ticketNumber": "338",
+      "name": "Joe Rabuck",
+      "town": "Augusta, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "338 - Joe Rabuck, Augusta, WI"
+     },
+     {
+      "drawDate": "2026-11-07",
+      "position": null,
+      "ticketNumber": "375",
+      "name": "Troy Gilson",
+      "town": "Tomah, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "375 - Troy Gilson, Tomah, WI"
+     },
+     {
+      "drawDate": "2026-11-07",
+      "position": null,
+      "ticketNumber": "",
+      "name": "Gage Everson",
+      "town": "Independence, WI",
+      "notes": "",
+      "prize": "Meat Bundle",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Meat Bundle - Gage Everson, Independence, WI"
+     },
+     {
+      "drawDate": "2026-11-08",
+      "position": null,
+      "ticketNumber": "619",
+      "name": "Dale Schaub",
+      "town": "Blair, WI",
+      "notes": "",
+      "prize": "Firearm",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "619 - Dale Schaub, Blair, WI"
+     },
+     {
+      "drawDate": "2026-11-08",
+      "position": null,
+      "ticketNumber": "291",
+      "name": "Ryan Casper",
+      "town": "Black River Falls, WI",
+      "notes": "",
+      "prize": "Gift Card",
+      "townStatus": "readable",
+      "ticketStatus": "readable",
+      "cellText": "291 - Ryan Casper, Black River Falls, WI"
+     },
+     {
+      "drawDate": "2026-11-08",
+      "position": null,
+      "ticketNumber": "",
+      "name": "John Kraemer",
+      "town": "Neillsville, WI",
+      "notes": "",
+      "prize": "Paddle board",
+      "townStatus": "readable",
+      "ticketStatus": "blank",
+      "cellText": "Paddle board - John Kraemer, Neillsville, WI"
+     }
+    ],
+    "warnings": [
+     {
+      "scope": "image",
+      "code": "ambiguous-layout",
+      "drawDate": "",
+      "ticketNumber": "",
+      "name": "",
+      "message": "The layout of the table is ambiguous, with columns for Firearm and Gift Card, and additional prize-specific columns."
+     },
+     {
+      "scope": "row",
+      "code": "blank-cell",
+      "drawDate": "2026-11-04",
+      "ticketNumber": "226",
+      "name": "Jim Wilber",
+      "field": "town",
+      "message": "The hometown is blank."
+     },
+     {
+      "scope": "row",
+      "code": "blank-cell",
+      "drawDate": "2026-11-06",
+      "ticketNumber": "",
+      "name": "Lyle Schlomer",
+      "field": "ticketNumber",
+      "message": "The ticket number is blank."
+     },
+     {
+      "scope": "row",
+      "code": "blank-cell",
+      "drawDate": "2026-11-07",
+      "ticketNumber": "",
+      "name": "Gage Everson",
+      "field": "ticketNumber",
+      "message": "The ticket number is blank."
+     },
+     {
+      "scope": "row",
+      "code": "blank-cell",
+      "drawDate": "2026-11-08",
+      "ticketNumber": "",
+      "name": "John Kraemer",
+      "field": "ticketNumber",
+      "message": "The ticket number is blank."
+     }
+    ]
+   }
+  ]
+ }
 }
