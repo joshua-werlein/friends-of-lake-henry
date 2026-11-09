@@ -233,6 +233,30 @@ test('blank hometown needs both reads to verify the empty cell; incomplete prize
  assert.equal(decidePhoto([pass([a]),pass([a])],[],[...schedule,{...duplicate,id:'other-main'}],'2026-11-03').rows[0].outcome,'held');
 });
 
+test('November 8: a lone ambiguous-layout remark is outvoted by an identical clean read; clipping, free text and disagreement still reject',async t=>{
+ const schedule=await prizeSchedule(await database(t),'2026-11');
+ const {extractionPasses:[clean,flagged]}=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-08.extraction.json',import.meta.url),'utf8'));
+ assert.deepEqual([clean.warnings.length,flagged.warnings.length,flagged.warnings[0].code],[0,1,'ambiguous-layout']);
+ const decision=decidePhoto([clean,flagged],[],schedule,'2026-11-08');
+ const today=decision.rows.filter(r=>r.row.drawDate==='2026-11-08');
+ assert.deepEqual(today.map(r=>[r.outcome,r.row.ticketNumber,r.row.name,r.row.town]),[['insert','619','Dale Schaub','Blair, WI'],['insert','291','Ryan Casper','Black River Falls, WI'],['insert','','John Kraemer','Neillsville, WI']]);
+ assert.match(today[0].prize,/^1st place/);assert.match(today[1].prize,/^2nd place/);assert.match(today[2].prize,/^Bonus/);
+ // Order of passes does not matter.
+ assert.notEqual(decidePhoto([flagged,clean],[],schedule,'2026-11-08').status,'rejected');
+ const warn=w=>({...flagged,warnings:[{...flagged.warnings[0],...w}]});
+ const rejected=passes=>assert.equal(decidePhoto(passes,[],schedule,'2026-11-08').status,'rejected');
+ rejected([clean,warn({code:'clipped'})]);
+ rejected([clean,warn({message:'The right column is cut off.'})]);
+ rejected([clean,warn({message:'Some cells are blurry.'})]);
+ rejected([clean,warn({scope:'row'})].map((p,i)=>i?{...p,warnings:[{...p.warnings[0],code:'uncertain-association'}]}:p));
+ rejected([clean,{...flagged,warnings:['The layout of the table is ambiguous.']}]);
+ rejected([warn({}),warn({})]);
+ rejected([clean,{...flagged,warnings:[...flagged.warnings,{...flagged.warnings[0],code:'missing-heading'}]}]);
+ rejected([clean,{...flagged,rows:flagged.rows.map((r,i)=>i===16?{...r,town:'Blair'}:r)}]);
+ rejected([clean,{...flagged,rows:flagged.rows.map((r,i)=>i===17?{...r,cellText:'291 - Ryan Casper, Black River'}:r)}]);
+ rejected([clean,{...flagged,rows:flagged.rows.slice(0,-1)}]);
+});
+
 test('real column-aware AI reads recover November 3–4 headings, full towns, blank hometown and 047 without inventing places',async t=>{
  const schedule=await prizeSchedule(await database(t),'2026-11');
  for(const day of ['03','04']){

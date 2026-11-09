@@ -104,6 +104,19 @@ function classifyWarnings(passes: Extraction[]) {
     return { imageWide: [...new Set(imageWide)], rowWarnings };
 }
 
+// A lone ambiguous-layout remark (November 8: "additional prize labels within cells", which the prompt calls normal) is
+// outvoted only when another pass read the image with no warnings at all and every row, raw cell text included, reads
+// identically in every pass. Clipping and legibility remarks always block: identical reads cannot disprove them.
+const ROW_FIELDS = ['drawDate', 'position', 'ticketNumber', 'ticketStatus', 'name', 'town', 'townStatus', 'prize', 'notes', 'cellText'] as const;
+const OUTVOTABLE = (w: ExtractionWarning) => typeof w !== 'string' && w.scope === 'image' && w.code === 'ambiguous-layout'
+    && !/clip|cut[\s-]?off|truncat|crop/i.test(w.message ?? '') && !UNREADABLE_TEXT.test(w.message ?? '');
+function outvotedLayoutWarning(passes: Extraction[]) {
+    const flagged = passes.filter(p => p.warnings.length);
+    if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.every(OUTVOTABLE)) return false;
+    const read = (p: Extraction) => JSON.stringify(p.rows.map(r => ROW_FIELDS.map(f => r[f] ?? null)));
+    return passes.every(p => p.rows.length > 0 && read(p) === read(passes[0]));
+}
+
 // ---- Row identity: passes may reorder rows or disagree on how many there are ----
 // An empty date is still identity: a row both passes read without a date reaches row-level review, not an image-wide rejection.
 const ticketKey = (r: DraftWinner) => /^\d{1,9}$/.test(r.ticketNumber) && Number(r.ticketNumber) > 0 ? `${r.drawDate}:${Number(r.ticketNumber)}` : null;
@@ -187,7 +200,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
     if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
     const { imageWide, rowWarnings } = classifyWarnings(passes);
-    if (imageWide.length) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
+    if (imageWide.length && !outvotedLayoutWarning(passes)) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
     if (passes.every(p => !p.rows.length)) return { status: 'rejected', reasons: ['announcement contains no readable winner rows'], rows: [] };
     const groups = reconcileRows(passes);
     const agreed = groups.filter(g => passes.every((_, i) => g.members[i]));
