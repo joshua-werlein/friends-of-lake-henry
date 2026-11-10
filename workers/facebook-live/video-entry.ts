@@ -33,7 +33,7 @@ export class LiveEvents extends WorkerEntrypoint<Env> {
         await ns.get(ns.idFromName('november-2026')).fetch('https://discovery.internal/diagnostic',{method:'POST',body:JSON.stringify(entry)});
     }
     async notify(id:string) {
-        // Signed Live hints are accepted at any time on a November day; outside the backup window each runs one check.
+        // Signed Live hints are accepted at any time of year; outside the backup window each runs one check.
         if(!liveDay(new Date())||this.env.FB_AUTOMATION_ENABLED!=='true') return {accepted:false};
         if(!/^[a-f0-9]{64}$/.test(id)||!this.env.DISCOVERY_SCHEDULER) throw Error('invalid-event');
         const ns=this.env.DISCOVERY_SCHEDULER;

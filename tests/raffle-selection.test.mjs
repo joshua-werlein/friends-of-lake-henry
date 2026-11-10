@@ -63,7 +63,7 @@ test('verified replays remain displayed without repeating API requests', () => {
     assert.equal(selectRaffleVideo(input({ now: later, stateRaw: fresh })).source, 'automatic');
 });
 
-test('season is configurable for future years, validates dates, and never activates outside season', () => {
+test('season is configurable for future years and validates dates; a later season activates only with its own reviewed receipt', () => {
     const future = raffleSeason({ FB_SEASON_START: '2027-11-01T00:00:00-05:00', FB_SEASON_END: '2027-12-01T00:00:00-06:00' });
     assert.ok(future);
     assert.equal(selectRaffleVideo(input({ season: future })).source, 'manual');
@@ -73,7 +73,14 @@ test('season is configurable for future years, validates dates, and never activa
     const result = selectRaffleVideo(input({ now: new Date('2027-11-02T00:05:00Z'), season: future,
         manualRaw: advance(manual), automaticRaw: advance(stage), verificationRaw: advance(receipt),
         stateRaw: JSON.stringify({ ...state, lastVerifiedAt: '2027-11-02T00:05:00Z', lastAttemptAt: Date.parse('2027-11-02T00:05:00Z') }) }));
-    assert.equal(result.source, 'manual'); // A future season also needs a new reviewed discovery policy.
+    assert.equal(result.source, 'automatic'); // year-round code: the reviewed receipt, not the calendar, authorizes
+    const withOldReceipt = selectRaffleVideo(input({ now: new Date('2027-11-02T00:05:00Z'), season: future,
+        manualRaw: advance(manual), automaticRaw: advance(stage), verificationRaw: JSON.stringify(receipt),
+        stateRaw: JSON.stringify({ ...state, lastVerifiedAt: '2027-11-02T00:05:00Z', lastAttemptAt: Date.parse('2027-11-02T00:05:00Z') }) }));
+    assert.deepEqual([withOldReceipt.source, withOldReceipt.reason], ['manual', 'verification-required']); // 2026 receipt cannot authorize 2027
+    // A receipt may never authorize more than 366 days after its verification.
+    const tooLong = { ...receipt, expiresAt: '2027-11-03T00:00:00Z' };
+    assert.equal(selectRaffleVideo(input({ verificationRaw: JSON.stringify(tooLong) })).source, 'manual');
 });
 
 test('extra KV failures retain saved fallback; disabled reads only the manual record', async () => {

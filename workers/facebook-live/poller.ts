@@ -4,7 +4,7 @@ import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTR
 
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
-import { burstCadence, lastDiscoverySlot, liveDay } from '../../src/lib/server/raffle-discovery-schedule';
+import { burstCadence, inDrawingMonth, lastDiscoverySlot, liveDay } from '../../src/lib/server/raffle-discovery-schedule';
 import { pageAccessToken, type FacebookCredentials } from './credentials';
 import type { AlertEnv } from '../../src/lib/server/alerts';
 const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
@@ -66,7 +66,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
     const time = now.getTime();
     const season = raffleSeason(env);
     if (!season) return { status: 'configuration-error' };
-    if (!Number.isFinite(time) || time < season.start || time >= season.end) return { status: 'outside-window' };
+    // Year-round: the season end no longer stops webhook checks; an unexpired reviewed receipt is still required to stage.
+    if (!Number.isFinite(time) || time < season.start) return { status: 'outside-window' };
     if (env.FB_GRAPH_PAGE_ID !== GRAPH_PAGE_ID || env.FB_PUBLIC_PAGE_ID !== PUBLIC_PAGE_ID) return { status: 'configuration-error' };
     if (!env.CONFIG) return { status: 'storage-unavailable' };
     const token = pageAccessToken(env);
@@ -94,6 +95,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         // including every unchanged-video heartbeat and provider failure/backoff.
         // Interrupted polls leave the previous health timestamp to expire normally.
         const verified = verificationValid(await store.get(VERIFICATION_KEY), now, season);
+        // Off-season without a current reviewed receipt nothing can be staged: skip Graph and writes entirely.
+        if (!verified && !inDrawingMonth(now)) return { status: 'verification-required' };
         const probing = env.FB_VIDEO_PROBE_ENABLED === 'true';
         const previousRaw=await store.get(AUTOMATIC_KEY);
         const prior=previousState?.lastLiveObservation??(previousRaw?JSON.parse(previousRaw):null);

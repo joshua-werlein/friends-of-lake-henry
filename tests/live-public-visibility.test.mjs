@@ -83,17 +83,12 @@ test('coordinator failure, timeout, malformed or partial replies fall back to KV
     assert.deepEqual([unverified.readPath, unverified.source, unverified.reason], ['durable-object', 'manual', 'detection-unavailable']);
 });
 
-test('the fast display path is no longer limited to 5:50-8 PM: any November time reads the coordinator; other months use KV only', async () => {
-    for (const iso of ['2026-11-12T16:30:00.000Z', '2026-11-13T03:00:00.000Z', '2026-11-10T05:59:00.000Z']) {
+test('the fast display path reads the coordinator at any time of year', async () => {
+    for (const iso of ['2026-11-12T16:30:00.000Z', '2026-11-13T03:00:00.000Z', '2026-11-10T05:59:00.000Z', '2026-12-02T00:00:00.000Z', '2027-03-15T15:00:00.000Z']) {
         const read = coordinator();
+        assert.equal(liveDay(t(iso)), true);
         assert.equal((await load(edge(), t(iso), read)).readPath, 'durable-object', iso);
         assert.equal(read.calls, 1);
-    }
-    for (const iso of ['2026-12-02T00:00:00.000Z', '2026-10-31T23:55:00.000Z']) {
-        const read = coordinator();
-        assert.equal(liveDay(t(iso)), false);
-        assert.equal((await load(edge(), t(iso), read)).readPath, 'kv');
-        assert.equal(read.calls, 0);
     }
 });
 

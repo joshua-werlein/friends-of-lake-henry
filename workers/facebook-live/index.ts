@@ -14,7 +14,7 @@ export default {
             const namespace = env.DISCOVERY_SCHEDULER;
             await namespace.get(namespace.idFromName('november-2026')).fetch('https://discovery.internal/kick');
         }
-        // Alert emails leave from this stateless cron invocation, never from the serialized detection alarm.
+        // In the 5:50-6:30 PM window alert emails leave from this stateless cron invocation; the coordinator sends them otherwise.
         if (env.ALERTS_ENABLED === 'true' && inAlertDeliveryWindow(now)) await deliverLiveAlerts(env);
     },
     fetch(): Response { return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } }); },

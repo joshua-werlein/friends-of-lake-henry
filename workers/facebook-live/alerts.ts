@@ -1,9 +1,10 @@
 // Facebook Live alert signals. State lives in the coordinator's strongly consistent Durable Object storage,
 // so alerting adds no KV reads or writes.
 //
-// The serialized detection alarm only PLANS (pure + DO storage). It never contacts Resend. Delivery runs from the
-// Worker's every-minute cron, outside the Durable Object: it claims due envelopes from the DO, sends them over the
-// network, and reports each result back. A slow or failing Resend therefore cannot delay the next detection alarm.
+// The detection check only PLANS (pure + DO storage). During the 5:50-6:30 PM November cron window the Worker's
+// cron claims due envelopes from the DO, sends them and reports each result back. Outside it the coordinator sends
+// them itself right after the check that raised them, and on retry alarms, only when no detection check is due
+// within DELIVERY_GUARD_MS. Both paths use the same claim/lease/idempotency-key records, so nothing is sent twice.
 import { alertConfig, applyDelivery, planIncidents, prepareDelivery, resendSender, testSender, MAX_SENDS_PER_EVALUATION,
     type AlertEnv, type Delivery, type Envelope, type IncidentRecord, type Signal } from '../../src/lib/server/alerts';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
@@ -100,6 +101,44 @@ export async function recordLiveDelivery(storage: Storage, id: string, key: stri
     const applied = record ? applyDelivery(record, key, result, now) : null;
     if (!applied) return false;
     all[id] = applied; await saveMap(storage, all, now); return true;
+}
+
+/** Earliest time a stored envelope in the current mode is due (claims and retries included), or null. Never throws. */
+export async function nextLiveDeliveryAt(storage: Storage, env: AlertEnv, now: Date): Promise<number | null> {
+    const config = alertConfig(env);
+    if (!config.enabled) return null;
+    try {
+        let next: number | null = null;
+        for (const record of Object.values(await loadMap(storage))) {
+            const e = record.envelope;
+            if (!e || e.mode !== config.mode) continue;
+            const due = e.nextAttemptAt ? Date.parse(e.nextAttemptAt) : now.getTime();
+            if (Number.isFinite(due) && (next === null || due < next)) next = due;
+        }
+        return next;
+    } catch { return null; }
+}
+
+/** Coordinator side (outside the cron window): the same claim -> send -> record sequence as the cron, using the
+ * stored claims directly instead of the /alerts routes. Never throws. */
+export async function deliverFromCoordinator(storage: Storage, env: AlertEnv, now: () => Date, fetcher?: typeof fetch, log: (l: string) => void = console.log, timeoutMs = 5000) {
+    const config = alertConfig(env);
+    if (!config.enabled) return { status: 'skipped' as const, sent: 0 };
+    try {
+        const due = await claimLiveDeliveries(storage, env, now());
+        const send = config.mode === 'live' ? resendSender(config, fetcher, timeoutMs) : testSender(log);
+        let sent = 0;
+        for (const { id, envelope } of due) {
+            let result: Delivery;
+            try { result = await send(envelope); } catch { result = { ok: false, uncertain: true, code: 'sender-failure' }; }
+            sent++;
+            log(JSON.stringify({ event: result.ok ? 'alert-delivered' : 'alert-delivery-failed', kind: envelope.kind, mode: config.mode, incidentId: id, path: 'coordinator',
+                ...(result.ok ? {} : { code: result.code, uncertain: result.uncertain }) }));
+            try { await recordLiveDelivery(storage, id, envelope.key, result, now()); }
+            catch { log(JSON.stringify({ event: 'alert-result-report-failed', incidentId: id })); }
+        }
+        return { status: 'delivered' as const, sent };
+    } catch { log(JSON.stringify({ event: 'alerts-unavailable', system: SYSTEM })); return { status: 'error' as const, sent: 0 }; }
 }
 
 type Scheduler = { idFromName(name: string): unknown; get(id: unknown): { fetch(url: string, init?: RequestInit): Promise<Response> } };

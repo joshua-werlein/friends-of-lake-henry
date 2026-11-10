@@ -9,8 +9,13 @@ function localTime(now: Date): { day: string; minute: number } | null {
     const parts = Object.fromEntries(clock.formatToParts(now).map(part => [part.type, part.value]));
     return { day: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
 }
-/** Any moment of a November 2026 day (Central): signed Live webhooks may trigger a check and a selection. */
+/** Any valid moment, any time of year: signed Live webhooks may trigger a check and a selection (the verification
+ * receipt, same-day and recency rules still apply). Scheduled backup discovery stays November 2026 only. */
 export function liveDay(now: Date): boolean {
+    return !!localTime(now);
+}
+/** A November 2026 day (Central): the drawing month (timing journal, drawing-start fast refresh). */
+export function inDrawingMonth(now: Date): boolean {
     const local = localTime(now);
     return !!local && local.day.startsWith('2026-11-');
 }
@@ -52,10 +57,17 @@ export function offHoursReplayHealthy(now: Date, verifiedAt: Date, attemptedAt: 
 }
 
 export const drawingDate = (now:Date) => localTime(now)?.day ?? null;
-/** Live alert emails are sent by the cron from the window's start until 8 PM Central, so retries/recoveries can finish. */
+/** The cron sends Live alert emails from the window's start through 6:30:59 PM Central in November. Outside it the
+ * coordinator sends them right after the check that raised them, and on retry alarms. */
+const ALERT_END = 18 * 60 + 31;
 export function inAlertDeliveryWindow(now: Date): boolean {
     const local = localTime(now);
-    return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < 20 * 60;
+    return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < ALERT_END;
+}
+/** End (exclusive) of today's cron alert window when `now` is inside it, otherwise null. */
+export function alertWindowEnd(now: Date): number | null {
+    const local = localTime(now);
+    return local && inAlertDeliveryWindow(now) ? Math.floor(now.getTime() / 60000) * 60000 + (ALERT_END - local.minute) * 60000 : null;
 }
 
 /** 5:58:00-6:05:59 PM Central, when a scheduled drawing starts: returns that span's end (browsers poll every 5 s), else 0. */

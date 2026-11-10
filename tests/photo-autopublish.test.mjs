@@ -331,7 +331,7 @@ test('deployment preflight rejects anything that could replace the Live discover
     const live = JSON.parse(await readFile(new URL('../workers/facebook-live/wrangler.video.activation.existing-account.json', import.meta.url)));
     assert.equal(live.name, 'folh-facebook-live-discovery');
     assert.deepEqual(live.migrations, [{ tag: 'discovery-scheduler-v1', new_sqlite_classes: ['DiscoveryScheduler'] }]);
-    assert.deepEqual(live.triggers.crons, ['50-59 23 * 11 *', '* 0-1 * 11,12 *']);
+    assert.deepEqual(live.triggers.crons, ['50-59 23 * 11 *', '0-30 0 * 11,12 *']);
 });
 
 // ---- End to end under workerd: signed webhook → Graph → CDN → AI (2 passes) → D1 → public API → admin edit/delete ----

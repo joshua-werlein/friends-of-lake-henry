@@ -1,8 +1,8 @@
-import { discoverySlot, drawingStartFastUntil, inDiscoveryWindow, liveDay, nextDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
+import { alertWindowEnd, discoverySlot, drawingStartFastUntil, inAlertDeliveryWindow, inDiscoveryWindow, liveDay, nextDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
 import { runPoll, STATE_KEY, type Env, type Outcome } from './poller';
 import { AUTOMATIC_KEY } from '../../src/lib/server/facebook-automation';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
-import { claimLiveDeliveries, planLiveAlerts, recordLiveDelivery } from './alerts';
+import { claimLiveDeliveries, deliverFromCoordinator, nextLiveDeliveryAt, planLiveAlerts, recordLiveDelivery } from './alerts';
 import type { Delivery } from '../../src/lib/server/alerts';
 import { TimingJournal } from './timing';
 
@@ -14,6 +14,8 @@ const timelineKey = (day: string) => 'timeline:' + day;
 export const CHECK_DEADLINE_MS = 60_000;
 /** Public pages read the coordinator snapshot fresh and poll every 5 s for this long after a signed hint or a new selection. */
 export const ACTIVE_DISPLAY_MS = 2 * 60_000;
+/** Coordinator alert sends wait until no detection check is due within this long; retry alarms are at least this far apart. */
+export const DELIVERY_GUARD_MS = 15_000;
 
 type Storage = {
     get<T>(key: string): Promise<T | undefined>;
@@ -50,10 +52,38 @@ export class DiscoveryCoordinator {
     }
     async kick(): Promise<void> {
         if (this.env.FB_AUTOMATION_ENABLED !== 'true' || !inDiscoveryWindow(new Date(this.now())) || this.busy) return;
-        if (await this.storage.getAlarm() === null) await this.storage.setAlarm(this.now());
+        // A later alert-retry alarm must not postpone the backup check.
+        const alarm = await this.storage.getAlarm();
+        if (alarm === null || alarm > this.now() + 60_000) await this.storage.setAlarm(this.now());
     }
 
     async alarm(): Promise<Outcome> {
+        const outcome = await this.check();
+        if (outcome.status !== 'already-running') await this.afterCheck();
+        return outcome;
+    }
+
+    /** Event-driven alert email outside the cron window: sends due envelopes right after the check that planned them
+     * (and on retry alarms) when no detection check is due within DELIVERY_GUARD_MS, then keeps one alarm for the next
+     * due envelope. Inside the window the cron sends and the coordinator takes over at its 6:31 PM end. Never throws. */
+    private async afterCheck() {
+        try {
+            const time = this.now();
+            if (!inAlertDeliveryWindow(new Date(time))) {
+                const alarm = await this.storage.getAlarm(), due = await nextLiveDeliveryAt(this.storage, this.env, new Date(time));
+                if (due !== null && due <= time && (alarm === null || alarm - time >= DELIVERY_GUARD_MS))
+                    await deliverFromCoordinator(this.storage, this.env, () => new Date(this.now()), this.fetcher);
+            }
+            const after = this.now(), due = await nextLiveDeliveryAt(this.storage, this.env, new Date(after));
+            if (due === null) return;
+            let at = Math.max(due, after + DELIVERY_GUARD_MS);
+            at = alertWindowEnd(new Date(at)) ?? at;
+            const alarm = await this.storage.getAlarm();
+            if (alarm === null || alarm > at) await this.storage.setAlarm(at);
+        } catch { /* Alert delivery never affects detection. */ }
+    }
+
+    private async check(): Promise<Outcome> {
         if (this.busy) return { status: 'already-running' };
         const time = this.now(), date = new Date(time);
         if (this.env.FB_AUTOMATION_ENABLED !== 'true' || !liveDay(date)) return { status: 'outside-drawing-window' };

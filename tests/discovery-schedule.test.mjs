@@ -83,7 +83,8 @@ test('backup window is 5:50:00-6:15:59 PM Chicago incl. DST and November 30; off
  assert.equal(inDiscoveryWindow(new Date(time)),active,time);if(active)continue;
  // November days: without a signed webhook the coordinator runs no check outside the window.
  const s=setup(),m=api(),c=coordinator(s,time,m);assert.equal((await c.fire()).status,'outside-drawing-window');assert.deepEqual([s.reads.length,s.writes.length,m.calls.length,c.due],[0,0,0,null]);
- if(!time.startsWith('2026-11')&&!time.startsWith('2026-12-01T0')){assert.equal((await poll(s,time,m)).status,'outside-drawing-window');assert.deepEqual([s.reads.length,s.writes.length,m.calls.length],[0,0,0]);}}
+ // Other months: a webhook check reaches the receipt gate; with the expired 2026 receipt it makes no Graph calls or writes.
+ if(!time.startsWith('2026-11')&&!time.startsWith('2026-12-01T0')){assert.equal((await poll(s,time,m)).status,'verification-required');assert.deepEqual([s.writes.length,m.calls.length],[0,0]);}}
  assert.equal(inDiscoveryWindow(new Date('invalid')),false);
 });
 test('November 3 known video requires no hashtag, positive Live metadata and Page ownership; ordinary and unrelated videos rejected',async()=>{
@@ -97,7 +98,7 @@ test('newer daily drawing replaces old replay, duplicates do not rewrite, manual
  assert.equal((await poll(s,'2026-11-03T00:06:00Z')).status,'unchanged');assert.equal(s.data.get(automaticKey),stage);assert.equal(s.writes.filter(k=>k===automaticKey).length,1);
  s.data.set(manualKey,JSON.stringify({...JSON.parse(manual),automaticEnabled:true,manualOverrideAt:'2026-11-03T00:06:30Z'}));assert.equal(selection(s,'2026-11-03T00:07:00Z').source,'manual');
  assert.equal((await poll(s,'2026-11-04T00:05:00Z',api({id:'333',published:'2026-11-04T00:00:00Z'}))).status,'staged');assert.equal(selection(s,'2026-11-04T00:05:01Z').source,'automatic');
- assert.equal((await poll(s,'2026-12-02T00:00:00Z',api({id:'444',published:'2026-12-02T00:00:00Z'}))).status,'outside-drawing-window');assert.equal(JSON.parse(s.data.get(automaticKey)).id,'333');
+ assert.equal((await poll(s,'2026-12-02T00:00:00Z',api({id:'444',published:'2026-12-02T00:00:00Z'}))).status,'verification-required');assert.equal(JSON.parse(s.data.get(automaticKey)).id,'333');
 });
 test('API failures retain the last verified display and preserve sanitized endpoint/status/time diagnostics; retry at most two minutes',async()=>{
  const s=setup();await poll(s,'2026-11-03T00:05:00Z');const stage=s.data.get(automaticKey);

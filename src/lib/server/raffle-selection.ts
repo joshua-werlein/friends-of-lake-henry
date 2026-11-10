@@ -6,6 +6,8 @@ import { drawingDate, drawingStartFastUntil, liveDay } from './raffle-discovery-
 
 export const VERIFICATION_KEY = 'raffle_live_verification';
 export const STATE_KEY = 'raffle_live_automation_state';
+/** A reviewed receipt authorizes at most this long after its verification; it must then be re-reviewed. */
+export const MAX_RECEIPT_MS = 366 * 86400000;
 export type SelectionMode = 'manual' | 'automatic';
 export type Selection = { manualConfig: LiveConfig; config: LiveConfig; selectionMode: SelectionMode;
     source: 'manual' | 'automatic'; reason: string; automaticAllowed: boolean; videoMetadata?: unknown };
@@ -25,7 +27,7 @@ export function verificationValid(raw: string | null, now: Date, season: Season 
         && v.publicPlaybackVerified === true && v.rollbackTested === true
         && typeof v.verifiedVideoId === 'string' && /^\d{1,40}$/.test(v.verifiedVideoId)
         && iso(v.verifiedAt) && iso(v.expiresAt) && Date.parse(v.verifiedAt) <= now.getTime()
-        && Date.parse(v.expiresAt) > now.getTime() && Date.parse(v.expiresAt) <= season.end && Date.parse(v.verifiedAt) >= season.start;
+        && Date.parse(v.expiresAt) > now.getTime() && Date.parse(v.expiresAt) - Date.parse(v.verifiedAt) <= MAX_RECEIPT_MS && Date.parse(v.verifiedAt) >= season.start;
 }
 export function selectionMode(raw: string | null): SelectionMode {
     const v = readRecord(raw);
@@ -47,7 +49,11 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
     const hasOverride=iso(overrideAt)&&Date.parse(overrideAt)<=time&&('manualOverrideUrl' in manualRecord!)
         && (overrideUrl===null||(typeof overrideUrl==='string'&&!!normalizeFacebookVideoUrl(overrideUrl)));
     const manualDisplay=hasOverride?{latestVideoUrl:overrideUrl===null?null:normalizeFacebookVideoUrl(overrideUrl as string),updatedAt:overrideAt as string}:manualConfig;
-    const allowed = input.enabled === true && verificationValid(input.verificationRaw ?? null, season && time >= season.end ? new Date(season.end-1) : now, season);
+    // After the season, the final season replay stays displayable under the season's receipt (no new selections: the
+    // poller needs an unexpired receipt to stage). A later reviewed receipt authorizes year-round selection directly.
+    const allowedNow = verificationValid(input.verificationRaw ?? null, now, season);
+    const finalReplay = !allowedNow && !!season && time >= season.end && verificationValid(input.verificationRaw ?? null, new Date(season.end - 1), season);
+    const allowed = input.enabled === true && (allowedNow || finalReplay);
     const state = readRecord(input.stateRaw);
     const observation = state?.lastLiveObservation as Record<string, unknown> | undefined;
     const observedFormat = observation?.schemaVersion === 2 && observation.contract === FACEBOOK_LIVE_CONTRACT
@@ -69,14 +75,14 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         || !iso(stage.originObservedAt) || !liveDay(new Date(stage.originObservedAt))
         || Date.parse(stage.originObservedAt)>Date.parse(stage.observedAt as string) || Date.parse(stage.originObservedAt)<Date.parse(stage.publishedAt as string)
         || stage.drawingDate !== drawingDate(new Date(stage.originObservedAt)) || drawingDate(new Date(stage.publishedAt as string)) !== stage.drawingDate
-        || Date.parse(stage.originObservedAt) < season!.start || Date.parse(stage.originObservedAt) >= season!.end
+        || Date.parse(stage.originObservedAt) < season!.start || (finalReplay && Date.parse(stage.originObservedAt) >= season!.end)
         || stage.videoId !== stage.id || typeof stage.postId !== 'string' || !new RegExp(`^${FACEBOOK_GRAPH_PAGE_ID}_\\d+$`).test(stage.postId)
         || stage.url !== `https://www.facebook.com/${FACEBOOK_PAGE_ID}/videos/${stage.id}/`
         || !iso(stage.publishedAt) || !iso(stage.observedAt) || Date.parse(stage.publishedAt) < season.start
         || Date.parse(stage.publishedAt) > time || Date.parse(stage.observedAt) < Date.parse(stage.publishedAt)
         || Date.parse(stage.observedAt) > time
         || stage.status !== 'video' || !['LIVE', 'VOD', 'UNKNOWN'].includes(String(stage.liveStatus))
-        || Date.parse(stage.publishedAt) >= season.end) return fallback('invalid-discovery');
+        || (finalReplay && Date.parse(stage.publishedAt) >= season.end)) return fallback('invalid-discovery');
     if (iso(manualRecord?.manualOverrideAt) && drawingDate(new Date(manualRecord.manualOverrideAt))! >= String(stage.drawingDate)) return fallback('manual-override');
     // Provider failures never erase a previously verified replay. New stages still require an actual successful verification.
     if (!state || state.version!==1 || state.lastVerifiedVideoId!==stage.id || !iso(state.lastVerifiedAt)
@@ -136,6 +142,7 @@ export async function loadRaffleSelection(store: { get(key: string): Promise<str
     if (!enabled || selectionMode(manualRaw)==='manual') return { ...selectRaffleVideo({ manualRaw, enabled, now, season }), readPath: 'kv', refreshMs: IDLE_REFRESH_MS };
     const refreshMs = (activeUntil: number) => Math.max(activeUntil, drawingStartFastUntil(now)) > now.getTime() ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS;
     try {
+        // Year-round: the coordinator snapshot (idle reuse 15 s) lets a newly detected Live appear promptly at any time.
         const coordinator = fresh && liveDay(now) ? cache.read(fresh, now.getTime()) : Promise.resolve(null);
         const [snapshot, verificationRaw] = await Promise.all([coordinator, store.get(VERIFICATION_KEY)]);
         const refresh = refreshMs(snapshot?.activeUntil ?? 0);
