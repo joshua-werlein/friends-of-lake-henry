@@ -150,6 +150,14 @@ export class DiscoveryCoordinator {
     async claimAlerts() { return claimLiveDeliveries(this.storage, this.env, new Date(this.now())); }
     async recordAlert(id: string, key: string, result: Delivery) { return recordLiveDelivery(this.storage, id, key, result, new Date(this.now())); }
 
+    /** Read-only public snapshot of the strongly consistent selection and state copies, read together so they always
+     * match. `undefined` means no copy exists yet (the caller then uses KV). No KV, Graph, alarm or journal I/O. */
+    async selectionSnapshot(): Promise<{ automaticRaw?: string | null; stateRaw?: string | null }> {
+        const [automatic, state] = await Promise.all([this.storage.get<{ value: string | null }>('cache:' + AUTOMATIC_KEY),
+            this.storage.get<{ value: string | null }>('cache:' + STATE_KEY)]);
+        return { ...(automatic ? { automaticRaw: automatic.value } : {}), ...(state ? { stateRaw: state.value } : {}) };
+    }
+
     /** Records only fields not yet set for that drawing day. */
     private async mark(fields: Omit<DrawingTimeline, 'day'>, at: number) {
         try {

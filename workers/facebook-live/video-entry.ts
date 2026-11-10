@@ -40,6 +40,14 @@ export class LiveEvents extends WorkerEntrypoint<Env> {
         if(!response.ok) throw Error('event-queue-unavailable');
         return response.json();
     }
+    /** Read-only, strongly consistent automatic selection + state for the public resolver. No scheduling side effects. */
+    async selection() {
+        if(!this.env.DISCOVERY_SCHEDULER) return {};
+        const ns=this.env.DISCOVERY_SCHEDULER;
+        const response=await ns.get(ns.idFromName('november-2026')).fetch('https://discovery.internal/selection');
+        if(!response.ok) throw Error('selection-unavailable');
+        return response.json();
+    }
     /** Read-only per-day detection timeline (first webhook, first Live evidence, first selection). */
     async timeline(day:string) {
         if(!/^2026-11-\d{2}$/.test(day)||!this.env.DISCOVERY_SCHEDULER) return {timeline:null};

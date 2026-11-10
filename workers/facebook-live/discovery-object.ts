@@ -10,6 +10,8 @@ export class DiscoveryScheduler extends DurableObject<Env> {
         const url=new URL(request.url);
         // Read-only drawing timeline for administrators (service binding only; the DO has no public route).
         if(url.pathname==='/timeline' && request.method==='GET') return Response.json({timeline:await this.coordinator.timeline(url.searchParams.get('day')??'')});
+        // Read-only public selection snapshot (service binding only); never schedules work.
+        if(url.pathname==='/selection' && request.method==='GET') return Response.json(await this.coordinator.selectionSnapshot());
         if(url.pathname==='/diagnostic' && request.method==='POST') {
             if(Number(request.headers.get('content-length'))>2048) return new Response(null,{status:413});
             const body=await request.text(); if(body.length>2048) return new Response(null,{status:413});

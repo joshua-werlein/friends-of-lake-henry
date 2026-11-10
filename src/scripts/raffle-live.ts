@@ -5,6 +5,8 @@ const fallback = document.getElementById('facebookFallback');
 const message = document.getElementById('liveMessage');
 const updated = document.getElementById('liveUpdated');
 let checking = false;
+// Server hint: 5 s while a drawing starts, otherwise 15 s. Clamped so a bad response can never poll faster or stall.
+let refreshMs = 15000;
 async function refreshLive() {
     if (document.hidden || checking || !player) return;
     checking = true;
@@ -14,6 +16,7 @@ async function refreshLive() {
         });
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error('Unavailable');
+        refreshMs = Number.isFinite(data.refreshMs) ? Math.min(60000, Math.max(5000, data.refreshMs)) : 15000;
         const config = parseLiveConfig(JSON.stringify(data.config));
         const videoUrl = config.latestVideoUrl ?? '';
         player.dataset.videoLayout = data.presentation?.orientation === 'landscape' ? 'landscape' : 'portrait';
@@ -46,6 +49,6 @@ async function refreshLive() {
     } finally { checking = false; }
 }
 
-void refreshLive();
-window.setInterval(refreshLive, 15000);
+function schedule() { window.setTimeout(() => { void refreshLive().finally(schedule); }, refreshMs); }
+void refreshLive().finally(schedule);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void refreshLive(); });

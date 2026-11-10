@@ -2,7 +2,7 @@ import { parseLiveConfig, normalizeFacebookVideoUrl, RAFFLE_LIVE_KEY, FACEBOOK_P
     FACEBOOK_API_VERSION, FACEBOOK_LIVE_CONTRACT, type LiveConfig } from '../facebook';
 import { AUTOMATIC_KEY } from './facebook-automation';
 import { raffleSeason, type SeasonEnv, type Season } from './raffle-season';
-import { inDiscoveryWindow, drawingDate } from './raffle-discovery-schedule';
+import { inDiscoveryWindow, drawingDate, inFreshSelectionWindow } from './raffle-discovery-schedule';
 
 export const VERIFICATION_KEY = 'raffle_live_verification';
 export const STATE_KEY = 'raffle_live_automation_state';
@@ -85,14 +85,41 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         reason: 'verified-discovery', videoMetadata: observedFormat?.url === stage.url ? observedFormat : stage };
 }
 
-export async function loadRaffleSelection(store: { get(key: string): Promise<string | null> }, enabled: boolean, now = new Date(), seasonEnv: SeasonEnv = {}): Promise<Selection> {
+/** The Live coordinator's strongly consistent copy of the automatic selection and its state, read as one snapshot. */
+export type FreshSelection = () => Promise<unknown>;
+export type ReadPath = 'durable-object' | 'kv';
+export const FRESH_SELECTION_TIMEOUT_MS = 1500;
+const rawValue = (v: unknown): v is string | null => v === null || typeof v === 'string';
+/** Pages service binding → FreshSelection, or undefined when the binding/method is absent. */
+export function freshSelectionFrom(binding: unknown): FreshSelection | undefined {
+    const live = binding as { selection?: () => Promise<unknown> } | undefined;
+    return typeof live?.selection === 'function' ? () => live.selection!() : undefined;
+}
+async function readFresh(fresh: FreshSelection): Promise<{ automaticRaw: string | null; stateRaw: string | null } | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        const value = await Promise.race([fresh(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), FRESH_SELECTION_TIMEOUT_MS); })]);
+        const v = value as { automaticRaw?: unknown; stateRaw?: unknown } | null;
+        // Both values or neither: a coordinator selection paired with a KV state (or the reverse) can mismatch.
+        return v && rawValue(v.automaticRaw) && rawValue(v.stateRaw) ? { automaticRaw: v.automaticRaw, stateRaw: v.stateRaw } : null;
+    } catch { return null; }
+    finally { if (timer !== undefined) clearTimeout(timer); }
+}
+
+/** Manual record and verification receipt always come from KV. During the drawing window the automatic selection and
+ * state come from the coordinator when it answers in time; any failure, timeout or missing copy falls back to KV. */
+export async function loadRaffleSelection(store: { get(key: string): Promise<string | null> }, enabled: boolean, now = new Date(), seasonEnv: SeasonEnv = {},
+    fresh?: FreshSelection): Promise<Selection & { readPath: ReadPath }> {
     const manualRaw = await store.get(RAFFLE_LIVE_KEY);
     const season = raffleSeason(seasonEnv);
-    if (!enabled || selectionMode(manualRaw)==='manual') return selectRaffleVideo({ manualRaw, enabled, now, season });
+    if (!enabled || selectionMode(manualRaw)==='manual') return { ...selectRaffleVideo({ manualRaw, enabled, now, season }), readPath: 'kv' };
     try {
-        const [automaticRaw, stateRaw, verificationRaw] = await Promise.all([store.get(AUTOMATIC_KEY), store.get(STATE_KEY), store.get(VERIFICATION_KEY)]);
-        return selectRaffleVideo({ manualRaw, automaticRaw, stateRaw, verificationRaw, enabled, now, season });
+        const coordinator = fresh && inFreshSelectionWindow(now) ? readFresh(fresh) : Promise.resolve(null);
+        const [snapshot, verificationRaw] = await Promise.all([coordinator, store.get(VERIFICATION_KEY)]);
+        if (snapshot) return { ...selectRaffleVideo({ manualRaw, ...snapshot, verificationRaw, enabled, now, season }), readPath: 'durable-object' };
+        const [automaticRaw, stateRaw] = await Promise.all([store.get(AUTOMATIC_KEY), store.get(STATE_KEY)]);
+        return { ...selectRaffleVideo({ manualRaw, automaticRaw, stateRaw, verificationRaw, enabled, now, season }), readPath: 'kv' };
     } catch {
-        return { ...selectRaffleVideo({ manualRaw, enabled: false, now, season }), reason: 'detection-unavailable' };
+        return { ...selectRaffleVideo({ manualRaw, enabled: false, now, season }), reason: 'detection-unavailable', readPath: 'kv' };
     }
 }

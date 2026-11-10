@@ -51,4 +51,13 @@ export function inAlertDeliveryWindow(now: Date): boolean {
     return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < 20 * 60;
 }
 
+/** Public reads take the coordinator's strongly consistent selection from the window's start until 8 PM Central.
+ * KV edge caches lagged the coordinator's writes by 1 s, 35 s and over 63 s on November 7-9. */
+export function inFreshSelectionWindow(now: Date): boolean { return inAlertDeliveryWindow(now); }
+/** Browser poll interval: 5 seconds from 5:58:00 through 6:05:59 PM Central, when a drawing starts; otherwise 15 seconds. */
+export function liveRefreshMs(now: Date): number {
+    const local = localTime(now);
+    return local && local.day.startsWith('2026-11-') && local.minute >= 17 * 60 + 58 && local.minute <= 18 * 60 + 5 ? 5_000 : 15_000;
+}
+
 export function lastDiscoverySlot(now:Date):number|null {const local=localTime(now);return local&&inDiscoveryWindow(now)?Math.floor(now.getTime()/60000)*60000+(END-1-local.minute)*60000:null;}

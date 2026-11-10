@@ -2,14 +2,14 @@ import type { APIRoute } from 'astro';
 import type { KVNamespace } from '@cloudflare/workers-types';
 import {json} from '../../../../lib/http';
 import {normalizeFacebookVideoUrl,parseLiveConfig,RAFFLE_LIVE_KEY} from '../../../../lib/facebook';
-import {loadRaffleSelection,readRecord,selectionMode,STATE_KEY,verificationValid,VERIFICATION_KEY} from '../../../../lib/server/raffle-selection';
+import {freshSelectionFrom,loadRaffleSelection,readRecord,selectionMode,STATE_KEY,verificationValid,VERIFICATION_KEY} from '../../../../lib/server/raffle-selection';
 import {FACEBOOK_LIVE_CONTRACT} from '../../../../lib/facebook';
 import {raffleSeason} from '../../../../lib/server/raffle-season';
 import type {SeasonEnv} from '../../../../lib/server/raffle-season';
 import {inDiscoveryWindow} from '../../../../lib/server/raffle-discovery-schedule';
 import {timingDay} from '../../../../../workers/facebook-live/timing';
 type Env=SeasonEnv&{CONFIG?:KVNamespace;RAFFLE_AUTOMATIC_SELECTION_ENABLED?:string;
-    FACEBOOK_LIVE?:{testDiscovery():Promise<unknown>;timeline(day:string):Promise<unknown>}; FACEBOOK_PHOTO_STATUS?:{webhookStatus():Promise<unknown>}};
+    FACEBOOK_LIVE?:{testDiscovery():Promise<unknown>;timeline(day:string):Promise<unknown>;selection?():Promise<unknown>}; FACEBOOK_PHOTO_STATUS?:{webhookStatus():Promise<unknown>}};
 export const GET:APIRoute=async context=>{
     const env=context.locals.runtime?.env as Env|undefined;
     const day=new URL(context.request.url).searchParams.get('timeline');
@@ -20,7 +20,7 @@ export const GET:APIRoute=async context=>{
         catch{return json({ok:false,error:'Timing diagnostics are unavailable.'},503);}
     }
     if(!env?.CONFIG)return json({ok:false,error:'Video settings are unavailable.'},500);
-    const now=new Date();const selection=await loadRaffleSelection(env.CONFIG,env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true',now,env);
+    const now=new Date();const selection=await loadRaffleSelection(env.CONFIG,env.RAFFLE_AUTOMATIC_SELECTION_ENABLED==='true',now,env,freshSelectionFrom(env.FACEBOOK_LIVE));
     const [state,webhook,automatic]=await Promise.all([env.CONFIG.get(STATE_KEY),env.CONFIG.get('raffle_live_webhook_state'),env.CONFIG.get('raffle_live_automatic')]);
     let webhookSetup:unknown={configured:false,liveForwarding:false};
     try{webhookSetup=await env.FACEBOOK_PHOTO_STATUS?.webhookStatus()??webhookSetup;}catch{}
@@ -30,7 +30,7 @@ export const GET:APIRoute=async context=>{
     const health=readRecord(state);const automaticEnabled=selection.selectionMode==='automatic';
     const observation=readRecord(JSON.stringify(health?.lastLiveObservation));
     const stage=readRecord(automatic);
-    return json({ok:true,config:selection.manualConfig,displayed:selection.config,source:selection.source,reason:selection.reason,
+    return json({ok:true,config:selection.manualConfig,displayed:selection.config,source:selection.source,reason:selection.reason,readPath:selection.readPath,
         selectionMode:selection.selectionMode,automaticEnabled,automaticAllowed:selection.automaticAllowed,
         status:!automaticEnabled?'Disabled':health?.lastError||!selection.automaticAllowed?'Error':health?.status==='pending-live-confirmation'?'Waiting':inDiscoveryWindow(now)?'Active':'Waiting',
         lastSuccessfulCheck:health?.lastSuccessAt??health?.lastVerifiedAt??null,lastError:health?.lastError??(!selection.automaticAllowed?{cause:'verification-required'}:null),

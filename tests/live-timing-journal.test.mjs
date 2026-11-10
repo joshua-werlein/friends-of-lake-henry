@@ -75,6 +75,6 @@ test('public API captures first successful automatic resolution asynchronously w
    raffle_live_automation_state:{version:1,lastVerifiedVideoId:'777',lastVerifiedAt:observedAt,lastLiveObservation:{...stage,id:undefined,source:'format'}},raffle_live_verification:receipt}).map(([k,v])=>[k,JSON.stringify(v)]));
   const calls=[],jobs=[];const context={locals:{runtime:{env:{CONFIG:{async get(k){return values.get(k)??null;},async put(){throw Error('No KV diagnostic writes');}},RAFFLE_AUTOMATIC_SELECTION_ENABLED:'true',FACEBOOK_LIVE:{async recordDiagnostic(v){calls.push(v);}}},ctx:{waitUntil(p){jobs.push(p);}}}}};
   for(let i=0;i<2;i++){const r=await publicLive(context);assert.equal(r.status,200);assert.equal((await r.json()).source,'automatic');}
-  await Promise.all(jobs);assert.equal(calls.length,1);assert.deepEqual(calls[0],{stage:'public-visible',at,videoId:'777',observedAt});
+  await Promise.all(jobs);assert.equal(calls.length,1);assert.deepEqual(calls[0],{stage:'public-visible',at,videoId:'777',observedAt,reason:'kv'});
  }finally{globalThis.Date=RealDate;}
 });
