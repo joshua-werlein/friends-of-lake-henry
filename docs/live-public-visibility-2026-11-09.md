@@ -29,7 +29,7 @@ mismatched-pair fallback, so it was not used.
 - The Live coordinator (Durable Object) already keeps strongly consistent copies of both keys (`cache:*`), written by
   the same code that writes KV. New read-only route `GET /selection` → `LiveEvents.selection()` RPC returns both
   values from one DO storage read.
-- Pages (`/api/raffle/live`, `/raffle` SSR, admin GET) uses that snapshot from 5:50 PM to 8 PM Central in November.
+- Pages (`/api/raffle/live`, `/raffle` SSR, admin GET) use that snapshot (originally 5:50-8 PM; see the update below).
   Both values or neither; any RPC failure, missing copy, malformed reply or 1.5 s timeout falls back to KV.
   The manual record and verification receipt still come from KV, and the resolver's checks are unchanged.
 - The browser polls every 5 s from 5:58:00 to 6:05:59 PM Central (server hint `refreshMs`, clamped 5–60 s), otherwise 15 s.
@@ -44,3 +44,18 @@ Expected public delay after staging: under 1 s at the server, plus up to 5 s for
 - A manual override still reaches the public page through KV, with the same delay as before.
 - No measurement covers iframe load or Facebook player start, and none covers viewers who load the page without
   the API poll running (for example, with JavaScript disabled).
+
+## Update (commit 15de231): backup window 5:50-6:15 PM, off-schedule webhooks, no 8 PM limit
+
+- Scheduled backup discovery now runs 5:50:00-6:15:59 PM Central (35 checks a day). The Live Crons fire only on November
+  evenings, 23:50-01:59 UTC (5:50-7:59 PM Central): discovery until 6:15 PM, existing alert delivery until 8 PM. That's
+  130 invocations a day instead of 1,440.
+- A signed Live webhook at any time on a November day now runs one check (previously eight window gates dropped it).
+  There's no follow-on polling outside the window. Outside the window a candidate must be a same-day video published in
+  the last 2 hours; inside it the rules are unchanged.
+- The coordinator snapshot is read on any November day, not only 5:50-8 PM. `activeUntil` is 2 minutes after a signed
+  hint or a new selection, plus 5:58-6:05 PM. While active, Pages reuse a snapshot for at most 2 s and browsers poll every
+  5 s. Otherwise it's 15 s and 15 s.
+- Remaining limits: an off-schedule Live needs a webhook after the video is published (Facebook sent one every night
+  Nov 7-9, about 10 s after publication). If none arrives, nothing detects it until the next hint or the next backup
+  window. Live alerts raised by an off-schedule check are emailed by the evening cron (5:50-8 PM), not immediately.
