@@ -24,7 +24,7 @@ precedence, admin disable, and the KV fallback.
 | Negative controls | Tests: previous-day, older than 2 h, never-Live VOD, other Page, reel/share link, photo post, two simultaneous broadcasts, forged post-season stage, expired receipt | **Done** |
 | Rollback, part 1: automatic to manual fallback | Test "signed webhook … rolls back to manual". Production: the manual override on Nov 9 at 6:01:31 PM took precedence (`reason: manual-override`) | **Done** |
 | Rollback, part 2: Worker version rollback and restore drill | Nonproduction drill at the owner's direction (no production rollback). The real bundles of the new build, `6c48d9a` (production `a7f19cca`) and `15de231` (`d6b38e8d`) ran in local workerd against shared persisted DO + KV storage, with Facebook mocked. Each rolled back and forward with state intact and the selection unchanged; the ambiguity hold and admin-disable manual fallback were preserved | **Done (nonproduction)** |
-| `publicPlaybackVerified` | Earlier automatically selected videos played on the website (owner). Server-side: the logged-out embed for `1466425035434328` returns HTTP 200 with a `<video>` element. Current in-browser playback still needs the owner's confirmation | **Pending: owner confirmation** |
+| `publicPlaybackVerified` | Owner confirmed on 2026-11-09 that the video plays on the website in a private (logged-out) window on desktop and mobile. Server-side: the logged-out embed for `1466425035434328` returns HTTP 200 with a `<video>` element | **Done** |
 | `verifiedVideoId` | Proposed: `1466425035434328` (freshest real Live, automatically detected) | Ready once playback is confirmed |
 | `expiresAt` 2027-12-01T06:00:00Z | Cap raised to 400 days (commit `cf8252e`, Live Worker `ced68381-190a-42dd-b426-511e14d88ea3`, Pages `995a1755-4d19-4d31-af4e-a3227b2d9130`). Nov 10, 2026 to Dec 1, 2027 is 386.1 days | **Done** |
 
@@ -37,10 +37,50 @@ window, so this is very likely. If it ever fails, the result is safe: the video 
 and manual selection still works. A short test broadcast is recommended but optional. Under the new policy it would
 be shown on the website automatically.
 
-## Remaining step to issue the receipt
+## Receipt issued: 2026-11-10T02:10Z (2026-11-09 8:10 PM Central)
 
-1. Owner confirms current playback: open `https://friendsoflakehenry.com/raffle` in a logged-out private window, on
-   desktop and on a phone, and press play.
-2. Then write the receipt: same contract and evidence fields, `verifiedVideoId 1466425035434328`, `verifiedAt` = the
-   confirmation time, `expiresAt 2027-12-01T06:00:00Z`. Verify with `verificationValid`, the activation preflight and
-   the admin `receiptValid`.
+All requirements above were satisfied before writing. Only `raffle_live_verification` was written; the manual Live
+record (`raffle_live`, SHA-256 prefix `63efd8236c1d401a`), other KV keys and winner records were not changed.
+Changed fields: `verifiedVideoId`, `verifiedAt`, `expiresAt`.
+
+```json
+{
+  "schemaVersion": 5,
+  "graphPageId": "144051422124740",
+  "publicPageId": "61552199315213",
+  "apiVersion": "v26.0",
+  "contract": "page-video-live-origin-v3",
+  "evidence": "page-video-live-origin-policy-reviewed",
+  "verifiedVideoId": "1466425035434328",
+  "publicPlaybackVerified": true,
+  "rollbackTested": true,
+  "verifiedAt": "2026-11-10T02:10:38.054Z",
+  "expiresAt": "2027-12-01T06:00:00.000Z"
+}
+```
+
+Stored value SHA-256 prefix `cf40f0d55c95d566`, byte-identical to the reviewed file. Production code (`cf8252e`) with
+production season vars: valid now and through 2027-11-30 23:59:59 Central (checked 2026-11-30, 2026-12-02, 2027-03-15,
+2027-07-04, 2027-11-30); invalid from 2027-12-01 00:00 Central. Activation preflight passed. The public resolver still
+reports `manual-override` for the owner's same-day link (a rejected receipt would report `verification-required`).
+
+Previous receipt (SHA-256 prefix `879608b54dfa2f31`), to restore if this one must be withdrawn:
+
+```json
+{
+  "schemaVersion": 5,
+  "graphPageId": "144051422124740",
+  "publicPageId": "61552199315213",
+  "apiVersion": "v26.0",
+  "contract": "page-video-live-origin-v3",
+  "evidence": "page-video-live-origin-policy-reviewed",
+  "verifiedVideoId": "1129604836279234",
+  "publicPlaybackVerified": true,
+  "rollbackTested": true,
+  "verifiedAt": "2026-11-06T03:03:33.834Z",
+  "expiresAt": "2026-12-01T06:00:00.000Z"
+}
+```
+
+To withdraw automatic selection at any time: switch Admin > Raffle to Manual, or restore or delete this key. Both are
+immediate fallbacks to the manual video.
