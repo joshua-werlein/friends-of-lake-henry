@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { selectRaffleVideo, loadRaffleSelection, VERIFICATION_KEY, STATE_KEY } from '../src/lib/server/raffle-selection.ts';
+import { selectRaffleVideo, loadRaffleSelection, verificationValid, VERIFICATION_KEY, STATE_KEY } from '../src/lib/server/raffle-selection.ts';
 import { raffleSeason } from '../src/lib/server/raffle-season.ts';
 import { GET, POST } from '../src/pages/api/admin/raffle/live.ts';
 import { onRequest } from '../src/middleware.ts';
@@ -78,9 +78,19 @@ test('season is configurable for future years and validates dates; a later seaso
         manualRaw: advance(manual), automaticRaw: advance(stage), verificationRaw: JSON.stringify(receipt),
         stateRaw: JSON.stringify({ ...state, lastVerifiedAt: '2027-11-02T00:05:00Z', lastAttemptAt: Date.parse('2027-11-02T00:05:00Z') }) }));
     assert.deepEqual([withOldReceipt.source, withOldReceipt.reason], ['manual', 'verification-required']); // 2026 receipt cannot authorize 2027
-    // A receipt may never authorize more than 366 days after its verification.
-    const tooLong = { ...receipt, expiresAt: '2027-11-03T00:00:00Z' };
-    assert.equal(selectRaffleVideo(input({ verificationRaw: JSON.stringify(tooLong) })).source, 'manual');
+    // A receipt may never authorize more than 400 days after its verification (receipt verifiedAt 2026-11-01T23:00Z).
+    for (const [expiresAt, source] of [['2027-12-06T23:00:00Z', 'automatic'], ['2027-12-06T23:00:01Z', 'manual']]) {
+        assert.equal(selectRaffleVideo(input({ verificationRaw: JSON.stringify({ ...receipt, expiresAt }) })).source, source, expiresAt);
+    }
+    // The planned one-year receipt: verified in November 2026, expiring 2027-12-01 00:00 Central, valid until then and not after.
+    const term = JSON.stringify({ ...receipt, verifiedAt: '2026-11-10T03:00:00Z', expiresAt: '2027-12-01T06:00:00.000Z' });
+    assert.equal(verificationValid(term, new Date('2027-11-30T23:59:59Z'), raffleSeason()), true);
+    assert.equal(verificationValid(term, new Date('2027-12-01T06:00:00Z'), raffleSeason()), false);
+    // Every other receipt rule still applies to a long-lived receipt.
+    for (const change of [{ contract: 'tagged-page-video-v1' }, { evidence: 'other' }, { publicPlaybackVerified: false }, { rollbackTested: false },
+        { graphPageId: '1' }, { apiVersion: 'v25.0' }, { schemaVersion: 4 }, { verifiedAt: '2026-10-31T23:00:00Z' }]) {
+        assert.equal(verificationValid(JSON.stringify({ ...JSON.parse(term), ...change }), new Date('2027-06-01T00:00:00Z'), raffleSeason()), false, JSON.stringify(change));
+    }
 });
 
 test('extra KV failures retain saved fallback; disabled reads only the manual record', async () => {

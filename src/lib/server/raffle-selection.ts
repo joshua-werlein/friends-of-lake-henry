@@ -6,8 +6,9 @@ import { drawingDate, drawingStartFastUntil, liveDay } from './raffle-discovery-
 
 export const VERIFICATION_KEY = 'raffle_live_verification';
 export const STATE_KEY = 'raffle_live_automation_state';
-/** A reviewed receipt authorizes at most this long after its verification; it must then be re-reviewed. */
-export const MAX_RECEIPT_MS = 366 * 86400000;
+/** A reviewed receipt authorizes at most this long after its verification; it must then be re-reviewed.
+ * 400 days covers the owner-approved term from a November 2026 verification through 2027-12-01. */
+export const MAX_RECEIPT_MS = 400 * 86400000;
 export type SelectionMode = 'manual' | 'automatic';
 export type Selection = { manualConfig: LiveConfig; config: LiveConfig; selectionMode: SelectionMode;
     source: 'manual' | 'automatic'; reason: string; automaticAllowed: boolean; videoMetadata?: unknown };
