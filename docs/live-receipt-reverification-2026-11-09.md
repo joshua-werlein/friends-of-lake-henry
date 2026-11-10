@@ -23,10 +23,10 @@ precedence, admin disable, and the KV fallback.
 | Signed webhook verification | Nov 7–9 journal `webhook-received` entries, recorded only after HMAC verification and the active-Page check | **Done** |
 | Negative controls | Tests: previous-day, older than 2 h, never-Live VOD, other Page, reel/share link, photo post, two simultaneous broadcasts, forged post-season stage, expired receipt | **Done** |
 | Rollback, part 1: automatic to manual fallback | Test "signed webhook … rolls back to manual". Production: the manual override on Nov 9 at 6:01:31 PM took precedence (`reason: manual-override`) | **Done** |
-| Rollback, part 2: Worker version rollback and restore drill | Nov 5–6 drill was on older versions. Re-running it on `a7f19cca` was blocked by the session's permission policy (production deploy) | **Pending: needs approval** |
-| `publicPlaybackVerified` | Server-side: the logged-out Facebook embed for `1466425035434328` returns HTTP 200 with a `<video>` element and no "unavailable" notice. This is not proof that it plays | **Pending: needs a person in a browser** |
+| Rollback, part 2: Worker version rollback and restore drill | Nonproduction drill at the owner's direction (no production rollback). The real bundles of the new build, `6c48d9a` (production `a7f19cca`) and `15de231` (`d6b38e8d`) ran in local workerd against shared persisted DO + KV storage, with Facebook mocked. Each rolled back and forward with state intact and the selection unchanged; the ambiguity hold and admin-disable manual fallback were preserved | **Done (nonproduction)** |
+| `publicPlaybackVerified` | Earlier automatically selected videos played on the website (owner). Server-side: the logged-out embed for `1466425035434328` returns HTTP 200 with a `<video>` element. Current in-browser playback still needs the owner's confirmation | **Pending: owner confirmation** |
 | `verifiedVideoId` | Proposed: `1466425035434328` (freshest real Live, automatically detected) | Ready once playback is confirmed |
-| `expiresAt` 2027-12-01T06:00:00Z | `verificationValid` caps a receipt at 366 days after `verifiedAt`. From a Nov 2026 verification, Dec 1, 2027 is about 386 days | **Needs a reviewed code change** |
+| `expiresAt` 2027-12-01T06:00:00Z | Cap raised to 400 days (commit `cf8252e`, Live Worker `ced68381-190a-42dd-b426-511e14d88ea3`, Pages `995a1755-4d19-4d31-af4e-a3227b2d9130`). Nov 10, 2026 to Dec 1, 2027 is 386.1 days | **Done** |
 
 ## A real off-schedule broadcast is not required for the receipt
 
@@ -37,12 +37,10 @@ window, so this is very likely. If it ever fails, the result is safe: the video 
 and manual selection still works. A short test broadcast is recommended but optional. Under the new policy it would
 be shown on the website automatically.
 
-## Remaining steps to issue the receipt
+## Remaining step to issue the receipt
 
-1. Owner: open `https://friendsoflakehenry.com/raffle` in a logged-out private window, on desktop and on a phone,
-   press play on the video, and report whether it plays.
-2. Approve the Live Worker rollback drill: roll back to `d6b38e8d-e0eb-4108-bfe3-799338d63838`, confirm
-   `/api/raffle/live` works, then restore `a7f19cca-7b72-444b-8706-42b7d30fbeb1`.
-3. Approve raising the receipt lifetime cap from 366 to 400 days (tests and deploy for the Worker and Pages).
-4. Only then write the receipt: same contract and evidence fields, `verifiedVideoId 1466425035434328`,
-   `verifiedAt` = the time the last check passes, `expiresAt 2027-12-01T06:00:00Z`. Verify with the activation preflight.
+1. Owner confirms current playback: open `https://friendsoflakehenry.com/raffle` in a logged-out private window, on
+   desktop and on a phone, and press play.
+2. Then write the receipt: same contract and evidence fields, `verifiedVideoId 1466425035434328`, `verifiedAt` = the
+   confirmation time, `expiresAt 2027-12-01T06:00:00Z`. Verify with `verificationValid`, the activation preflight and
+   the admin `receiptValid`.
