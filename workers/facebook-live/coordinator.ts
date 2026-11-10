@@ -1,4 +1,4 @@
-import { discoverySlot, inDiscoveryWindow, nextDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
+import { discoverySlot, drawingStartFastUntil, inDiscoveryWindow, liveDay, nextDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
 import { runPoll, STATE_KEY, type Env, type Outcome } from './poller';
 import { AUTOMATIC_KEY } from '../../src/lib/server/facebook-automation';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
@@ -10,6 +10,10 @@ import { TimingJournal } from './timing';
 export type DrawingTimeline = { day: string; firstWebhookAt?: string; firstWebhookRef?: string; firstLiveEvidenceAt?: string;
     firstSelectedAt?: string; firstSelectedTrigger?: string; firstSelectedWakeLagMs?: number; firstSelectedGraphMs?: number };
 const timelineKey = (day: string) => 'timeline:' + day;
+/** An off-schedule webhook check may not touch KV after this long (Graph deadline 25 s + format probe 2.5 s + storage). */
+export const CHECK_DEADLINE_MS = 60_000;
+/** Public pages read the coordinator snapshot fresh and poll every 5 s for this long after a signed hint or a new selection. */
+export const ACTIVE_DISPLAY_MS = 2 * 60_000;
 
 type Storage = {
     get<T>(key: string): Promise<T | undefined>;
@@ -31,7 +35,7 @@ export class DiscoveryCoordinator {
     async recordTiming(value: unknown) { await this.journal.append(value); }
 
     async event(id:string):Promise<boolean> {
-        if(!/^[a-f0-9]{64}$/.test(id)||!inDiscoveryWindow(new Date(this.now()))) return false;
+        if(!/^[a-f0-9]{64}$/.test(id)||!liveDay(new Date(this.now()))) return false;
         const events=await this.storage.get<string[]>('events')??[];
         if(events.includes(id)) return false;
         const received=this.now();
@@ -51,8 +55,14 @@ export class DiscoveryCoordinator {
 
     async alarm(): Promise<Outcome> {
         if (this.busy) return { status: 'already-running' };
-        const time = this.now(), date = new Date(time), slot = discoverySlot(date);
-        if (this.env.FB_AUTOMATION_ENABLED !== 'true' || slot === null) return { status: 'outside-drawing-window' };
+        const time = this.now(), date = new Date(time);
+        if (this.env.FB_AUTOMATION_ENABLED !== 'true' || !liveDay(date)) return { status: 'outside-drawing-window' };
+        const pending=await this.storage.get<string>('pending-event');
+        const claimedEvent=await this.storage.get<string>('claimed-event');
+        const webhook=!!pending && pending!==claimedEvent;
+        // Backup slots only 5:50-6:15 PM. Outside it only an unclaimed signed webhook runs a check, with no follow-on polling.
+        const slot = discoverySlot(date) ?? (webhook ? Math.floor(time / 15_000) * 15_000 : null);
+        if (slot === null) return { status: 'outside-drawing-window' };
         this.busy = true;
         try {
             const previous = await this.storage.get<number>('claimed-slot');
@@ -60,9 +70,6 @@ export class DiscoveryCoordinator {
             // Arm before external work: a runtime interruption leaves a recovery
             // alarm. Platform serialization prevents the next alarm overlapping.
             if (next !== null) await this.storage.setAlarm(next);
-            const pending=await this.storage.get<string>('pending-event');
-            const claimedEvent=await this.storage.get<string>('claimed-event');
-            const webhook=!!pending && pending!==claimedEvent;
             if (!webhook && previous !== undefined && previous >= slot) return { status: 'slot-already-claimed' };
             // Durable claim precedes every KV/Facebook operation. At-least-once
             // alarm retries never repeat an already-started slot after a reset.
@@ -71,7 +78,7 @@ export class DiscoveryCoordinator {
             if (!this.env.CONFIG) return { status: 'storage-unavailable' };
             const upstream = this.env.CONFIG;
             const assertWindow = () => {
-                if (!inDiscoveryWindow(new Date(this.now()))) throw Error('Discovery window closed');
+                if (webhook ? this.now() - time > CHECK_DEADLINE_MS : !inDiscoveryWindow(new Date(this.now()))) throw Error('Discovery window closed');
             };
             // Strongly consistent coordinator copies prevent cached KV reads from
             // forgetting a just-written backoff or selection during the 15s burst.
@@ -138,6 +145,7 @@ export class DiscoveryCoordinator {
                 alarmAt: date.toISOString(), wakeLagMs, ...timing, pollMs: finished - pollStarted, status: outcome.status,
                 liveVideo: !!outcome.monitor?.liveVideoId, selected: !!outcome.monitor?.selected }));
             if (outcome.monitor?.liveVideoId && /^\d+$/.test(outcome.monitor.liveVideoId)) await this.mark({ firstLiveEvidenceAt: date.toISOString() }, time);
+            if (outcome.status === 'staged') await this.storage.put('staged-at', finished);
             if (outcome.status === 'staged') await this.mark({ firstSelectedAt: new Date(finished).toISOString(), firstSelectedTrigger: webhook ? 'webhook' : 'poll',
                 firstSelectedWakeLagMs: wakeLagMs, firstSelectedGraphMs: timing.graphMs }, time);
             // After the selection and state writes, and storage-only: emails are sent by the cron, outside this alarm.
@@ -152,10 +160,13 @@ export class DiscoveryCoordinator {
 
     /** Read-only public snapshot of the strongly consistent selection and state copies, read together so they always
      * match. `undefined` means no copy exists yet (the caller then uses KV). No KV, Graph, alarm or journal I/O. */
-    async selectionSnapshot(): Promise<{ automaticRaw?: string | null; stateRaw?: string | null }> {
-        const [automatic, state] = await Promise.all([this.storage.get<{ value: string | null }>('cache:' + AUTOMATIC_KEY),
-            this.storage.get<{ value: string | null }>('cache:' + STATE_KEY)]);
-        return { ...(automatic ? { automaticRaw: automatic.value } : {}), ...(state ? { stateRaw: state.value } : {}) };
+    /** `activeUntil`: a new Live may need to appear until then (recent signed hint, recent selection or the scheduled
+     * drawing start). Pages read fresh and browsers poll every 5 s only until then. */
+    async selectionSnapshot(): Promise<{ automaticRaw?: string | null; stateRaw?: string | null; activeUntil: number }> {
+        const [automatic, state, hintAt, stagedAt] = await Promise.all([this.storage.get<{ value: string | null }>('cache:' + AUTOMATIC_KEY),
+            this.storage.get<{ value: string | null }>('cache:' + STATE_KEY), this.storage.get<number>('pending-event-at'), this.storage.get<number>('staged-at')]);
+        const activeUntil = Math.max((hintAt ?? -Infinity) + ACTIVE_DISPLAY_MS, (stagedAt ?? -Infinity) + ACTIVE_DISPLAY_MS, drawingStartFastUntil(new Date(this.now())), 0);
+        return { ...(automatic ? { automaticRaw: automatic.value } : {}), ...(state ? { stateRaw: state.value } : {}), activeUntil };
     }
 
     /** Records only fields not yet set for that drawing day. */

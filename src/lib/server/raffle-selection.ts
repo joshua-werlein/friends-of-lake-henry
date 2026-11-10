@@ -2,7 +2,7 @@ import { parseLiveConfig, normalizeFacebookVideoUrl, RAFFLE_LIVE_KEY, FACEBOOK_P
     FACEBOOK_API_VERSION, FACEBOOK_LIVE_CONTRACT, type LiveConfig } from '../facebook';
 import { AUTOMATIC_KEY } from './facebook-automation';
 import { raffleSeason, type SeasonEnv, type Season } from './raffle-season';
-import { inDiscoveryWindow, drawingDate, inFreshSelectionWindow } from './raffle-discovery-schedule';
+import { drawingDate, drawingStartFastUntil, liveDay } from './raffle-discovery-schedule';
 
 export const VERIFICATION_KEY = 'raffle_live_verification';
 export const STATE_KEY = 'raffle_live_automation_state';
@@ -66,7 +66,7 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
         || stage.publicPageId !== FACEBOOK_PAGE_ID || stage.apiVersion !== FACEBOOK_API_VERSION
         || stage.contract !== FACEBOOK_LIVE_CONTRACT || typeof stage.id !== 'string' || !/^\d{1,40}$/.test(stage.id)
         || stage.origin !== 'page-video-live-status' || !['LIVE','LIVE_STOPPED'].includes(String(stage.originStatus))
-        || !iso(stage.originObservedAt) || !inDiscoveryWindow(new Date(stage.originObservedAt))
+        || !iso(stage.originObservedAt) || !liveDay(new Date(stage.originObservedAt))
         || Date.parse(stage.originObservedAt)>Date.parse(stage.observedAt as string) || Date.parse(stage.originObservedAt)<Date.parse(stage.publishedAt as string)
         || stage.drawingDate !== drawingDate(new Date(stage.originObservedAt)) || drawingDate(new Date(stage.publishedAt as string)) !== stage.drawingDate
         || Date.parse(stage.originObservedAt) < season!.start || Date.parse(stage.originObservedAt) >= season!.end
@@ -89,37 +89,60 @@ export function selectRaffleVideo(input: { manualRaw: string | null; automaticRa
 export type FreshSelection = () => Promise<unknown>;
 export type ReadPath = 'durable-object' | 'kv';
 export const FRESH_SELECTION_TIMEOUT_MS = 1500;
+/** Per-isolate reuse of a coordinator snapshot: 2 s while a new Live may need to appear (coalesces 5-second polls),
+ * 15 s otherwise, so an idle page costs at most one coordinator read per isolate per 15 s. */
+export const ACTIVE_SNAPSHOT_MS = 2_000, IDLE_SNAPSHOT_MS = 15_000;
+export const ACTIVE_REFRESH_MS = 5_000, IDLE_REFRESH_MS = 15_000;
 const rawValue = (v: unknown): v is string | null => v === null || typeof v === 'string';
 /** Pages service binding → FreshSelection, or undefined when the binding/method is absent. */
 export function freshSelectionFrom(binding: unknown): FreshSelection | undefined {
     const live = binding as { selection?: () => Promise<unknown> } | undefined;
     return typeof live?.selection === 'function' ? () => live.selection!() : undefined;
 }
-async function readFresh(fresh: FreshSelection): Promise<{ automaticRaw: string | null; stateRaw: string | null } | null> {
+type Fresh = { pair: { automaticRaw: string | null; stateRaw: string | null } | null; activeUntil: number };
+async function readFresh(fresh: FreshSelection): Promise<Fresh | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         const value = await Promise.race([fresh(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), FRESH_SELECTION_TIMEOUT_MS); })]);
-        const v = value as { automaticRaw?: unknown; stateRaw?: unknown } | null;
+        if (!value || typeof value !== 'object') return null;
+        const v = value as { automaticRaw?: unknown; stateRaw?: unknown; activeUntil?: unknown };
         // Both values or neither: a coordinator selection paired with a KV state (or the reverse) can mismatch.
-        return v && rawValue(v.automaticRaw) && rawValue(v.stateRaw) ? { automaticRaw: v.automaticRaw, stateRaw: v.stateRaw } : null;
+        return { pair: rawValue(v.automaticRaw) && rawValue(v.stateRaw) ? { automaticRaw: v.automaticRaw, stateRaw: v.stateRaw } : null,
+            activeUntil: Number.isSafeInteger(v.activeUntil) ? Number(v.activeUntil) : 0 };
     } catch { return null; }
     finally { if (timer !== undefined) clearTimeout(timer); }
 }
+/** One per isolate in production (module state); tests pass their own. Failed reads are never cached. */
+export class SnapshotCache {
+    private value: (Fresh & { fetchedAt: number }) | null = null;
+    async read(fresh: FreshSelection, now: number): Promise<Fresh | null> {
+        const v = this.value;
+        const ttl = v && Math.max(v.activeUntil, drawingStartFastUntil(new Date(now))) > now ? ACTIVE_SNAPSHOT_MS : IDLE_SNAPSHOT_MS;
+        if (v && now >= v.fetchedAt && now - v.fetchedAt < ttl) return v;
+        const result = await readFresh(fresh);
+        if (result) this.value = { ...result, fetchedAt: now };
+        return result;
+    }
+}
+export const sharedSnapshotCache = new SnapshotCache();
 
-/** Manual record and verification receipt always come from KV. During the drawing window the automatic selection and
- * state come from the coordinator when it answers in time; any failure, timeout or missing copy falls back to KV. */
+/** Manual record and verification receipt always come from KV. On any November day the automatic selection and state
+ * come from the coordinator snapshot when it answers in time; any failure, timeout or missing copy falls back to KV.
+ * `refreshMs`: browsers poll every 5 s while a new Live may need to appear, otherwise every 15 s. */
 export async function loadRaffleSelection(store: { get(key: string): Promise<string | null> }, enabled: boolean, now = new Date(), seasonEnv: SeasonEnv = {},
-    fresh?: FreshSelection): Promise<Selection & { readPath: ReadPath }> {
+    fresh?: FreshSelection, cache: SnapshotCache = sharedSnapshotCache): Promise<Selection & { readPath: ReadPath; refreshMs: number }> {
     const manualRaw = await store.get(RAFFLE_LIVE_KEY);
     const season = raffleSeason(seasonEnv);
-    if (!enabled || selectionMode(manualRaw)==='manual') return { ...selectRaffleVideo({ manualRaw, enabled, now, season }), readPath: 'kv' };
+    if (!enabled || selectionMode(manualRaw)==='manual') return { ...selectRaffleVideo({ manualRaw, enabled, now, season }), readPath: 'kv', refreshMs: IDLE_REFRESH_MS };
+    const refreshMs = (activeUntil: number) => Math.max(activeUntil, drawingStartFastUntil(now)) > now.getTime() ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS;
     try {
-        const coordinator = fresh && inFreshSelectionWindow(now) ? readFresh(fresh) : Promise.resolve(null);
+        const coordinator = fresh && liveDay(now) ? cache.read(fresh, now.getTime()) : Promise.resolve(null);
         const [snapshot, verificationRaw] = await Promise.all([coordinator, store.get(VERIFICATION_KEY)]);
-        if (snapshot) return { ...selectRaffleVideo({ manualRaw, ...snapshot, verificationRaw, enabled, now, season }), readPath: 'durable-object' };
+        const refresh = refreshMs(snapshot?.activeUntil ?? 0);
+        if (snapshot?.pair) return { ...selectRaffleVideo({ manualRaw, ...snapshot.pair, verificationRaw, enabled, now, season }), readPath: 'durable-object', refreshMs: refresh };
         const [automaticRaw, stateRaw] = await Promise.all([store.get(AUTOMATIC_KEY), store.get(STATE_KEY)]);
-        return { ...selectRaffleVideo({ manualRaw, automaticRaw, stateRaw, verificationRaw, enabled, now, season }), readPath: 'kv' };
+        return { ...selectRaffleVideo({ manualRaw, automaticRaw, stateRaw, verificationRaw, enabled, now, season }), readPath: 'kv', refreshMs: refresh };
     } catch {
-        return { ...selectRaffleVideo({ manualRaw, enabled: false, now, season }), reason: 'detection-unavailable', readPath: 'kv' };
+        return { ...selectRaffleVideo({ manualRaw, enabled: false, now, season }), reason: 'detection-unavailable', readPath: 'kv', refreshMs: refreshMs(0) };
     }
 }

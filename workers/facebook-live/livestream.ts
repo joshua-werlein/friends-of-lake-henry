@@ -2,7 +2,7 @@ import {
     graphReader, extractCandidates, verifyVideo, GRAPH_PAGE_ID, PROBE_FIELDS,
     isoTime, LIVE_CONTRACT, PUBLIC_PAGE_ID, GRAPH_VERSION, type GraphResult, type Discovery,
 } from './graph';
-import { inDiscoveryWindow, drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
+import { inDiscoveryWindow, drawingDate, liveDay, LIVE_RECENT_MS } from '../../src/lib/server/raffle-discovery-schedule';
 import { dimensions } from '../../src/lib/video-presentation';
 
 export type LiveDiscovery = Discovery & {
@@ -25,7 +25,7 @@ export function priorLiveOrigin(value: unknown, videoId: string, publishedAt: st
         && previous.publishedAt === publishedAt && isoTime(previous.originObservedAt)
         && Date.parse(previous.originObservedAt) >= Date.parse(publishedAt)
         && Date.parse(previous.originObservedAt) <= now.getTime()
-        && inDiscoveryWindow(new Date(previous.originObservedAt))
+        && liveDay(new Date(previous.originObservedAt))
         && drawingDate(new Date(previous.originObservedAt)) === drawingDate(new Date(publishedAt))
         ? previous : null;
 }
@@ -46,8 +46,11 @@ export async function discoverLivestreams(options: {
             fields: 'id,created_time,attachments{type,target,url,subattachments{type,target,url}}', limit: '25',
         });
         if (!Array.isArray(posts.data)) return { ok: false, reason: 'invalid-response', detail: { phase } };
+        // In the backup window: videos published in the window (unchanged). Outside it (signed webhook check): a same-day
+        // video published within LIVE_RECENT_MS, so a stale Page video is never selected.
+        const scheduled = inDiscoveryWindow(now);
         const candidates = extractCandidates(posts.data, '', now).filter(candidate =>
-            inDiscoveryWindow(new Date(candidate.publishedAt))
+            (scheduled ? inDiscoveryWindow(new Date(candidate.publishedAt)) : now.getTime() - Date.parse(candidate.publishedAt) <= LIVE_RECENT_MS)
             && drawingDate(new Date(candidate.publishedAt)) === drawingDate(now)).slice(0, 8);
         const discoveries: LiveDiscovery[] = [];
         const pending: PendingVideo[] = [];

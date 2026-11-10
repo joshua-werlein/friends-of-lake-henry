@@ -20,7 +20,7 @@ export class LiveDiagnostics extends WorkerEntrypoint<Env> { async inspect() { r
 export { FacebookPhotoReads } from './photo-reads';
 
 import {discoverLivestreams} from './livestream';
-import {inDiscoveryWindow} from '../../src/lib/server/raffle-discovery-schedule';
+import {liveDay} from '../../src/lib/server/raffle-discovery-schedule';
 import {timingEntry} from './timing';
 export class LiveEvents extends WorkerEntrypoint<Env> {
     /** Private service-binding diagnostic sink. No public HTTP endpoint or scheduling side effects. */
@@ -33,7 +33,8 @@ export class LiveEvents extends WorkerEntrypoint<Env> {
         await ns.get(ns.idFromName('november-2026')).fetch('https://discovery.internal/diagnostic',{method:'POST',body:JSON.stringify(entry)});
     }
     async notify(id:string) {
-        if(!inDiscoveryWindow(new Date())||this.env.FB_AUTOMATION_ENABLED!=='true') return {accepted:false};
+        // Signed Live hints are accepted at any time on a November day; outside the backup window each runs one check.
+        if(!liveDay(new Date())||this.env.FB_AUTOMATION_ENABLED!=='true') return {accepted:false};
         if(!/^[a-f0-9]{64}$/.test(id)||!this.env.DISCOVERY_SCHEDULER) throw Error('invalid-event');
         const ns=this.env.DISCOVERY_SCHEDULER;
         const response=await ns.get(ns.idFromName('november-2026')).fetch('https://discovery.internal/event',{method:'POST',body:id});

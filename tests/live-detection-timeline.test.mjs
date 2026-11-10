@@ -123,8 +123,8 @@ test('webhook arrival: a signed event wakes the coordinator immediately and bypa
     clock += 50;
     assert.equal((await coordinator.alarm()).status, 'staged');
     assert.equal(storage.alarm(), at(59)); // The next regular slot is re-armed.
-    // Outside the window and malformed IDs do no work.
-    clock = at(58) - 2 * 3600_000;
+    // Outside November and malformed IDs do no work (a November hint outside the window is accepted: see live-public-visibility).
+    clock = Date.UTC(2026, 11, 2, 18);
     assert.equal(await coordinator.event('b'.repeat(64)), false);
     assert.equal(await coordinator.event('not-a-hash'), false);
 });

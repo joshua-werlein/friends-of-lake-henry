@@ -5,7 +5,7 @@ const fallback = document.getElementById('facebookFallback');
 const message = document.getElementById('liveMessage');
 const updated = document.getElementById('liveUpdated');
 let checking = false;
-// Server hint: 5 s while a drawing starts, otherwise 15 s. Clamped so a bad response can never poll faster or stall.
+// Server hint: 5 s while a new Live may need to appear, otherwise 15 s. Clamped so a bad response can never poll faster or stall.
 let refreshMs = 15000;
 async function refreshLive() {
     if (document.hidden || checking || !player) return;

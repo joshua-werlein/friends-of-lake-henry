@@ -1,11 +1,18 @@
 // Only the confirmed November 2026 drawing schedule. Never extrapolate a future season.
 const clock = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-// Temporary November-only schedule, including the entire 18:10 minute.
-const START = 17 * 60 + 50, END = 18 * 60 + 31;
+// Temporary November-only schedule. Scheduled backup discovery: 5:50:00-6:15:59 PM Central.
+const START = 17 * 60 + 50, END = 18 * 60 + 16;
+/** Outside the backup window a signed webhook may select only a same-day video published this recently. */
+export const LIVE_RECENT_MS = 2 * 3600_000;
 function localTime(now: Date): { day: string; minute: number } | null {
     if (!Number.isFinite(now.getTime())) return null;
     const parts = Object.fromEntries(clock.formatToParts(now).map(part => [part.type, part.value]));
     return { day: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+/** Any moment of a November 2026 day (Central): signed Live webhooks may trigger a check and a selection. */
+export function liveDay(now: Date): boolean {
+    const local = localTime(now);
+    return !!local && local.day.startsWith('2026-11-');
 }
 export function inDiscoveryWindow(now: Date): boolean {
     const local = localTime(now);
@@ -51,13 +58,11 @@ export function inAlertDeliveryWindow(now: Date): boolean {
     return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < 20 * 60;
 }
 
-/** Public reads take the coordinator's strongly consistent selection from the window's start until 8 PM Central.
- * KV edge caches lagged the coordinator's writes by 1 s, 35 s and over 63 s on November 7-9. */
-export function inFreshSelectionWindow(now: Date): boolean { return inAlertDeliveryWindow(now); }
-/** Browser poll interval: 5 seconds from 5:58:00 through 6:05:59 PM Central, when a drawing starts; otherwise 15 seconds. */
-export function liveRefreshMs(now: Date): number {
+/** 5:58:00-6:05:59 PM Central, when a scheduled drawing starts: returns that span's end (browsers poll every 5 s), else 0. */
+export function drawingStartFastUntil(now: Date): number {
     const local = localTime(now);
-    return local && local.day.startsWith('2026-11-') && local.minute >= 17 * 60 + 58 && local.minute <= 18 * 60 + 5 ? 5_000 : 15_000;
+    if (!local || !local.day.startsWith('2026-11-') || local.minute < 17 * 60 + 58 || local.minute >= 18 * 60 + 6) return 0;
+    return Math.floor(now.getTime() / 60000) * 60000 + (18 * 60 + 6 - local.minute) * 60000;
 }
 
 export function lastDiscoverySlot(now:Date):number|null {const local=localTime(now);return local&&inDiscoveryWindow(now)?Math.floor(now.getTime()/60000)*60000+(END-1-local.minute)*60000:null;}

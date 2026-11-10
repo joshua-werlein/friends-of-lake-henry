@@ -5,7 +5,7 @@ import { freshSelectionFrom, loadRaffleSelection } from '../../../lib/server/raf
 
 import { loadPresentation } from '../../../lib/video-presentation';
 import type { SeasonEnv } from '../../../lib/server/raffle-season';
-import {inDiscoveryWindow, liveRefreshMs} from '../../../lib/server/raffle-discovery-schedule';
+import {liveDay} from '../../../lib/server/raffle-discovery-schedule';
 
 // At most one report per selection per isolate; DO deduplicates across isolates/viewers.
 const reported=new Set<string>();
@@ -21,14 +21,14 @@ export const GET: APIRoute = async ({ locals }) => {
         const presentation=await loadPresentation(env.CONFIG, selection.config.latestVideoUrl, selection.videoMetadata);
         const at=Date.now(), metadata=selection.videoMetadata as {videoId?:string}|undefined;
         const key=metadata?.videoId+':'+selection.config.updatedAt;
-        if(selection.source==='automatic' && inDiscoveryWindow(new Date(at)) && metadata?.videoId && env.FACEBOOK_LIVE && locals.runtime?.ctx && !reported.has(key)){
+        if(selection.source==='automatic' && liveDay(new Date(at)) && metadata?.videoId && env.FACEBOOK_LIVE && locals.runtime?.ctx && !reported.has(key)){
             if(reported.size>=32)reported.clear();
             reported.add(key);
             locals.runtime.ctx.waitUntil(Promise.resolve().then(()=>env.FACEBOOK_LIVE!.recordDiagnostic({stage:'public-visible',at,
                 videoId:metadata.videoId,observedAt:selection.config.updatedAt,reason:selection.readPath})).catch(()=>{reported.delete(key);}));
         }
         return json({ ok: true, config: selection.config, selectionMode: selection.selectionMode,
-            source: selection.source, reason: selection.reason, presentation, refreshMs: liveRefreshMs(now) });
+            source: selection.source, reason: selection.reason, presentation, refreshMs: selection.refreshMs });
     } catch {
         return json({ ok: false, error: 'Live settings unavailable' }, 503);
     }

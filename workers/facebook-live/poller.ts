@@ -4,7 +4,7 @@ import { discoverPosts, GRAPH_PAGE_ID, PUBLIC_PAGE_ID, GRAPH_VERSION, LIVE_CONTR
 
 import { raffleSeason, type SeasonEnv } from '../../src/lib/server/raffle-season';
 import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/server/raffle-selection';
-import { burstCadence, inDiscoveryWindow, lastDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
+import { burstCadence, lastDiscoverySlot, liveDay } from '../../src/lib/server/raffle-discovery-schedule';
 import { pageAccessToken, type FacebookCredentials } from './credentials';
 import type { AlertEnv } from '../../src/lib/server/alerts';
 const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
@@ -60,9 +60,9 @@ function previousIdentity(raw: string | null): { id: string; publishedAt: string
 export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number; nextScheduledAt?: number; trigger?:'webhook'|'poll' } = {}): Promise<Outcome> {
     if (env.FB_AUTOMATION_ENABLED !== 'true') return { status: 'disabled' };
     const now = dependencies.now ?? new Date();
-    // This gate precedes every KV operation and every Facebook request. The cron
-    // runs every minute; off-hours and unconfirmed months are zero-I/O invocations.
-    if (!inDiscoveryWindow(now)) return { status: 'outside-drawing-window' };
+    // This gate precedes every KV operation and every Facebook request. The coordinator runs checks only on backup
+    // slots or for a signed webhook; unconfirmed months are zero-I/O invocations.
+    if (!liveDay(now)) return { status: 'outside-drawing-window' };
     const time = now.getTime();
     const season = raffleSeason(env);
     if (!season) return { status: 'configuration-error' };

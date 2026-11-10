@@ -1,4 +1,4 @@
-import { drawingDate, inDiscoveryWindow } from '../../src/lib/server/raffle-discovery-schedule';
+import { drawingDate, liveDay } from '../../src/lib/server/raffle-discovery-schedule';
 
 export const TIMING_LIMIT = 256;
 export const timingDay = (day: string) => /^2026-11-(?:0[1-9]|[12]\d|30)$/.test(day);
@@ -13,9 +13,8 @@ export function timingEntry(value: unknown): TimingEntry | null {
     if (!value || typeof value !== 'object') return null;
     const v = value as Record<string, unknown>;
     if (!stages.has(String(v.stage)) || !Number.isSafeInteger(v.at)) return null;
-    const closingResult=v.stage==='check-result' && Number.isSafeInteger(v.alarmAt) && inDiscoveryWindow(new Date(Number(v.alarmAt)))
-        && Number(v.at)>=Number(v.alarmAt) && Number(v.at)-Number(v.alarmAt)<=120000;
-    if(!inDiscoveryWindow(new Date(Number(v.at))) && !closingResult)return null;
+    // Checks also run for signed webhooks outside the backup window, so evidence is kept for any November moment.
+    if(!liveDay(new Date(Number(v.at))))return null;
     const out: TimingEntry = { stage: String(v.stage), at: Number(v.at) };
     for (const k of numeric) if (Number.isSafeInteger(v[k]) && Number(v[k]) >= 0) out[k] = v[k];
     for (const k of ['accepted','selected','paused']) if (typeof v[k] === 'boolean') out[k] = v[k];
