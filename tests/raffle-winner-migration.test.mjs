@@ -78,7 +78,7 @@ test('slot backfill agrees with the application calendar on every November day a
     const mf = new Miniflare({ modules: true, script: 'export default {fetch(){return new Response()}}', d1Databases: ['DB'], d1Persist: false });
     t.after(() => mf.dispose());
     const DB = await mf.getD1Database('DB');
-    for (const name of ['001_schema.sql', '003_raffle_prize_supplements.sql', '005_winner_ticket_text.sql']) for (const s of statements(await read(name))) await DB.prepare(s).run();
+    for (const name of ['001_schema.sql', '003_raffle_prize_supplements.sql', '009_raffle_season_calendar.sql', '005_winner_ticket_text.sql']) for (const s of statements(await read(name))) await DB.prepare(s).run();
     await seedEvents(DB);
     const { prizeSchedule, matchApprovedSlot } = await import('../src/lib/server/raffle-prizes.ts');
     const schedule = await prizeSchedule(DB, '2026-11');

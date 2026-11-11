@@ -5,10 +5,13 @@ import { prizeCells, publicTicketLabel, WINNER_PLACEMENT_ORDER_SQL } from "../li
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { FACEBOOK_PAGE_VIDEOS_URL, facebookEmbedSrc, RAFFLE_VIDEO_MESSAGE, RAFFLE_NO_VIDEO_MESSAGE, type LiveConfig } from "../lib/facebook";
 import { freshSelectionFrom, loadRaffleSelection } from "../lib/server/raffle-selection";
-import type { SeasonEnv } from "../lib/server/raffle-season";
+import { activeSeason, seasonKey, seasonLabel, type SeasonEnv } from "../lib/server/raffle-season";
 export const prerender = false;
 
 const facebookPageLiveUrl = FACEBOOK_PAGE_VIDEOS_URL;
+const season = activeSeason();
+const seasonText = seasonLabel(season);
+const season2026 = !!season && seasonKey(season) === "2026-11";
 
 const rules = [
         "Daily drawings are held during the raffle month.",
@@ -280,8 +283,9 @@ const description =
         <section class="card winnersCard enter-block delay-6">
             <h2 class="sectionTitle">Daily Winners</h2>
             <div class="winnersIntro">
-                <p><strong>November 1–30, 2026</strong> · Daily drawings at <strong>6:00 PM Central</strong></p>
-                <p>Two prizes daily. A third prize is drawn on Fridays, Saturdays, Sundays, and Thanksgiving (November 26).</p>
+                <p>{seasonText && <><strong>{seasonText}</strong> · </>}Daily drawings at <strong>6:00 PM Central</strong></p>
+                {season2026 ? <p>Two prizes daily. A third prize is drawn on Fridays, Saturdays, Sundays, and Thanksgiving (November 26).</p>
+                    : <p>Bonus drawings are listed in the prize calendar.</p>}
                 <p>Winners appear after each drawing.</p>
             </div>
             <p id="winnerRefreshStatus" class="muted" aria-live="polite">Check back for the latest published winners.</p>

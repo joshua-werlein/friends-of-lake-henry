@@ -30,7 +30,7 @@ const named = (rows, name) => rows.find(r => r.row.name === name);
 const today = rows => rows.filter(r => r.row.drawDate === DATE);
 const cell = (list, name) => list.map(p => p.rows.find(r => r.name === name)).filter(Boolean);
 const edit = (change, list = passes()) => { change(list); return list; };
-const MIGRATIONS = ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '004_raffle_photo_autopublish.sql',
+const MIGRATIONS = ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '009_raffle_season_calendar.sql', '004_raffle_photo_autopublish.sql',
     '005_winner_ticket_text.sql', '006_bonus_winner_tickets.sql', '007_photo_import_diagnostics.sql'];
 async function apply(DB) {
     for (const name of MIGRATIONS) {

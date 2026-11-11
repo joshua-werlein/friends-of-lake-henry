@@ -1,6 +1,8 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
+import { seasonLabel } from "../../lib/server/raffle-season";
 export const prerender = false;
+const seasonText = seasonLabel() || "the configured raffle season";
 ---
 
 <BaseLayout title="Admin | Raffle | Friends of Lake Henry">
@@ -25,7 +27,7 @@ export const prerender = false;
             <section class="panel adminPanel" style="margin-top:1rem" aria-labelledby="automaticHeading">
                 <h2 id="automaticHeading">Automatic Facebook Live</h2>
                 <label class="automationSwitch"><input id="automaticEnabled" type="checkbox" /> Enable automatic updates</label>
-                <p>For November 2026 drawings only, around 6 PM Central. A manual video can be shown now; a newer verified drawing can replace it the following day.</p>
+                <p>For drawings during {seasonText}, around 6 PM Central. A manual video can be shown now; a newer verified drawing can replace it the following day.</p>
                 <dl id="automaticDetails" aria-live="polite"></dl>
                 <button class="btn" id="testDiscovery" type="button">Test discovery now</button>
                 <p id="automaticMessage" role="status"></p>

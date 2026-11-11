@@ -2,9 +2,11 @@
 import { DurableObject } from 'cloudflare:workers';
 import { DiscoveryCoordinator } from './coordinator';
 import type { Env } from './poller';
+import { configureSeason } from '../../src/lib/server/raffle-season';
 
 /** Private singleton. No public routes and no discovery in fetch(). */
 export class DiscoveryScheduler extends DurableObject<Env> {
+    private readonly seasonConfigured = (configureSeason(this.env), true);
     private coordinator = new DiscoveryCoordinator(this.ctx.storage, this.env);
     async fetch(request:Request): Promise<Response> {
         const url=new URL(request.url);

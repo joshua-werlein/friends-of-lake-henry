@@ -8,6 +8,7 @@
 import { alertConfig, applyDelivery, planIncidents, prepareDelivery, resendSender, testSender, MAX_SENDS_PER_EVALUATION,
     type AlertEnv, type Delivery, type Envelope, type IncidentRecord, type Signal } from '../../src/lib/server/alerts';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
+import { seasonObjectName } from '../../src/lib/server/raffle-season';
 import type { Outcome } from './poller';
 
 export const GRAPH_FAILURE_STREAK = 3;     // ~45 s at the 15-second drawing cadence; single transient errors never alert.
@@ -147,7 +148,7 @@ export async function deliverLiveAlerts(env: AlertEnv & { DISCOVERY_SCHEDULER?: 
     const config = alertConfig(env);
     if (!config.enabled || !env.DISCOVERY_SCHEDULER) return { status: 'skipped' as const, sent: 0 };
     try {
-        const ns = env.DISCOVERY_SCHEDULER, stub = ns.get(ns.idFromName('november-2026'));
+        const ns = env.DISCOVERY_SCHEDULER, stub = ns.get(ns.idFromName(seasonObjectName()));
         const claim = await stub.fetch('https://discovery.internal/alerts/claim', { method: 'POST' });
         if (!claim.ok) return { status: 'error' as const, sent: 0 };
         const due = (await claim.json()) as { id: string; envelope: Envelope }[];

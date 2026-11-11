@@ -11,6 +11,7 @@ async function run(action:()=>Promise<void>) { try{await action();}catch(error){
 function card(row:any,proposal=false) {
     const box=node('section');box.className='prizeReviewCard';
     box.append(node('h3',`${row.drawDate||'Date needs review'} · ${row.category} · ${row.status??'AI proposal; unapproved'}`));
+    if(row.source==='daily') { box.append(node('p',row.description+' (recurring prize; review it under Recurring prizes)'));return box; }
     if(row.source==='event') {
         box.append(node('p',row.description));
         const link=node('a','Edit original event') as HTMLAnchorElement;link.href='/admin/events/'+encodeURIComponent(row.eventId);box.append(link);
@@ -30,11 +31,34 @@ function card(row:any,proposal=false) {
         b.disabled=true;
         try{await api(action==='draft'?{action,month:month.value,rows:[value()]}:{action,month:month.value,id:row.id,version:row.version,row:value(),approved:true,positionConfirmed:approved.checked});await load();if(proposal)box.remove();status.textContent=action==='draft'?'Private draft saved; approval is still required.':'Review saved.';}finally{b.disabled=false;}
     }));box.append(b);};
+    if(proposal&&row.recurring){date.disabled=true;const b=node('button','Save as private recurring draft') as HTMLButtonElement;b.type='button';b.className='btn';
+        b.addEventListener('click',()=>run(async()=>{const v=value();await api({action:'recurringDraft',month:month.value,rows:[{category:['Gift card','Cash'].includes(v.category)?v.category:'Other',position:null,description:v.description,notes:v.notes}]});box.remove();await load();status.textContent='Private recurring draft saved; approval is still required.';}));
+        box.append(b);return box;}
     if(proposal)button('Save as private draft','draft');else{button(row.status==='approved'?'Save reviewed correction':'Save draft correction','correct');if(row.status==='draft')button('Approve prize','approve');if(row.status!=='rejected')button('Reject prize','reject');}
+    return box;
+}
+function recurringCard(row:any) {
+    const box=node('section');box.className='prizeReviewCard';
+    box.append(node('h3',`Every drawing day · ${row.category} · ${row.status}`));
+    const wrap=(label:string,input:HTMLElement)=>{const l=node('label',label);(input as HTMLInputElement).className='input';l.append(input);box.append(l);return input;};
+    const description=wrap('Prize description',document.createElement('textarea')) as HTMLTextAreaElement;description.maxLength=250;description.value=row.description;
+    const position=wrap('Independently verified place',document.createElement('select')) as HTMLSelectElement;
+    position.add(new Option('Unknown / not confirmed',''));for(const v of [2,3])position.add(new Option(v===2?'2nd':'3rd',String(v)));position.value=row.position===null?'':String(row.position);
+    const confirm=document.createElement('input');confirm.type='checkbox';const label=node('label','I reviewed this recurring prize and independently verified any place.');label.prepend(confirm);box.append(label);
+    const act=(text:string,review:string)=>{const b=node('button',text) as HTMLButtonElement;b.type='button';b.className='btn';b.addEventListener('click',()=>run(async()=>{
+        if(!confirm.checked)throw Error('Confirm your review first.');
+        await api({action:'reviewRecurring',month:month.value,review,id:row.id,version:row.version,approved:true,positionConfirmed:true,
+            row:{category:row.category,position:position.value?Number(position.value):null,description:description.value,notes:row.notes??''}});
+        await load();status.textContent='Recurring prize review saved.';}));box.append(b);};
+    if(row.status==='draft')act('Approve recurring prize','approve');
+    if(row.status!=='rejected'){act('Save correction','correct');act('Reject','reject');}
     return box;
 }
 async function load() {
     const data=await api();rows=data.prizes;get('calendarRows').replaceChildren(...rows.map(v=>card(v)));
+    get('recurringRows').replaceChildren(...(data.recurring??[]).map(recurringCard));
+    const cal=data.calendar;get<HTMLInputElement>('mainPrizeHeading').value=cal?.mainPrizeHeading??'';get<HTMLInputElement>('calendarApproveConfirm').checked=false;
+    get('calendarApprovalState').textContent=cal?.status==='approved'?`Approved ${new Date(cal.approvedAt).toLocaleString()}. These prizes are authoritative for winners and photo publication.`:'Draft: not yet approved. Nothing in this month is authoritative.';
     get<HTMLImageElement>('calendarPoster').src=data.posterUrl;get<HTMLAnchorElement>('calendarPosterLink').href=data.posterUrl;
     get<HTMLButtonElement>('recognizePoster').disabled=!data.aiAvailable;
     get('posterAiStatus').textContent=data.aiAvailable?'Recognition proposes private rows only.':'AI binding and owner-confirmed model access/terms are needed for optional poster recognition. Events and manual drafts remain available.';
@@ -58,6 +82,15 @@ get('bulkApproveButton').addEventListener('click',()=>run(async()=>{
 get('recognizePoster').addEventListener('click',()=>run(async()=>{
     const button=get<HTMLButtonElement>('recognizePoster');button.disabled=true;
     try{const data=await api({action:'extractPoster',month:month.value});get('posterProposals').replaceChildren(...data.proposals.map((v:any)=>card(v,true)));status.textContent=`${data.proposals.length} unapproved proposals. ${data.warnings.join(' ')}`;}finally{button.disabled=false;}
+}));
+get('recurringForm').addEventListener('submit',event=>{event.preventDefault();void run(async()=>{
+    await api({action:'recurringDraft',month:month.value,rows:[{category:get<HTMLSelectElement>('recurringCategory').value,position:null,description:get<HTMLTextAreaElement>('recurringDescription').value,notes:''}]});
+    await load();status.textContent='Private recurring draft saved. Review and approve it before it applies.';
+});});
+for(const action of ['approveCalendar','reopenCalendar'] as const) get(action).addEventListener('click',()=>run(async()=>{
+    if(!get<HTMLInputElement>('calendarApproveConfirm').checked)throw Error('Confirm that you reviewed the whole calendar first.');
+    await api({action,month:month.value,approved:true,mainPrizeHeading:get<HTMLInputElement>('mainPrizeHeading').value.trim()||null});
+    await load();status.textContent=action==='approveCalendar'?'Prize calendar approved.':'Prize calendar returned to draft.';
 }));
 get<HTMLImageElement>('calendarPoster').addEventListener('error',()=>{get('calendarPoster').hidden=true;});
 void run(load);

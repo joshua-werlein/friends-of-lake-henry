@@ -11,6 +11,25 @@ export const prerender=false;
         <label>Raffle month <input class="input" id="prizeMonth" type="month" /></label>
         <button class="btn" id="loadPrizeMonth" type="button">Load calendar</button>
         <p id="calendarStatus" role="status"></p>
+        <div class="panel" id="calendarApproval">
+            <h2>Calendar approval</h2>
+            <p id="calendarApprovalState">Load a month to see whether its prize calendar is approved.</p>
+            <p>Until a month is approved, its prizes are private: the public calendar, winner prize validation and automatic Facebook photo publication ignore them, and photo extraction does not run. Approving a calendar does not activate a season; the season dates in the Cloudflare settings do.</p>
+            <label>Winner-table heading for the day's main prize (optional, e.g. Firearm)<input class="input" id="mainPrizeHeading" maxlength="60" /></label>
+            <label><input type="checkbox" id="calendarApproveConfirm" /> I reviewed every published main prize, recurring prize, bonus drawing and approved supplement for this month.</label>
+            <button class="btn" id="approveCalendar" type="button">Approve prize calendar</button>
+            <button class="btn" id="reopenCalendar" type="button">Return calendar to draft</button>
+        </div>
+        <div class="panel">
+            <h2>Recurring prizes (every drawing day)</h2>
+            <p>For example a daily gift certificate printed on the poster. After approval it attaches to every date with a published main prize. A place (2nd or 3rd) must be independently confirmed.</p>
+            <div id="recurringRows"></div>
+            <form id="recurringForm">
+                <label>Category<select class="input" id="recurringCategory"><option>Gift card</option><option>Cash</option><option>Other</option></select></label>
+                <label>Prize description<textarea class="input" id="recurringDescription" maxlength="250" required rows="2"></textarea></label>
+                <button class="btn" type="submit">Save private recurring draft</button>
+            </form>
+        </div>
         <div id="bulkApprove" class="panel" hidden>
             <label><input type="checkbox" id="bulkApproveConfirm" /> I reviewed all <span id="bulkApproveCount">0</span> drafts below (date, category and description). None states a numeric place.</label>
             <button class="btn" id="bulkApproveButton" type="button">Approve reviewed drafts</button>

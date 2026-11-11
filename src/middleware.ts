@@ -1,5 +1,6 @@
 import { defineMiddleware } from "astro/middleware";
 import { SECURITY_HEADERS_NOSTORE } from "./lib/http";
+import { configureSeason } from "./lib/server/raffle-season";
 
 const SESSION_COOKIE = "admin_session";
 const SESSION_PREFIX = "admin_sess:";
@@ -77,6 +78,8 @@ function applyHtmlSecurityHeaders(res: Response) {
 }
 
 export const onRequest = defineMiddleware(async (context, next) => {
+    // Record this deployment's raffle season before any page or API reads it.
+    configureSeason((context.locals as any).runtime?.env);
     const { pathname, search } = context.url;
 
     const isAdminUi = pathname.startsWith("/admin");

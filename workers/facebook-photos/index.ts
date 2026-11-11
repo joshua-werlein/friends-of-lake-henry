@@ -10,6 +10,8 @@ import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, f
     removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
 import { evaluatePhotoAlerts, recordWebhookReceipts } from './alerts';
 import type { AlertEnv } from '../../src/lib/server/alerts';
+import { configureSeason } from '../../src/lib/server/raffle-season';
+import { monthCalendar } from '../../src/lib/server/raffle-prizes';
 
 export type Env = FacebookCredentials & AlertEnv & {
     DB: D1Database;
@@ -154,6 +156,12 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
     const photos = extractPhotoCandidates([post], false, now).slice(0, 4);
     if (!photos.length) return { queue: 'ignored' };
     const announcementDate = chicagoDate(published);
+    // No photo download or AI read until an administrator has approved this month's prize calendar: nothing could publish.
+    // Requeue the post from admin after approval.
+    if ((await monthCalendar(env.DB, announcementDate.slice(0, 7))).status !== 'approved') {
+        log('calendar-not-approved', { postId, month: announcementDate.slice(0, 7) });
+        return { queue: 'ignored' };
+    }
     let queue: 'done' | 'ignored' = 'ignored';
     const statuses: string[] = [], counts = { inserted: 0, duplicate: 0, held: 0, rejected: 0, outsideWindow: 0 };
     for (const photo of photos) {
@@ -232,6 +240,7 @@ export async function poll(env: Env, fetcher: Fetcher, now = new Date()) {
 export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
     return {
         async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+            configureSeason(env);
             const { pathname } = new URL(request.url);
             if (pathname === '/facebook/webhook' || pathname === '/facebook/webhook/fohl-sync') {
                 return handleWebhook(request, env, ctx, pathname.endsWith('/fohl-sync'));
@@ -239,6 +248,7 @@ export function createWorker(fetcher: Fetcher = (...a) => fetch(...a)) {
             return new Response('Not found', { status: 404 });
         },
         async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+            configureSeason(env);
             const now = new Date(controller.scheduledTime);
             if (!enabled(env) || !inSeason(env, now)) return;
             ctx.waitUntil((async () => {

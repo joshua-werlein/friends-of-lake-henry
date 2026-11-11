@@ -14,7 +14,7 @@ export const GET:APIRoute=async context=>{
     const env=context.locals.runtime?.env as Env|undefined;
     const day=new URL(context.request.url).searchParams.get('timeline');
     if(day!==null){
-        if(!timingDay(day))return json({ok:false,error:'Choose a November 2026 date (YYYY-MM-DD).'},400);
+        if(!timingDay(day))return json({ok:false,error:'Choose a date in the current raffle season (YYYY-MM-DD).'},400);
         if(!env?.FACEBOOK_LIVE)return json({ok:false,error:'Discovery is not connected.'},503);
         try{return json({ok:true,day,...await env.FACEBOOK_LIVE.timeline(day) as object});}
         catch{return json({ok:false,error:'Timing diagnostics are unavailable.'},503);}

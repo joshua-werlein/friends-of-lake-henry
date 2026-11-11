@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
-import { prizeSchedule,saveSupplement,reviewSupplement,suggestPrizes,approveDrafts } from '../src/lib/server/raffle-prizes.ts';
+import { prizeSchedule,saveSupplement,reviewSupplement,suggestPrizes,approveDrafts,setCalendarStatus } from '../src/lib/server/raffle-prizes.ts';
 import { readPosterPrizes } from '../src/lib/server/raffle-poster-prizes.ts';
 import { POST } from '../src/pages/api/admin/raffle/prizes.ts';
 import { GET } from '../src/pages/api/raffle/prizes.ts';
@@ -10,7 +10,7 @@ const fixture=JSON.parse(await readFile(new URL('./fixtures/november-2026-publis
 async function setup(t) {
     const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response()}}',d1Databases:['DB'],r2Buckets:['PHOTOS_BUCKET'],d1Persist:false,r2Persist:false});t.after(()=>mf.dispose());
     const DB=await mf.getD1Database('DB'),PHOTOS_BUCKET=await mf.getR2Bucket('PHOTOS_BUCKET');
-    for(const name of ['001_schema.sql','migrations/00x_raffle_poster.sql','003_raffle_prize_supplements.sql']) {
+    for(const name of ['001_schema.sql','migrations/00x_raffle_poster.sql','003_raffle_prize_supplements.sql', '009_raffle_season_calendar.sql']) {
         const sql=(await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).replace(/--[^\n]*/g,'');
         for(const statement of sql.split(';').filter(v=>v.trim()))await DB.prepare(statement).run();
     }
@@ -32,6 +32,10 @@ test('30 real published event prizes match Central drawing dates; no event copyi
     assert.match(rows[0].description,/Thompson/);
     assert.equal((await DB.prepare('SELECT count(*) AS n FROM raffle_prize_supplements').first()).n,0);
     await DB.prepare("INSERT INTO events(id,title,kind,status,date_start) VALUES('future','Future November prize','Raffle','published','2027-12-01T00:00:00Z')").run();
+    // A future month's prizes stay private until an administrator approves its calendar.
+    assert.equal((await prizeSchedule(DB,'2027-11')).length,0);
+    assert.equal((await prizeSchedule(DB,'2027-11',true))[0].drawDate,'2027-11-30');
+    await setCalendarStatus(DB,'2027-11','approved');
     assert.equal((await prizeSchedule(DB,'2027-11'))[0].drawDate,'2027-11-30');
 });
 test('supplements remain private until approved, deduplicate and never alter events/winners',async t=>{
@@ -58,7 +62,7 @@ test('supplements remain private until approved, deduplicate and never alter eve
 test('existing R2 poster extraction excludes event main prizes, forces unknown placement and never writes',async t=>{
     const {DB,PHOTOS_BUCKET,ctx}=await setup(t),key='raffle/2026-11/existing-poster.png';
     await PHOTOS_BUCKET.put(key,new Uint8Array([137,80,78,71,13,10,26,10]));
-    await DB.prepare('INSERT INTO raffle_months(month_key,title,poster_key) VALUES(?,?,?)').bind('2026-11','Existing poster',key).run();
+    await DB.prepare('INSERT INTO raffle_months(month_key,title,poster_key) VALUES(?,?,?) ON CONFLICT(month_key) DO UPDATE SET title=excluded.title,poster_key=excluded.poster_key').bind('2026-11','Existing poster',key).run();
     const main=(await prizeSchedule(DB,'2026-11'))[0];let prompt;
     const AI={run:async(_model,input)=>{prompt=JSON.stringify(input);return {response:JSON.stringify({rows:[
         {drawDate:'2026-11-01',category:'Firearm',description:main.description,position:1},

@@ -32,10 +32,10 @@ function identifyPrize(text: string | undefined, drawDate: string, schedule: Sch
     const categories: Record<string, string> = { 'gift card': 'Gift card', firearm: 'Firearm',
         bonus: 'Bonus drawing', 'bonus prize': 'Bonus drawing', 'bonus drawing': 'Bonus drawing', '2nd drawing': 'Bonus drawing' };
     const category = Object.hasOwn(categories, visible) ? categories[visible] : null;
-    if (category) {
-        // The November 2026 giveaway calendar's published Day N main events are the daily firearm.
-        const matches = eligible.filter(p => p.category === category || (category === 'Firearm'
-            && drawDate.startsWith('2026-11-') && p.category === 'Main prize' && p.source === 'event'));
+    // A column heading names a prize by its category or by the month's reviewed main-prize heading ("Firearm" in 2026).
+    const aliased = (p: ScheduledPrize) => (p.aliases ?? []).some(a => fold(a) === visible);
+    if (category || eligible.some(aliased)) {
+        const matches = eligible.filter(p => (category !== null && p.category === category) || aliased(p));
         return matches.length === 1 ? matches[0] : null;
     }
     const words = (v: string) => new Set(fold(v).split(' ').filter(w => w.length > 1 || /\d/.test(w)));

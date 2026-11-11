@@ -1,6 +1,7 @@
-// Only the confirmed November 2026 drawing schedule. Never extrapolate a future season.
+import { inSeasonDay } from './raffle-season';
+// Drawing days come only from the configured, explicitly activated season. Never extrapolated from the calendar.
 const clock = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-// Temporary November-only schedule. Scheduled backup discovery: 5:50:00-6:15:59 PM Central.
+// Scheduled backup discovery on season days: 5:50:00-6:15:59 PM Central.
 const START = 17 * 60 + 50, END = 18 * 60 + 16;
 /** Outside the backup window a signed webhook may select only a same-day video published this recently. */
 export const LIVE_RECENT_MS = 2 * 3600_000;
@@ -10,18 +11,18 @@ function localTime(now: Date): { day: string; minute: number } | null {
     return { day: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
 }
 /** Any valid moment, any time of year: signed Live webhooks may trigger a check and a selection (the verification
- * receipt, same-day and recency rules still apply). Scheduled backup discovery stays November 2026 only. */
+ * receipt, same-day and recency rules still apply). Scheduled backup discovery runs only on configured season days. */
 export function liveDay(now: Date): boolean {
     return !!localTime(now);
 }
-/** A November 2026 day (Central): the drawing month (timing journal, drawing-start fast refresh). */
+/** A configured season day (Central): the drawing month (timing journal, drawing-start fast refresh). */
 export function inDrawingMonth(now: Date): boolean {
     const local = localTime(now);
-    return !!local && local.day.startsWith('2026-11-');
+    return !!local && inSeasonDay(local.day);
 }
 export function inDiscoveryWindow(now: Date): boolean {
     const local = localTime(now);
-    return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < END;
+    return !!local && inSeasonDay(local.day) && local.minute >= START && local.minute < END;
 }
 /** 5:59:00-6:01:59 PM Central, the start of the drawing, is checked every 15 seconds. */
 export function burstCadence(now: Date): boolean {
@@ -49,20 +50,20 @@ export function nextDiscoverySlot(now: Date): number | null {
  * receipt checks remain in the resolver; this never manufactures a heartbeat. */
 export function offHoursReplayHealthy(now: Date, verifiedAt: Date, attemptedAt: Date): boolean {
     const local = localTime(now), verified = localTime(verifiedAt), attempted = localTime(attemptedAt);
-    if (!local || !verified || !attempted || !local.day.startsWith('2026-11-') || inDiscoveryWindow(now)) return false;
+    if (!local || !verified || !attempted || !inSeasonDay(local.day) || inDiscoveryWindow(now)) return false;
     const lastDay = local.minute >= END ? local.day : new Date(Date.parse(local.day + 'T12:00:00Z') - 86400000).toISOString().slice(0, 10);
-    return lastDay.startsWith('2026-11-') && verified.day === lastDay && attempted.day === lastDay
+    return inSeasonDay(lastDay) && verified.day === lastDay && attempted.day === lastDay
         && verified.minute >= START && verified.minute < END && attempted.minute >= START && attempted.minute < END
         && verifiedAt.getTime() <= now.getTime() && attemptedAt.getTime() <= now.getTime();
 }
 
 export const drawingDate = (now:Date) => localTime(now)?.day ?? null;
-/** The cron sends Live alert emails from the window's start through 6:30:59 PM Central in November. Outside it the
+/** The cron sends Live alert emails from the window's start through 6:30:59 PM Central on season days. Outside it the
  * coordinator sends them right after the check that raised them, and on retry alarms. */
 const ALERT_END = 18 * 60 + 31;
 export function inAlertDeliveryWindow(now: Date): boolean {
     const local = localTime(now);
-    return !!local && local.day.startsWith('2026-11-') && local.minute >= START && local.minute < ALERT_END;
+    return !!local && inSeasonDay(local.day) && local.minute >= START && local.minute < ALERT_END;
 }
 /** End (exclusive) of today's cron alert window when `now` is inside it, otherwise null. */
 export function alertWindowEnd(now: Date): number | null {
@@ -73,7 +74,7 @@ export function alertWindowEnd(now: Date): number | null {
 /** 5:58:00-6:05:59 PM Central, when a scheduled drawing starts: returns that span's end (browsers poll every 5 s), else 0. */
 export function drawingStartFastUntil(now: Date): number {
     const local = localTime(now);
-    if (!local || !local.day.startsWith('2026-11-') || local.minute < 17 * 60 + 58 || local.minute >= 18 * 60 + 6) return 0;
+    if (!local || !inSeasonDay(local.day) || local.minute < 17 * 60 + 58 || local.minute >= 18 * 60 + 6) return 0;
     return Math.floor(now.getTime() / 60000) * 60000 + (18 * 60 + 6 - local.minute) * 60000;
 }
 

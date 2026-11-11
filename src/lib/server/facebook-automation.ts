@@ -1,3 +1,4 @@
+import { activeSeason, type Season } from './raffle-season';
 import { FACEBOOK_PAGE_ID, normalizeFacebookVideoUrl, RAFFLE_LIVE_KEY } from '../facebook';
 
 /** Application contract, NOT a claimed Meta response schema. A verified adapter is still required. */
@@ -14,8 +15,8 @@ export type DiscoveryResult = { ok: true; broadcasts: unknown } | { ok: false; r
 export type BroadcastSource = () => Promise<DiscoveryResult>;
 export const AUTOMATIC_KEY = 'raffle_live_automatic';
 export const DEFAULT_POLL_INTERVAL_SECONDS = 300;
-export const FUNDRAISER_START = '2026-11-01T00:00:00-05:00';
-export const FUNDRAISER_END = '2026-12-01T00:00:00-06:00';
+// The fundraiser window is the configured raffle season; these remain only as the no-configuration defaults.
+export { DEFAULT_SEASON_START as FUNDRAISER_START, DEFAULT_SEASON_END as FUNDRAISER_END } from './raffle-season';
 
 // Strict validation at the future provider boundary; ordinary uploads must never be selected.
 export function validateBroadcast(value: unknown): Broadcast | null {
@@ -45,11 +46,13 @@ export async function pollBroadcasts(options: {
     now?: Date;
     lastAttemptAt?: number;
     pollIntervalSeconds?: number;
+    season?: Season | null;
 }): Promise<PollOutcome> {
     if (options.enabled !== true) return { status: 'disabled' };
     const now = options.now ?? new Date();
     const time = now.getTime();
-    if (!Number.isFinite(time) || time < Date.parse(FUNDRAISER_START) || time >= Date.parse(FUNDRAISER_END)) {
+    const season = options.season === undefined ? activeSeason() : options.season;
+    if (!season || !Number.isFinite(time) || time < season.start || time >= season.end) {
         return { status: 'outside-window' };
     }
     // There is deliberately no production Graph client until Meta feasibility is verified.
@@ -76,7 +79,7 @@ export async function pollBroadcasts(options: {
     // Reject a partially malformed response rather than falling back to an older drawing.
     if (broadcasts.some(b => !b)) return { status: 'invalid-response' };
     const candidate = (broadcasts as Broadcast[])
-        .filter(b => Date.parse(b.startedAt) >= Date.parse(FUNDRAISER_START) && Date.parse(b.startedAt) <= time)
+        .filter(b => Date.parse(b.startedAt) >= season.start && Date.parse(b.startedAt) <= time)
         .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)
             || (a.status === b.status ? a.id.localeCompare(b.id) : a.status === 'live' ? -1 : 1))[0];
     if (!candidate) return { status: 'empty' };

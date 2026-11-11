@@ -2,6 +2,7 @@ import { alertWindowEnd, discoverySlot, drawingStartFastUntil, inAlertDeliveryWi
 import { runPoll, STATE_KEY, type Env, type Outcome } from './poller';
 import { AUTOMATIC_KEY } from '../../src/lib/server/facebook-automation';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
+import { inSeasonDay } from '../../src/lib/server/raffle-season';
 import { claimLiveDeliveries, deliverFromCoordinator, nextLiveDeliveryAt, planLiveAlerts, recordLiveDelivery } from './alerts';
 import type { Delivery } from '../../src/lib/server/alerts';
 import { TimingJournal } from './timing';
@@ -209,7 +210,7 @@ export class DiscoveryCoordinator {
         } catch { /* Diagnostics never affect detection. */ }
     }
     async timeline(day: string) {
-        if (!/^2026-11-\d{2}$/.test(day)) return null;
+        if (!inSeasonDay(day)) return null;
         return {...await this.storage.get<DrawingTimeline>(timelineKey(day)),day,diagnostics:await this.journal.read(day)};
     }
 }
