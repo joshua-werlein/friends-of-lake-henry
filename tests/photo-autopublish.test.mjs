@@ -263,6 +263,73 @@ test('November 8: a lone ambiguous-layout remark is outvoted by an identical cle
  rejected([clean,{...flagged,rows:flagged.rows.slice(0,-1)}]);
 });
 
+// Production winners stored before the November 10 announcement (Nov 6–9), as the photo Worker loads them.
+const storedBeforeNov10=[
+ ['2026-11-2026-11-06-288','2026-11-06',288,'Troy Lindberg','Hixton, WI','1st place — Springfield Armory 1911 Emissary 9MM','event:2026-11-06-day-6-springfield-armory-1911-emissary-9mm'],
+ ['2026-11-2026-11-06-681','2026-11-06',681,'Kent Johnson','Blair, WI','Bonus — Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen','event-bonus:2026-11-06-day-6-springfield-armory-1911-emissary-9mm'],
+ ['2026-11-2026-11-06-838','2026-11-06',838,'Lyle Schlomer','Osseo, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','daily:2026-11-06:0'],
+ ['2026-11-2026-11-07-338','2026-11-07',338,'Joe Rabuck','Augusta, WI','1st place — Winchester 1892 Carbine 357 Mag','event:2026-11-07-day-7-winchester-1892-carbine-357-mag'],
+ ['2026-11-2026-11-07-375','2026-11-07',375,'Troy Gilson','Tomah, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','daily:2026-11-07:0'],
+ ['2026-11-2026-11-07-slot-event-bonus-2026-11-07-day-7-winchester-1892-carbine-357-mag','2026-11-07',null,'Gage Everson','Independence, WI','Bonus — Meat Bundle sponsored by Blair Meat Market','event-bonus:2026-11-07-day-7-winchester-1892-carbine-357-mag'],
+ ['2026-11-2026-11-08-619','2026-11-08',619,'Dale Schaub','Blair, WI','1st place — Kimber Stainless II 1911 38 Super','event:2026-11-08-day-8-kimber-stainless-ii-1911-38-super'],
+ ['2026-11-2026-11-08-291','2026-11-08',291,'Ryan Casper','Black River Falls, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','daily:2026-11-08:0'],
+ ['2026-11-2026-11-08-slot-event-bonus-2026-11-08-day-8-kimber-stainless-ii-1911-38-super','2026-11-08',null,'John Kraemer','Neillsville, WI','Bonus — Inflatable Paddle Board','event-bonus:2026-11-08-day-8-kimber-stainless-ii-1911-38-super'],
+ ['2026-11-2026-11-09-873','2026-11-09',873,'Roxy Krause','Eau Claire, WI','1st place — Auto Ordnance M1 30 Carbine','event:2026-11-09-day-9-auto-ordnance-m1-30-carbine'],
+ ['2026-11-2026-11-09-673','2026-11-09',673,'Al "Cowpie" Chikowski','Berlin, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','daily:2026-11-09:0'],
+].map(([id,drawDate,ticketNumber,name,town,prize,prizeSlotId])=>({id,drawDate,ticketNumber,name,town,prize,prizeSlotId}));
+
+test('November 10: a cumulative month table publishes today\'s identical reads despite a lone layout remark and old-cell disagreement',async t=>{
+ const schedule=await prizeSchedule(await database(t),'2026-11');
+ const fixture=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-10.extraction.json',import.meta.url),'utf8'));
+ const [clean,flagged]=fixture.extractionPasses;
+ assert.deepEqual([clean.rows.length,flagged.rows.length,clean.warnings.length,flagged.warnings.map(w=>w.code)],[23,21,0,['ambiguous-layout']]);
+ for(const passes of [[clean,flagged],[flagged,clean]]){
+  const decision=decidePhoto(passes,storedBeforeNov10,schedule,'2026-11-10');
+  assert.equal(decision.status,'published');
+  const today=decision.rows.filter(r=>r.row.drawDate==='2026-11-10');
+  assert.deepEqual(today.map(r=>[r.outcome,r.row.ticketNumber,r.row.name,r.row.town]),[['insert','368','Jared White','LaCrosse, WI'],['insert','105','Gary Gran','Osseo, WI']]);
+  assert.match(today[0].prize,/^1st place — /);assert.match(today[1].prize,/^2nd place — \$100 gift certificate/);
+  assert.deepEqual(today.map(r=>r.winnerId),['2026-11-2026-11-10-368','2026-11-2026-11-10-105']);
+  // Nov 8–9 are inside the window and already stored: duplicates, never republished. Older cells cannot publish.
+  for(const r of decision.rows.filter(r=>r.row.drawDate==='2026-11-08'||r.row.drawDate==='2026-11-09'))assert.equal(r.outcome,'duplicate',r.row.cellText);
+  assert.ok(decision.rows.filter(r=>r.row.drawDate<'2026-11-08').every(r=>r.outcome==='outside-window'||r.outcome==='duplicate'));
+  assert.equal(decision.rows.filter(r=>r.outcome==='insert').length,2);
+ }
+ // Re-processing after publication finds both winners stored and inserts nothing.
+ const published=decidePhoto([clean,flagged],storedBeforeNov10,schedule,'2026-11-10').rows.filter(r=>r.outcome==='insert')
+  .map(r=>({id:r.winnerId,drawDate:r.row.drawDate,ticketNumber:Number(r.row.ticketNumber),name:r.row.name,town:r.row.town,prize:r.prize,prizeSlotId:r.prizeSlotId}));
+ const again=decidePhoto([clean,flagged],[...storedBeforeNov10,...published],schedule,'2026-11-10');
+ assert.equal(again.rows.filter(r=>r.outcome==='insert').length,0);
+ assert.deepEqual(again.rows.filter(r=>r.row.drawDate==='2026-11-10').map(r=>r.outcome),['duplicate','duplicate']);
+ // Strictness is unchanged for every row that could publish.
+ const today=(p,i)=>p.rows.map(r=>r.drawDate==='2026-11-10'&&r.ticketNumber==='105'?{...r,...i}:r);
+ const rejected=passes=>assert.equal(decidePhoto(passes,storedBeforeNov10,schedule,'2026-11-10').status,'rejected');
+ rejected([clean,{...flagged,rows:today(flagged,{prize:'Firearm'})}]);
+ rejected([clean,{...flagged,rows:today(flagged,{town:'Osseo'})}]);
+ rejected([clean,{...flagged,rows:today(flagged,{drawDate:'2026-11-09'})}]);
+ rejected([clean,{...flagged,rows:flagged.rows.filter(r=>r.ticketNumber!=='105')}]);
+ rejected([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='873'?{...r,name:'Roxy Kraus'}:r)}]);
+ rejected([clean,{...flagged,warnings:[{...flagged.warnings[0],code:'clipped'}]}]);
+ rejected([clean,{...flagged,warnings:[...flagged.warnings,{...flagged.warnings[0],code:'uncertain-association'}]}]);
+ rejected([flagged,{...flagged}]);
+ // A pass that moves an old cell into the window still blocks; one that only misreads old cells does not.
+ rejected([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09'}:r)}]);
+ assert.equal(decidePhoto([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,name:'Troy Lindburg'}:r)}],storedBeforeNov10,schedule,'2026-11-10').status,'published');
+});
+
+test('November 9: the cumulative table publishes only the two new winners and never republishes stored history',async t=>{
+ const schedule=await prizeSchedule(await database(t),'2026-11');
+ const fixture=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-09.extraction.json',import.meta.url),'utf8'));
+ const storedBefore=storedBeforeNov10.filter(w=>w.drawDate<'2026-11-09');
+ const decision=decidePhoto(fixture.extractionPasses,storedBefore,schedule,'2026-11-09');
+ const inserted=decision.rows.filter(r=>r.outcome==='insert');
+ assert.deepEqual(inserted.map(r=>[r.row.drawDate,r.row.ticketNumber,r.row.name,r.row.town]),[['2026-11-09','873','Roxy Krause','Eau Claire, WI'],['2026-11-09','673','Al "Cowpie" Chikowski','Berlin, WI']]);
+ assert.match(inserted[0].prize,/^1st place/);assert.match(inserted[1].prize,/^2nd place/);
+ assert.ok(decision.rows.every(r=>r.outcome!=='insert'||r.row.drawDate==='2026-11-09'));
+ const again=decidePhoto(fixture.extractionPasses,storedBeforeNov10,schedule,'2026-11-09');
+ assert.equal(again.rows.filter(r=>r.outcome==='insert').length,0);
+});
+
 test('real column-aware AI reads recover November 3–4 headings, full towns, blank hometown and 047 without inventing places',async t=>{
  const schedule=await prizeSchedule(await database(t),'2026-11');
  for(const day of ['03','04']){

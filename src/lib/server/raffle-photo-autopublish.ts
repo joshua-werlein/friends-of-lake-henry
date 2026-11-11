@@ -105,19 +105,24 @@ function classifyWarnings(passes: Extraction[]) {
 }
 
 // A lone ambiguous-layout remark (November 8: "additional prize labels within cells", which the prompt calls normal) is
-// outvoted only when another pass read the image with no image-wide warning and every row, raw cell text included, reads
-// identically in every pass. Clipping and legibility remarks always block: identical reads cannot disprove them.
+// outvoted only when another pass read the image with no image-wide warning and every publishable row, raw cell text
+// included, reads identically in every pass. Clipping and legibility remarks always block: identical reads cannot disprove them.
+// The Page posts a cumulative month table (November 10: 23 cells from Nov 1–10). Rows older than the announcement window
+// can never publish, so a differing read of an old bonus cell must not block today's identical reads. Undated rows, and
+// rows a pass dates inside the window, always count, so a pass that moves a row between dates still blocks.
 const ROW_FIELDS = ['drawDate', 'position', 'ticketNumber', 'ticketStatus', 'name', 'town', 'townStatus', 'prize', 'notes', 'cellText'] as const;
 const OUTVOTABLE = (w: ExtractionWarning) => typeof w !== 'string' && w.scope === 'image' && w.code === 'ambiguous-layout'
     && !/clip|cut[\s-]?off|truncat|crop/i.test(w.message ?? '') && !UNREADABLE_TEXT.test(w.message ?? '');
+const publishable = (r: DraftWinner, announcementDate: string) => !realDate(r.drawDate) || daysBetween(r.drawDate, announcementDate) <= WINDOW_DAYS;
 // Row-level remarks (blank-cell notes) are judged per row as usual; only image-wide ones decide the vote.
-function outvotedLayoutWarning(passes: Extraction[]) {
+function outvotedLayoutWarning(passes: Extraction[], announcementDate: string) {
     const imageWide = (p: Extraction) => classifyWarnings([p]).imageWide.length > 0;
     const flagged = passes.filter(imageWide);
     if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.some(OUTVOTABLE)
         || imageWide({ ...flagged[0], warnings: flagged[0].warnings.filter(w => !OUTVOTABLE(w)) })) return false;
-    const read = (p: Extraction) => JSON.stringify(p.rows.map(r => ROW_FIELDS.map(f => r[f] ?? null)));
-    return passes.every(p => p.rows.length > 0 && read(p) === read(passes[0]));
+    const current = (p: Extraction) => p.rows.filter(r => publishable(r, announcementDate));
+    const read = (p: Extraction) => JSON.stringify(current(p).map(r => ROW_FIELDS.map(f => r[f] ?? null)));
+    return passes.every(p => current(p).length > 0 && read(p) === read(passes[0]));
 }
 
 // ---- Row identity: passes may reorder rows or disagree on how many there are ----
@@ -203,7 +208,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
     if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
     const { imageWide, rowWarnings } = classifyWarnings(passes);
-    if (imageWide.length && !outvotedLayoutWarning(passes)) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
+    if (imageWide.length && !outvotedLayoutWarning(passes, announcementDate)) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
     if (passes.every(p => !p.rows.length)) return { status: 'rejected', reasons: ['announcement contains no readable winner rows'], rows: [] };
     const groups = reconcileRows(passes);
     const agreed = groups.filter(g => passes.every((_, i) => g.members[i]));
