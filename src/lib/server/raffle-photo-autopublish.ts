@@ -115,14 +115,43 @@ const OUTVOTABLE = (w: ExtractionWarning) => typeof w !== 'string' && w.scope ==
     && !/clip|cut[\s-]?off|truncat|crop/i.test(w.message ?? '') && !UNREADABLE_TEXT.test(w.message ?? '');
 const publishable = (r: DraftWinner, announcementDate: string) => !realDate(r.drawDate) || daysBetween(r.drawDate, announcementDate) <= WINDOW_DAYS;
 // Row-level remarks (blank-cell notes) are judged per row as usual; only image-wide ones decide the vote.
-function outvotedLayoutWarning(passes: Extraction[], announcementDate: string) {
+// A stored winner a pass reads under the wrong date (below) is not a current row: it is never written, and its column is held instead.
+function outvotedLayoutWarning(passes: Extraction[], announcementDate: string, redated: Map<DraftWinner, Redated>) {
     const imageWide = (p: Extraction) => classifyWarnings([p]).imageWide.length > 0;
     const flagged = passes.filter(imageWide);
     if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.some(OUTVOTABLE)
         || imageWide({ ...flagged[0], warnings: flagged[0].warnings.filter(w => !OUTVOTABLE(w)) })) return false;
-    const current = (p: Extraction) => p.rows.filter(r => publishable(r, announcementDate));
+    const current = (p: Extraction) => p.rows.filter(r => publishable(r, announcementDate) && !redated.has(r));
     const read = (p: Extraction) => JSON.stringify(current(p).map(r => ROW_FIELDS.map(f => r[f] ?? null)));
     return passes.every(p => current(p).length > 0 && read(p) === read(passes[0]));
+}
+
+// ---- Date-to-column association, checked against the reviewed winners already stored ----
+// November 11: the cumulative table's bonus column does not hold one cell per date row. Both passes dated the stored
+// Nov 6–8 bonus winners one or two days late, differently, and one moved two of them onto Nov 9, inside the window,
+// while every Firearm and Gift Card cell matched its stored date. A stored winner that a pass reads under another date,
+// and not under its stored date although the pass reads that date, proves the pass misplaces dates in that prize column.
+// Such a row is recognised (never written), and new winners in that column are held; other columns still publish.
+// A real repeat winner keeps its old row at the old date, so it is not mistaken for one.
+type Redated = { winner: ExistingWinner; category: string | null };
+const storedSlot = (w: ExistingWinner, schedule: ScheduledPrize[]) => w.prizeSlotId
+    ?? identifyPrize(parseWinnerPrize(w.prize ?? null).description, w.drawDate ?? '', schedule)?.id ?? null;
+function redatedRows(passes: Extraction[], existing: ExistingWinner[], schedule: ScheduledPrize[]) {
+    const found = new Map<DraftWinner, Redated>();
+    for (const pass of passes) {
+        const dates = new Set(pass.rows.map(r => r.drawDate));
+        for (const row of pass.rows) {
+            if (!realDate(row.drawDate) || fold(row.name).length < 2) continue;
+            const matches = existing.filter(w => !!w.drawDate && w.drawDate !== row.drawDate && dates.has(w.drawDate) && same(w.name, row.name)
+                && (row.ticketNumber === '' || Number(row.ticketNumber) === Number(w.ticketNumber))
+                && !pass.rows.some(o => o.drawDate === w.drawDate && same(o.name, w.name))
+                && (() => { const slot = storedSlot(w, schedule); return !!slot && identifyPrize(row.prize, w.drawDate!, schedule)?.id === slot; })());
+            if (matches.length !== 1) continue;
+            const slot = storedSlot(matches[0], schedule);
+            found.set(row, { winner: matches[0], category: schedule.find(p => p.id === slot)?.category ?? null });
+        }
+    }
+    return found;
 }
 
 // ---- Row identity: passes may reorder rows or disagree on how many there are ----
@@ -208,15 +237,14 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
     if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
     const { imageWide, rowWarnings } = classifyWarnings(passes);
-    if (imageWide.length && !outvotedLayoutWarning(passes, announcementDate)) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
+    const redated = redatedRows(passes, existing, schedule);
+    if (imageWide.length && !outvotedLayoutWarning(passes, announcementDate, redated)) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
     if (passes.every(p => !p.rows.length)) return { status: 'rejected', reasons: ['announcement contains no readable winner rows'], rows: [] };
     const groups = reconcileRows(passes);
     const agreed = groups.filter(g => passes.every((_, i) => g.members[i]));
     // Rows that barely overlap mean the passes read the table differently; no row association can be trusted.
     if (agreed.length * 2 < Math.max(...passes.map(p => p.rows.length))) return { status: 'rejected', reasons: ['extraction passes could not be reliably matched row to row; review required'], rows: [] };
     const anchor = (g: RowGroup) => g.members.find(Boolean)!;
-    // Rows stored before slots existed, or by older code, resolve from their description.
-    const storedSlot = (w: ExistingWinner) => w.prizeSlotId ?? identifyPrize(parseWinnerPrize(w.prize ?? null).description, w.drawDate ?? '', schedule)?.id ?? null;
     const currentRows = groups.filter(g => !rowProblems(anchor(g), announcementDate).outside).length;
     if (currentRows > MAX_AUTO_ROWS) return { status: 'rejected', reasons: [`${currentRows} rows exceeds the ${MAX_AUTO_ROWS}-row drawing window limit; review required`], rows: [] };
 
@@ -248,6 +276,13 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             else if (w.blankField === 'town' ? group.members.some(m => m && (m.town !== '' || m.townStatus !== 'blank'))
                 : group.members.some(m => m && (m.ticketNumber !== '' || m.ticketStatus !== 'blank'))) reasons.push('a warning reports a blank cell that the extraction passes do not confirm');
         }
+        // A stored winner every pass reads only under another date is recognised, never written, whatever else the reads say.
+        const moved = group.members.map(m => m && redated.get(m)?.winner);
+        if (!outside && moved.every((w, k) => !group.members[k] || (w && w === moved.find(Boolean))) && moved.some(Boolean)) {
+            const w = moved.find(Boolean)!;
+            return { rowNumber: i + 1, outcome: 'duplicate' as const, reasons: [`already stored under another date; the image places this winner on a different row, nothing changed: stored ${w.drawDate}, read ${row.drawDate}`],
+                row, winnerId: w.id, prize: null, prizeMatch: 'none' as const };
+        }
         // A row older than this announcement's window can never publish, so reading it imperfectly is not a hold.
         return { rowNumber: i + 1, outcome: outside ? 'outside-window' : reasons.length ? 'held' : 'insert', reasons, row,
             winnerId: null, prize: null, prizeMatch: 'none' as const };
@@ -256,7 +291,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     // Conflicts inside the image itself hold every involved row rather than picking one.
     const clusters = new Map<string, RowDecision[]>();
     for (const d of rows) {
-        if (!realDate(d.row.drawDate) || d.outcome === 'outside-window') continue;
+        if (!realDate(d.row.drawDate) || d.outcome === 'outside-window' || d.outcome === 'duplicate') continue;
         const keys = [...(d.row.ticketNumber ? [`t:${d.row.drawDate}:${Number(d.row.ticketNumber)}`] : []),
             ...(d.row.position !== null && d.row.position !== BONUS ? [`p:${d.row.drawDate}:${d.row.position}`] : [])];
         for (const k of keys) clusters.set(k, [...(clusters.get(k) ?? []), d]);
@@ -266,13 +301,13 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     }
 
     for (const d of rows) {
-        if (d.outcome === 'held') continue;
+        if (d.outcome === 'held' || d.outcome === 'duplicate') continue;
         const cmp = compareWinner(d.row, existing);
         const prize = identifyPrize(d.row.prize, d.row.drawDate, schedule);
         const scheduledPosition = prize ? calendarPosition(prize, schedule) : null;
         if (cmp.status === 'complete') {
             const record = existing.find(w => w.id === cmp.existingId);
-            const recordSlot = record ? storedSlot(record) : null;
+            const recordSlot = record ? storedSlot(record, schedule) : null;
             // Same person is not enough: a winner stored in another prize slot contradicts this announcement.
             if (d.outcome !== 'outside-window' && prize && recordSlot && recordSlot !== prize.id) {
                 d.outcome = 'rejected'; d.winnerId = cmp.existingId;
@@ -320,7 +355,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             continue;
         }
         // The slot is the identity. Numbered places also stay exclusive for stored rows with no matching description; several bonus drawings may coexist.
-        const holder = existing.find(w => w.drawDate === d.row.drawDate && (storedSlot(w) === prize.id
+        const holder = existing.find(w => w.drawDate === d.row.drawDate && (storedSlot(w, schedule) === prize.id
             || (position !== BONUS && parseWinnerPrize(w.prize ?? null).position === position)));
         if (holder) { d.outcome = 'rejected'; d.reasons.push(`${placementLabel(position)} for ${d.row.drawDate} already belongs to another winner`); continue; }
         d.prize = composePrize(position, prize.description);
@@ -342,6 +377,16 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     }
     for (const list of placements.values()) if (list.length > 1) for (const d of list) {
         d.outcome = 'held'; d.reasons = ['multiple new winners match the same scheduled prize'];
+    }
+
+    // A column whose stored winners a pass misdates cannot date tonight's cell either.
+    const misdated = new Map<string, Redated & { row: DraftWinner }>();
+    for (const [row, r] of redated) if (r.category && !misdated.has(r.category)) misdated.set(r.category, { ...r, row });
+    for (const d of rows) {
+        const evidence = d.outcome === 'insert' ? misdated.get(schedule.find(p => p.id === d.prizeSlotId)?.category ?? '') : undefined;
+        if (!evidence) continue;
+        d.outcome = 'held';
+        d.reasons = [`an extraction pass dates an already-stored winner in this prize column differently from the reviewed record, so this column's dates cannot be verified; review required: ${evidence.category} stored ${evidence.winner.drawDate}, read ${evidence.row.drawDate}`];
     }
 
     const count = (o: RowOutcome) => rows.filter(d => d.outcome === o).length;

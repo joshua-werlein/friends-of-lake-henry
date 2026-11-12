@@ -312,9 +312,69 @@ test('November 10: a cumulative month table publishes today\'s identical reads d
  rejected([clean,{...flagged,warnings:[{...flagged.warnings[0],code:'clipped'}]}]);
  rejected([clean,{...flagged,warnings:[...flagged.warnings,{...flagged.warnings[0],code:'uncertain-association'}]}]);
  rejected([flagged,{...flagged}]);
- // A pass that moves an old cell into the window still blocks; one that only misreads old cells does not.
- rejected([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09'}:r)}]);
+ // A pass that moves a stored Firearm winner into the window is recognised against the stored record: nothing is written
+ // for it and tonight's Firearm cell, in the column it proved misdated, is held. The Gift Card column is unaffected.
+ const moved=decidePhoto([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09'}:r)}],storedBeforeNov10,schedule,'2026-11-10');
+ assert.deepEqual(moved.rows.filter(r=>r.row.drawDate==='2026-11-10').map(r=>[r.outcome,r.row.ticketNumber]),[['held','368'],['insert','105']]);
+ assert.equal(moved.rows.find(r=>r.row.ticketNumber==='288'&&r.row.drawDate==='2026-11-09').outcome,'duplicate');
+ // A pass that moves an unrecognised cell into the window still blocks; one that only misreads old cells does not.
+ rejected([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09',name:'Troy Lindgren'}:r)}]);
  assert.equal(decidePhoto([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,name:'Troy Lindburg'}:r)}],storedBeforeNov10,schedule,'2026-11-10').status,'published');
+});
+
+const storedBeforeNov11=[...storedBeforeNov10,
+ ['2026-11-2026-11-10-105','2026-11-10',105,'Gary Gran','Osseo, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','daily:2026-11-10:0'],
+ ['2026-11-2026-11-10-368','2026-11-10',368,'Jared White','LaCrosse, WI','1st place — Bergara HMR 300 Win Mag','event:2026-11-10-day-10-bergara-hmr-300-win-mag'],
+].map(w=>Array.isArray(w)?(([id,drawDate,ticketNumber,name,town,prize,prizeSlotId])=>({id,drawDate,ticketNumber,name,town,prize,prizeSlotId}))(w):w);
+
+test('November 11: bonus cells misdated into the window are recognised from stored winners; tonight\'s Firearm and Gift Card cells publish',async t=>{
+ const schedule=await prizeSchedule(await database(t),'2026-11');
+ const fixture=JSON.parse(await readFile(new URL('./fixtures/facebook-winners-2026-11-11.extraction.json',import.meta.url),'utf8'));
+ const [flagged,clean]=fixture.extractionPasses;
+ assert.deepEqual([flagged.rows.length,clean.rows.length,flagged.warnings.map(w=>w.code),clean.warnings.length],[24,25,['ambiguous-layout'],0]);
+ // The real reads: the clean pass puts the stored Nov 7 Meat Bundle and Nov 8 Paddle Board winners on Nov 9.
+ assert.deepEqual(clean.rows.filter(r=>r.drawDate==='2026-11-09'&&!r.ticketNumber).map(r=>r.name),['Gage Everson','John Kraemer']);
+ for(const passes of [[flagged,clean],[clean,flagged]]){
+  const decision=decidePhoto(passes,storedBeforeNov11,schedule,'2026-11-11');
+  assert.equal(decision.status,'published',JSON.stringify(decision.reasons));
+  const inserted=decision.rows.filter(r=>r.outcome==='insert');
+  assert.deepEqual(inserted.map(r=>[r.row.drawDate,r.row.ticketNumber,r.row.name,r.row.town,r.prize,r.winnerId]),[
+   ['2026-11-11','698','Dennis McHenry','LaCrosse, WI','1st place — Savage 110 Long Range Hunter 338 Lapua Mag','2026-11-2026-11-11-698'],
+   ['2026-11-11','566','John Kraemer','Neillsville, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','2026-11-2026-11-11-566']]);
+  // The misdated bonus cells are recognised as their stored winners and never written.
+  const moved=decision.rows.filter(r=>r.row.drawDate==='2026-11-09'&&!r.row.ticketNumber);
+  assert.deepEqual(moved.map(r=>[r.outcome,r.winnerId]),[['duplicate','2026-11-2026-11-07-slot-event-bonus-2026-11-07-day-7-winchester-1892-carbine-357-mag'],['duplicate','2026-11-2026-11-08-slot-event-bonus-2026-11-08-day-8-kimber-stainless-ii-1911-38-super']]);
+  assert.ok(decision.rows.filter(r=>r.row.drawDate<'2026-11-11').every(r=>r.outcome==='duplicate'||r.outcome==='outside-window'));
+ }
+ // Re-processing after publication inserts nothing.
+ const published=decidePhoto([flagged,clean],storedBeforeNov11,schedule,'2026-11-11').rows.filter(r=>r.outcome==='insert')
+  .map(r=>({id:r.winnerId,drawDate:r.row.drawDate,ticketNumber:Number(r.row.ticketNumber),name:r.row.name,town:r.row.town,prize:r.prize,prizeSlotId:r.prizeSlotId}));
+ const again=decidePhoto([flagged,clean],[...storedBeforeNov11,...published],schedule,'2026-11-11');
+ assert.equal(again.status,'duplicate');
+ // Strictness is unchanged for anything that could publish.
+ const tonight=(p,i,ticket='566')=>({...p,rows:p.rows.map(r=>r.drawDate==='2026-11-11'&&r.ticketNumber===ticket?{...r,...i}:r)});
+ const rejected=passes=>assert.equal(decidePhoto(passes,storedBeforeNov11,schedule,'2026-11-11').status,'rejected');
+ rejected([flagged,tonight(clean,{town:'Neillsville'})]);
+ rejected([flagged,tonight(clean,{drawDate:'2026-11-10'})]);
+ rejected([flagged,{...clean,rows:clean.rows.filter(r=>r.ticketNumber!=='698')}]);
+ rejected([flagged,{...clean,warnings:[{...flagged.warnings[0],code:'clipped'}]}]);
+ rejected([flagged,{...flagged}]);
+ // A bonus cell neither stored nor agreed inside the window still blocks: it is not a recognised winner.
+ rejected([flagged,{...clean,rows:[...clean.rows,{...clean.rows.at(-1),ticketNumber:'',ticketStatus:'blank',name:'New Person',town:'Blair, WI',prize:'Paddle board',cellText:'Paddle board - New Person, Blair, WI'}]}]);
+ // A pass that shifts a whole column (stored Nov 10 Firearm read on Nov 11) holds that column, never publishes it on the wrong date.
+ const shift=p=>({...p,rows:p.rows.filter(r=>r.ticketNumber!=='698').map(r=>r.ticketNumber==='368'?{...r,drawDate:'2026-11-11'}:r)});
+ const shifted=decidePhoto([shift(flagged),shift(clean)],storedBeforeNov11,schedule,'2026-11-11');
+ assert.equal(shifted.rows.filter(r=>r.outcome==='insert'&&r.row.ticketNumber==='368').length,0);
+ assert.equal(shifted.rows.find(r=>r.row.ticketNumber==='368').outcome,'duplicate');
+ // Every other Firearm read is fine there, but with the column misplaced a new Firearm cell tonight is held.
+ const extra=p=>({...shift(p),rows:[...shift(p).rows,p.rows.find(r=>r.ticketNumber==='698')]});
+ const held=decidePhoto([extra(flagged),extra(clean)],storedBeforeNov11,schedule,'2026-11-11');
+ assert.equal(held.rows.find(r=>r.row.ticketNumber==='698').outcome,'held');
+ assert.equal(held.rows.find(r=>r.row.ticketNumber==='566').outcome,'insert');
+ // A genuine repeat winner keeps the old row at its stored date, so the new cell is not mistaken for a moved one.
+ const repeat=p=>({...p,rows:p.rows.map(r=>r.ticketNumber==='566'?{...r,ticketNumber:'105',name:'Gary Gran',town:'Osseo, WI',cellText:'105 - Gary Gran, Osseo, WI'}:r)});
+ const repeated=decidePhoto([repeat(flagged),repeat(clean)],storedBeforeNov11,schedule,'2026-11-11');
+ assert.equal(repeated.rows.find(r=>r.row.drawDate==='2026-11-11'&&r.row.ticketNumber==='105').outcome,'insert');
 });
 
 test('November 9: the cumulative table publishes only the two new winners and never republishes stored history',async t=>{
