@@ -4,8 +4,8 @@
 import { graphReader, GRAPH_PAGE_ID, isoTime } from '../facebook-live/graph';
 import { pageAccessToken, usesFohlSync, type FacebookCredentials } from '../facebook-live/credentials';
 import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
-import { base64Image, downloadPhoto, extractPhotoCandidates, extractWinners } from '../facebook-live/photos';
-import { PHOTO_MODEL, hashBytes, type Extraction } from '../../src/lib/raffle-photo-import';
+import { base64Image, downloadPhoto, extractPhotoCandidates, visionRequest, winnerPrompt } from '../facebook-live/photos';
+import { PHOTO_MODEL, hashBytes, parseExtraction, type Extraction } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
     removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
 import { evaluatePhotoAlerts, recordWebhookReceipts } from './alerts';
@@ -113,13 +113,20 @@ function photoReader(env:Env, now:Date, fetcher:Fetcher) {
 class Permanent extends Error {}
 
 type AttemptContext = { postId: string; photoId: string; attempt: number | null };
+// The cumulative month table reaches 70+ cells. A real read of a rendered Nov 28 table needed 8,650 output tokens: past the shared
+// 8,192 default, the reply is cut off mid-JSON, can never parse and fails identically on every retry. Same prompt and model.
+const PHOTO_MAX_TOKENS = 16384;
+// Each pass of a 60-cell table took ~108 s (6,580 tokens); two sequential passes outlast a 180 s lease, so the next cron tick would
+// reclaim a post that is still being read. The lease covers two full-length passes plus the download.
+const PHOTO_LEASE_SECONDS = 600;
 async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announcementDate: string, context: AttemptContext): Promise<Extraction[]> {
     const passes = Math.min(3, Math.max(2, Number(env.FB_PHOTO_EXTRACTION_PASSES) || 2));
     const out: Extraction[] = [], dataUrl = `data:${mime};base64,${base64Image(bytes)}`; // Encode once for all passes.
     for (let i = 0; i < passes; i++) {
         const started = Date.now(), passNumber = i + 1;
         try {
-            const pass = await extractWinners(env.AI!, dataUrl, mime, announcementDate.slice(0, 7), PHOTO_MODEL, announcementDate, i);
+            const pass = parseExtraction(await env.AI!.run(PHOTO_MODEL, { ...visionRequest(PHOTO_MODEL, winnerPrompt(announcementDate.slice(0, 7), announcementDate, i), dataUrl),
+                max_tokens: PHOTO_MAX_TOKENS }));
             out.push(pass);
             const detail = { containsWinners: pass.containsWinners, rows: pass.rows.length, warnings: pass.warnings.length, durationMs: Date.now() - started };
             log('extraction-pass', { ...context, attempt: context.attempt ?? 0, passNumber, ...detail });
@@ -202,7 +209,7 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
 export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?: string[]) {
     const ids = only ?? await duePosts(env.DB, now);
     for (const id of ids) {
-        if (!(await claimPost(env.DB, id, now))) continue;
+        if (!(await claimPost(env.DB, id, now, PHOTO_LEASE_SECONDS))) continue;
         const claimed = await env.DB.prepare(`SELECT source, attempts FROM raffle_photo_auto_posts WHERE post_id=?`).bind(id).first<{ source: string; attempts: number }>();
         const attempt = claimed?.attempts ?? 1;
         try {

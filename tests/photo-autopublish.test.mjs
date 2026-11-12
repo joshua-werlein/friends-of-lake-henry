@@ -143,7 +143,10 @@ test('November 5 column reads map both prizes and a cumulative Friday table stay
         'Bonus — Cutting Board, Cheese Board & Knife sponsored by Cutting Canteen',
     ]);
     assert.equal(decide([{ ...dan, position: 2 }], dan.drawDate).rows[0].outcome, 'held');
-    assert.deepEqual(decide([dan, { ...dan, ticketNumber: '123' }], dan.drawDate).rows.map(r => r.outcome), ['held', 'held']);
+    const twice = decide([dan, { ...dan, ticketNumber: '123' }], dan.drawDate);
+    assert.deepEqual(twice.rows.filter(r => r.row.name).map(r => r.outcome), ['held', 'held']);
+    // The approved gift card no cell accounts for is reported, not silently skipped.
+    assert.deepEqual(twice.rows.filter(r => !r.row.name).map(r => [r.outcome, r.prizeSlotId]), [['held', `daily:${dan.drawDate}:0`]]);
 });
 
 test('visible prize text matches exactly one verified scheduled prize; nothing is inferred from place', async t => {
@@ -173,7 +176,7 @@ test('uncertain or disagreeing rows are held and conflicting rows rejected, neve
     // Passes disagree on the ticket of row 2 → only row 2 is held back.
     const d1 = decide([row(), row({ position: 2, ticketNumber: '77', name: 'Bob Smith' })], [row(), row({ position: 2, ticketNumber: '71', name: 'Bob Smith' })]);
     assert.equal(d1.status, 'partial');
-    assert.deepEqual(d1.rows.map(r => r.outcome), ['insert', 'held']);
+    assert.deepEqual(d1.rows.filter(r => r.row.name).map(r => r.outcome), ['insert', 'held']);
     assert.match(d1.rows[1].reasons.join(), /disagree on ticketNumber/);
     // Model notes, missing fields or question marks are uncertainty.
     for (const bad of [row({ notes: 'last digit unclear' }), row({ town: '' }), row({ name: 'J?ne Doe' }), row({ drawDate: '' }), row({ ticketNumber: '4l2' })])
@@ -188,11 +191,11 @@ test('uncertain or disagreeing rows are held and conflicting rows rejected, neve
     const repeat = decide([row({ drawDate: '2026-11-02', ticketNumber: '118', name: 'Art Soborowicz', town: 'Galesville' })]);
     assert.equal(repeat.status, 'duplicate');
     // The same ticket or place twice in one image holds both rows.
-    assert.deepEqual(decide([row(), row({ ticketNumber: '99', name: 'Other Person' })]).rows.map(r => r.outcome), ['held', 'held']);
+    assert.deepEqual(decide([row(), row({ ticketNumber: '99', name: 'Other Person' })]).rows.filter(r => r.row.name).map(r => r.outcome), ['held', 'held']);
     // A row only one pass read is held; the row both passes agree on still publishes.
     const counts = decidePhoto([pass([row()]), pass([row(), row({ ticketNumber: '1', position: null })])], [], schedule, '2026-11-03');
     assert.equal(counts.status, 'partial');
-    assert.deepEqual(counts.rows.map(r => [r.row.ticketNumber, r.outcome]), [['412', 'insert'], ['1', 'held']]);
+    assert.deepEqual(counts.rows.filter(r => r.row.name).map(r => [r.row.ticketNumber, r.outcome]), [['412', 'insert'], ['1', 'held']]);
     assert.match(counts.rows[1].reasons.join(), /only 1 of 2 extraction passes/);
     // Passes that disagree on being a winner photo reject the whole photo.
     assert.equal(decidePhoto([pass([row()]), { containsWinners: false, rows: [], warnings: [] }], [], schedule, '2026-11-03').status, 'rejected');
@@ -256,11 +259,22 @@ test('November 8: a lone ambiguous-layout remark is outvoted by an identical cle
  rejected([clean,warn({message:'Some cells are blurry.'})]);
  rejected([clean,warn({scope:'row'})].map((p,i)=>i?{...p,warnings:[{...p.warnings[0],code:'uncertain-association'}]}:p));
  rejected([clean,{...flagged,warnings:['The layout of the table is ambiguous.']}]);
- rejected([warn({}),warn({})]);
  rejected([clean,{...flagged,warnings:[...flagged.warnings,{...flagged.warnings[0],code:'missing-heading'}]}]);
- rejected([clean,{...flagged,rows:flagged.rows.map((r,i)=>i===16?{...r,town:'Blair'}:r)}]);
- rejected([clean,{...flagged,rows:flagged.rows.map((r,i)=>i===17?{...r,cellText:'291 - Ryan Casper, Black River'}:r)}]);
- rejected([clean,{...flagged,rows:flagged.rows.slice(0,-1)}]);
+ // A layout remark that is not outvoted no longer rejects the image, but with no stored winners to confirm the Firearm and Gift Card
+ // columns nothing in them publishes. Only the bonus cell, dated by its own label and read identically, can; a changed row never does.
+ const unconfirmed=(passes,changed)=>{
+  const d=decidePhoto(passes,[],schedule,'2026-11-08');
+  assert.notEqual(d.status,'published');
+  // Only cells dated by their own bonus label (Nov 6 Cutting Board, Nov 7 Meat Bundle, Nov 8 Paddle Board) may publish here.
+  assert.ok(d.rows.filter(r=>r.outcome==='insert').every(r=>r.row.readDate!==undefined&&r.prizeSlotId.startsWith('event-bonus:')));
+  if(changed)assert.equal(d.rows.filter(r=>r.outcome==='insert'&&r.row.name===changed).length,0);
+  return d;
+ };
+ const both=unconfirmed([warn({}),warn({})]);
+ assert.deepEqual(both.rows.filter(r=>r.row.drawDate==='2026-11-08').map(r=>r.outcome),['held','held','insert']);
+ unconfirmed([clean,{...flagged,rows:flagged.rows.map((r,i)=>i===16?{...r,town:'Blair'}:r)}]);
+ unconfirmed([clean,{...flagged,rows:flagged.rows.map((r,i)=>i===17?{...r,cellText:'291 - Ryan Casper, Black River'}:r)}]);
+ unconfirmed([clean,{...flagged,rows:flagged.rows.slice(0,-1)}],'John Kraemer');
 });
 
 // Production winners stored before the November 10 announcement (Nov 6–9), as the photo Worker loads them.
@@ -301,24 +315,39 @@ test('November 10: a cumulative month table publishes today\'s identical reads d
  const again=decidePhoto([clean,flagged],[...storedBeforeNov10,...published],schedule,'2026-11-10');
  assert.equal(again.rows.filter(r=>r.outcome==='insert').length,0);
  assert.deepEqual(again.rows.filter(r=>r.row.drawDate==='2026-11-10').map(r=>r.outcome),['duplicate','duplicate']);
- // Strictness is unchanged for every row that could publish.
+ // Strictness is unchanged for every row that could publish. A layout remark that is not outvoted no longer rejects the image:
+ // a disputed row is held, and an agreed row publishes only in a column whose dates the stored Nov 6–9 winners confirm in every pass.
  const today=(p,i)=>p.rows.map(r=>r.drawDate==='2026-11-10'&&r.ticketNumber==='105'?{...r,...i}:r);
  const rejected=passes=>assert.equal(decidePhoto(passes,storedBeforeNov10,schedule,'2026-11-10').status,'rejected');
- rejected([clean,{...flagged,rows:today(flagged,{prize:'Firearm'})}]);
- rejected([clean,{...flagged,rows:today(flagged,{town:'Osseo'})}]);
- rejected([clean,{...flagged,rows:today(flagged,{drawDate:'2026-11-09'})}]);
- rejected([clean,{...flagged,rows:flagged.rows.filter(r=>r.ticketNumber!=='105')}]);
- rejected([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='873'?{...r,name:'Roxy Kraus'}:r)}]);
+ const only=(passes,inserted)=>{
+  const d=decidePhoto(passes,storedBeforeNov10,schedule,'2026-11-10');
+  assert.deepEqual(d.rows.filter(r=>r.outcome==='insert').map(r=>[r.row.drawDate,r.row.ticketNumber]),inserted.map(t=>['2026-11-10',t]));
+  return d;
+ };
+ for(const v of [{town:'Osseo'},{drawDate:'2026-11-09'}])assert.equal(only([clean,{...flagged,rows:today(flagged,v)}],['368']).status,'partial');
+ // A pass showing two Firearm winners for tonight confirms nothing about that column: neither is published.
+ assert.equal(only([clean,{...flagged,rows:today(flagged,{prize:'Firearm'})}],[]).status,'held');
+ only([clean,{...flagged,rows:flagged.rows.filter(r=>r.ticketNumber!=='105')}],['368']);
+ const kraus=only([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='873'?{...r,name:'Roxy Kraus'}:r)}],['368','105']);
+ assert.equal(kraus.rows.find(r=>r.row.ticketNumber==='873').outcome,'held');
  rejected([clean,{...flagged,warnings:[{...flagged.warnings[0],code:'clipped'}]}]);
  rejected([clean,{...flagged,warnings:[...flagged.warnings,{...flagged.warnings[0],code:'uncertain-association'}]}]);
- rejected([flagged,{...flagged}]);
+ // Both passes remarking on the layout: the stored winners confirm both columns, so tonight's identical reads publish.
+ assert.equal(only([flagged,{...flagged}],['368','105']).status,'published');
+ // Without enough stored history (only Nov 9 stored) the remark stands and nothing publishes from those columns.
+ const thin=decidePhoto([flagged,{...flagged}],storedBeforeNov10.filter(w=>w.drawDate==='2026-11-09'),schedule,'2026-11-10');
+ assert.deepEqual(thin.rows.filter(r=>r.row.drawDate==='2026-11-10').map(r=>r.outcome),['held','held']);
+ // The Nov 8 Paddle Board cell is dated by its own label, so it may publish; nothing from the unconfirmed columns does.
+ assert.deepEqual(thin.rows.filter(r=>r.outcome==='insert').map(r=>[r.row.drawDate,r.row.name,r.prizeSlotId.split(':')[0]]),[['2026-11-08','John Kraemer','event-bonus']]);
  // A pass that moves a stored Firearm winner into the window is recognised against the stored record: nothing is written
  // for it and tonight's Firearm cell, in the column it proved misdated, is held. The Gift Card column is unaffected.
  const moved=decidePhoto([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09'}:r)}],storedBeforeNov10,schedule,'2026-11-10');
  assert.deepEqual(moved.rows.filter(r=>r.row.drawDate==='2026-11-10').map(r=>[r.outcome,r.row.ticketNumber]),[['held','368'],['insert','105']]);
  assert.equal(moved.rows.find(r=>r.row.ticketNumber==='288'&&r.row.drawDate==='2026-11-09').outcome,'duplicate');
- // A pass that moves an unrecognised cell into the window still blocks; one that only misreads old cells does not.
- rejected([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09',name:'Troy Lindgren'}:r)}]);
+ // A pass that moves an unrecognised cell into the window: that cell is held, and the Firearm column it came from no longer
+ // has a confirmed stored Nov 6 cell in that pass, so tonight's Firearm is held too. One that only misreads old cells does not matter.
+ const lindgren=only([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,drawDate:'2026-11-09',name:'Troy Lindgren'}:r)}],['105']);
+ assert.equal(lindgren.rows.find(r=>r.row.name==='Troy Lindgren').outcome,'held');
  assert.equal(decidePhoto([clean,{...flagged,rows:flagged.rows.map(r=>r.ticketNumber==='288'?{...r,name:'Troy Lindburg'}:r)}],storedBeforeNov10,schedule,'2026-11-10').status,'published');
 });
 
@@ -341,9 +370,11 @@ test('November 11: bonus cells misdated into the window are recognised from stor
   assert.deepEqual(inserted.map(r=>[r.row.drawDate,r.row.ticketNumber,r.row.name,r.row.town,r.prize,r.winnerId]),[
    ['2026-11-11','698','Dennis McHenry','LaCrosse, WI','1st place — Savage 110 Long Range Hunter 338 Lapua Mag','2026-11-2026-11-11-698'],
    ['2026-11-11','566','John Kraemer','Neillsville, WI','2nd place — $100 gift certificate from Safe & Secure Firearms','2026-11-2026-11-11-566']]);
-  // The misdated bonus cells are recognised as their stored winners and never written.
-  const moved=decision.rows.filter(r=>r.row.drawDate==='2026-11-09'&&!r.row.ticketNumber);
-  assert.deepEqual(moved.map(r=>[r.outcome,r.winnerId]),[['duplicate','2026-11-2026-11-07-slot-event-bonus-2026-11-07-day-7-winchester-1892-carbine-357-mag'],['duplicate','2026-11-2026-11-08-slot-event-bonus-2026-11-08-day-8-kimber-stainless-ii-1911-38-super']]);
+  // Each bonus cell's own label names one approved drawing, so it is dated by the calendar (Nov 6, 7, 8), outside tonight's window,
+  // whichever row each pass placed it on. Nothing lands on Nov 9.
+  const bonus=decision.rows.filter(r=>r.row.readDate!==undefined).map(r=>[r.row.name,r.row.drawDate,r.outcome]);
+  assert.deepEqual(bonus.sort(),[['Gage Everson','2026-11-07','duplicate'],['John Kraemer','2026-11-08','duplicate'],['Kent Johnson','2026-11-06','duplicate']]);
+  assert.equal(decision.rows.filter(r=>r.row.drawDate==='2026-11-09').length,2);
   assert.ok(decision.rows.filter(r=>r.row.drawDate<'2026-11-11').every(r=>r.outcome==='duplicate'||r.outcome==='outside-window'));
  }
  // Re-processing after publication inserts nothing.
@@ -354,13 +385,18 @@ test('November 11: bonus cells misdated into the window are recognised from stor
  // Strictness is unchanged for anything that could publish.
  const tonight=(p,i,ticket='566')=>({...p,rows:p.rows.map(r=>r.drawDate==='2026-11-11'&&r.ticketNumber===ticket?{...r,...i}:r)});
  const rejected=passes=>assert.equal(decidePhoto(passes,storedBeforeNov11,schedule,'2026-11-11').status,'rejected');
- rejected([flagged,tonight(clean,{town:'Neillsville'})]);
- rejected([flagged,tonight(clean,{drawDate:'2026-11-10'})]);
- rejected([flagged,{...clean,rows:clean.rows.filter(r=>r.ticketNumber!=='698')}]);
+ const only=(passes,inserted)=>{
+  const d=decidePhoto(passes,storedBeforeNov11,schedule,'2026-11-11');
+  assert.deepEqual(d.rows.filter(r=>r.outcome==='insert').map(r=>[r.row.drawDate,r.row.ticketNumber]),inserted.map(t=>['2026-11-11',t]));
+  return d;
+ };
+ only([flagged,tonight(clean,{town:'Neillsville'})],['698']);
+ only([flagged,tonight(clean,{drawDate:'2026-11-10'})],['698']);
+ only([flagged,{...clean,rows:clean.rows.filter(r=>r.ticketNumber!=='698')}],['566']);
  rejected([flagged,{...clean,warnings:[{...flagged.warnings[0],code:'clipped'}]}]);
- rejected([flagged,{...flagged}]);
- // A bonus cell neither stored nor agreed inside the window still blocks: it is not a recognised winner.
- rejected([flagged,{...clean,rows:[...clean.rows,{...clean.rows.at(-1),ticketNumber:'',ticketStatus:'blank',name:'New Person',town:'Blair, WI',prize:'Paddle board',cellText:'Paddle board - New Person, Blair, WI'}]}]);
+ assert.equal(only([flagged,{...flagged}],['698','566']).status,'published');
+ // An unknown winner under a stored bonus label is dated to that past drawing by the calendar: it can never publish tonight.
+ only([flagged,{...clean,rows:[...clean.rows,{...clean.rows.at(-1),ticketNumber:'',ticketStatus:'blank',name:'New Person',town:'Blair, WI',prize:'Paddle board',cellText:'Paddle board - New Person, Blair, WI'}]}],['698','566']);
  // A pass that shifts a whole column (stored Nov 10 Firearm read on Nov 11) holds that column, never publishes it on the wrong date.
  const shift=p=>({...p,rows:p.rows.filter(r=>r.ticketNumber!=='698').map(r=>r.ticketNumber==='368'?{...r,drawDate:'2026-11-11'}:r)});
  const shifted=decidePhoto([shift(flagged),shift(clean)],storedBeforeNov11,schedule,'2026-11-11');

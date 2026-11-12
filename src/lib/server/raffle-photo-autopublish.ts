@@ -25,13 +25,13 @@ const realDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400000);
 export const winnerId = (date: string, ticket: number) => `${date.slice(0, 7)}-${date}-${ticket}`.replace(/[^\w-]/g, ''); // Same as manual entry.
 
+const CATEGORY_HEADINGS: Record<string, string> = { 'gift card': 'Gift card', firearm: 'Firearm',
+    bonus: 'Bonus drawing', 'bonus prize': 'Bonus drawing', 'bonus drawing': 'Bonus drawing', '2nd drawing': 'Bonus drawing' };
 function identifyPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]) {
     const visible = fold(text ?? '');
     if (visible.length < 3) return null;
     const eligible = schedule.filter(p => p.status === 'approved' && p.drawDate === drawDate);
-    const categories: Record<string, string> = { 'gift card': 'Gift card', firearm: 'Firearm',
-        bonus: 'Bonus drawing', 'bonus prize': 'Bonus drawing', 'bonus drawing': 'Bonus drawing', '2nd drawing': 'Bonus drawing' };
-    const category = Object.hasOwn(categories, visible) ? categories[visible] : null;
+    const category = Object.hasOwn(CATEGORY_HEADINGS, visible) ? CATEGORY_HEADINGS[visible] : null;
     // A column heading names a prize by its category or by the month's reviewed main-prize heading ("Firearm" in 2026).
     const aliased = (p: ScheduledPrize) => (p.aliases ?? []).some(a => fold(a) === visible);
     if (category || eligible.some(aliased)) {
@@ -51,6 +51,14 @@ function identifyPrize(text: string | undefined, drawDate: string, schedule: Sch
     if (visible.split(' ').length >= 2) {
         const phrase = eligible.filter(p => ` ${fold(p.description)} `.includes(` ${visible} `));
         if (phrase.length) return phrase.length === 1 ? phrase[0] : null;
+    }
+    // A one-word label names a bonus prize only as that prize's final noun: "Griddle" for Black Stone 28" Griddle, the day's only
+    // bonus ending in it. Any other single word stays unmatched, including a word of a multi-item prize ("Cutting", "Board" of the
+    // Nov 6 cutting board set), a brand ("Vexilar") or a joined spelling ("Chainsaw"), and the winner is held for review.
+    if (!visible.includes(' ') && visible.length >= 5 && !/\d/.test(visible)) {
+        const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && fold(p.description).split(' ').at(-1) === visible);
+        if (holders.length === 1 && holders[0].category === 'Bonus drawing'
+            && !eligible.some(p => p !== holders[0] && fold(p.description).split(' ').includes(visible))) return holders[0];
     }
     // Strong token overlap ("Savage 110 30-06" vs "Savage 110 High Country 30-06"), unique to one scheduled prize.
     const strong = scored.filter(v => v.score >= 0.6).sort((a, b) => b.score - a.score);
@@ -76,7 +84,7 @@ const UNREADABLE_TEXT = /illegib|unreadable|blur|obscur|unclear|faint|uncertain|
 const BLANK_TEXT = /\b(?:blank|empty|missing|no (?:ticket|hometown|town)|not (?:listed|printed|shown|provided|published)|without (?:a )?(?:ticket|hometown|town))\b/i;
 const NO_WARNING = /^no (?:warnings|issues)[.!]?$/i;
 const warningText = (w: ExtractionWarning) => typeof w === 'string' ? w : w.message || w.code;
-type RowWarning = { row: DraftWinner; reason: string | null; blankField?: 'ticketNumber' | 'town' };
+type RowWarning = { row: DraftWinner; reason: string | null; blankField?: 'ticketNumber' | 'town' | 'prize' };
 function classifyWarnings(passes: Extraction[]) {
     const imageWide: string[] = [], rowWarnings: RowWarning[] = [];
     for (const pass of passes) for (const warning of pass.warnings) {
@@ -84,11 +92,11 @@ function classifyWarnings(passes: Extraction[]) {
         if (typeof warning === 'string' && (!text || NO_WARNING.test(text))) continue;
         if (typeof warning !== 'string') {
             const matches = pass.rows.filter(r => (!!warning.drawDate || !!warning.ticketNumber || !!warning.name)
-                && (!warning.drawDate || r.drawDate === warning.drawDate)
+                && (!warning.drawDate || r.drawDate === warning.drawDate || r.readDate === warning.drawDate)
                 && (!warning.ticketNumber || Number(r.ticketNumber) === Number(warning.ticketNumber))
                 && (!warning.name || same(r.name, warning.name)));
             if (warning.scope === 'image' || IMAGE_WIDE_CODES.has(warning.code) || matches.length !== 1) { imageWide.push(text); continue; }
-            const blankField = warning.code === 'blank-cell' && (warning.field === 'ticketNumber' || warning.field === 'town') ? warning.field : undefined;
+            const blankField = warning.code === 'blank-cell' && (warning.field === 'ticketNumber' || warning.field === 'town' || warning.field === 'prize') ? warning.field : undefined;
             rowWarnings.push({ row: matches[0], reason: blankField ? null : 'row warning: ' + text, blankField });
             continue;
         }
@@ -152,6 +160,59 @@ function redatedRows(passes: Extraction[], existing: ExistingWinner[], schedule:
         }
     }
     return found;
+}
+
+// ---- Self-labelled bonus cells are dated by the approved calendar, not by the row they appear on ----
+// The bonus column holds a few sparse cells with their own labels. Real reads (Nov 9–11) placed them one or two rows late,
+// differently in each pass, while the one-cell-per-row Firearm and Gift Card columns were read on the right rows. A label that
+// names exactly one approved prize in the whole month, and that prize is a bonus drawing, fixes the drawing it belongs to.
+// Labels that fit several drawings ("Rod"), column headings ("Bonus") and recurring prizes keep the row's date and its checks.
+function calendarBonus(row: Pick<DraftWinner, 'prize'>, schedule: ScheduledPrize[]) {
+    const visible = fold(row.prize ?? '');
+    if (visible.length < 3 || Object.hasOwn(CATEGORY_HEADINGS, visible) || schedule.some(p => (p.aliases ?? []).some(a => fold(a) === visible))) return null;
+    const dates = [...new Set(schedule.filter(p => p.status === 'approved').map(p => p.drawDate))];
+    const hits = dates.map(d => identifyPrize(row.prize, d, schedule)).filter((p): p is ScheduledPrize => !!p);
+    if (hits.length !== 1 || hits[0].category !== 'Bonus drawing') return null;
+    // A one-word label dates a cell only if no other approved prize of the month uses that word ("Board": paddle board and cutting board).
+    if (!visible.includes(' ') && schedule.some(p => p !== hits[0] && p.status === 'approved' && fold(p.description).split(' ').includes(visible))) return null;
+    return hits[0];
+}
+export const calendarDate = (row: Pick<DraftWinner, 'prize'>, schedule: ScheduledPrize[]) => calendarBonus(row, schedule)?.drawDate ?? null;
+// A bonus label is a cell's own text ("Life Jacket - Name, Town"). Real reads also attach the row's bonus label to the Gift Card cell
+// beside it (Nov 10 "Cutting Board" on Lyle Schlomer's gift cell; a 30-row table put "Life Jacket" on "429 - Name, Town"). A bonus label
+// on a cell whose own text carries no label ("ticket - name, town" or "name, town") belongs to a neighbour: it is dropped (kept as
+// strayLabel), never used to date or price the cell. A cell with its own label keeps the read prize and the usual prize checks.
+const ownLabel = (cellText: string) => { const m = /^\s*([^,\d][^,]*?)\s+[-–—]\s+\S/.exec(cellText); return m ? m[1] : null; };
+function calendarDated(pass: Extraction, schedule: ScheduledPrize[]): Extraction {
+    return { ...pass, rows: pass.rows.map(r => {
+        const bonus = calendarBonus(r, schedule) ?? (identifyPrize(r.prize, r.drawDate, schedule)?.category === 'Bonus drawing' && !Object.hasOwn(CATEGORY_HEADINGS, fold(r.prize ?? '')) ? true : null);
+        if (!bonus) return r;
+        const text = (r.cellText ?? '').trim();
+        if (text && !ownLabel(text) && !` ${fold(text)} `.includes(` ${fold(r.prize ?? '')} `)) return { ...r, prize: '', strayLabel: r.prize };
+        return bonus === true ? r : { ...r, drawDate: bonus.drawDate, readDate: r.drawDate };
+    }) };
+}
+
+// A prize column's dates are confirmed when no stored winner of it is read under another date and, in every pass, at least 3 of its
+// stored winners, including the latest one (the row next to tonight's), appear on their stored dates in that column (by name or ticket).
+// A stored cell read on its own date under a neighbouring label (Nov 10: Lyle Schlomer's gift cell as "Cutting Board") says nothing
+// about dates, so it neither confirms nor refutes; a shifted column moves stored winners to other dates, which refutes it.
+const MIN_COLUMN_EVIDENCE = 3;
+function columnConfirmed(category: string, passes: Extraction[], existing: ExistingWinner[], schedule: ScheduledPrize[], redated: Map<DraftWinner, Redated>) {
+    if ([...redated.values()].some(r => r.category === category)) return false;
+    const categoryOf = (w: ExistingWinner) => schedule.find(p => p.id === storedSlot(w, schedule))?.category;
+    return passes.every(pass => {
+        const dates = new Set(pass.rows.map(r => r.drawDate));
+        const stored = existing.filter(w => !!w.drawDate && dates.has(w.drawDate) && categoryOf(w) === category)
+            .sort((a, b) => b.drawDate!.localeCompare(a.drawDate!));
+        const seen = (w: ExistingWinner) => pass.rows.some(r => r.drawDate === w.drawDate
+            && (same(r.name, w.name) || (!!r.ticketNumber && Number(r.ticketNumber) === Number(w.ticketNumber)))
+            && identifyPrize(r.prize, w.drawDate!, schedule)?.id === storedSlot(w, schedule));
+        // Two cells of this column on one date (Nov 9: the stored winner plus a moved cell) mean its rows are not one per date.
+        const slots = pass.rows.map(r => identifyPrize(r.prize, r.drawDate, schedule)).filter(p => p?.category === category).map(p => p!.id);
+        if (new Set(slots).size !== slots.length) return false;
+        return stored.length > 0 && seen(stored[0]) && stored.filter(seen).length >= MIN_COLUMN_EVIDENCE;
+    });
 }
 
 // ---- Row identity: passes may reorder rows or disagree on how many there are ----
@@ -236,16 +297,23 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     if (passes.some(p => p.containsWinners !== first.containsWinners)) return { status: 'rejected', reasons: ['extraction passes disagree about whether this is a winner announcement'], rows: [] };
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
     if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
+    passes = passes.map(p => calendarDated(p, schedule));
     const { imageWide, rowWarnings } = classifyWarnings(passes);
     const redated = redatedRows(passes, existing, schedule);
-    if (imageWide.length && !outvotedLayoutWarning(passes, announcementDate, redated)) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
+    // Layout remarks alone ("ambiguous date/prize association") are checked against stored winners instead of rejecting the image:
+    // tonight's cells then publish only in prize columns whose dates the stored winners confirm. Any other image-wide warning rejects.
+    const layoutOnly = imageWide.length > 0 && !classifyWarnings(passes.map(p => ({ ...p, warnings: p.warnings.filter(w => !OUTVOTABLE(w)) }))).imageWide.length;
+    const layoutPending = imageWide.length > 0 && !outvotedLayoutWarning(passes, announcementDate, redated);
+    if (layoutPending && !layoutOnly) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
     if (passes.every(p => !p.rows.length)) return { status: 'rejected', reasons: ['announcement contains no readable winner rows'], rows: [] };
     const groups = reconcileRows(passes);
     const agreed = groups.filter(g => passes.every((_, i) => g.members[i]));
     // Rows that barely overlap mean the passes read the table differently; no row association can be trusted.
     if (agreed.length * 2 < Math.max(...passes.map(p => p.rows.length))) return { status: 'rejected', reasons: ['extraction passes could not be reliably matched row to row; review required'], rows: [] };
     const anchor = (g: RowGroup) => g.members.find(Boolean)!;
-    const currentRows = groups.filter(g => !rowProblems(anchor(g), announcementDate).outside).length;
+    // The bound is on rows that could publish: stored winners a cumulative table repeats (or misplaces) do not count.
+    const currentRows = groups.filter(g => !rowProblems(anchor(g), announcementDate).outside && !g.members.every(m => !m || redated.has(m))
+        && compareWinner(anchor(g), existing).status !== 'complete').length;
     if (currentRows > MAX_AUTO_ROWS) return { status: 'rejected', reasons: [`${currentRows} rows exceeds the ${MAX_AUTO_ROWS}-row drawing window limit; review required`], rows: [] };
 
     const rows: RowDecision[] = groups.map((group, i) => {
@@ -273,6 +341,9 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         for (const w of rowWarnings) {
             if (!group.members.includes(w.row)) continue;
             if (w.reason) reasons.push(w.reason);
+            // "Prize is missing" on a cell under a Firearm or Gift Card heading means it has no label of its own, which is normal; it matters
+            // only when a pass actually read no prize, and then prize matching holds the row anyway.
+            else if (w.blankField === 'prize') { if (group.members.some(m => m && fold(m.prize ?? '').length < 3)) reasons.push('row warning: the extraction reports this cell has no prize'); }
             else if (w.blankField === 'town' ? group.members.some(m => m && (m.town !== '' || m.townStatus !== 'blank'))
                 : group.members.some(m => m && (m.ticketNumber !== '' || m.ticketStatus !== 'blank'))) reasons.push('a warning reports a blank cell that the extraction passes do not confirm');
         }
@@ -282,6 +353,14 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             const w = moved.find(Boolean)!;
             return { rowNumber: i + 1, outcome: 'duplicate' as const, reasons: [`already stored under another date; the image places this winner on a different row, nothing changed: stored ${w.drawDate}, read ${row.drawDate}`],
                 row, winnerId: w.id, prize: null, prizeMatch: 'none' as const };
+        }
+        // A stored winner that every pass that saw it reads exactly as stored, on its date and in its slot, is a duplicate even when a pass
+        // missed it or flagged it: nothing would be written, so it needs no review.
+        if (!outside && reasons.length) {
+            const ids = group.members.filter(Boolean).map(m => { const cmp = compareWinner(m!, existing), w = existing.find(v => v.id === cmp.existingId);
+                return cmp.status === 'complete' && w && (fold(m!.prize ?? '').length < 3 || identifyPrize(m!.prize, m!.drawDate, schedule)?.id === storedSlot(w, schedule)) ? w.id : null; });
+            if (ids.every(id => id && id === ids[0])) return { rowNumber: i + 1, outcome: 'duplicate' as const, reasons: ['already stored; nothing changed'], row,
+                winnerId: ids[0], prize: null, prizeMatch: 'none' as const };
         }
         // A row older than this announcement's window can never publish, so reading it imperfectly is not a hold.
         return { rowNumber: i + 1, outcome: outside ? 'outside-window' : reasons.length ? 'held' : 'insert', reasons, row,
@@ -335,6 +414,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             continue;
         }
         if (!prize) {
+            if (d.row.strayLabel) d.reasons.push(`the bonus label read with this cell is not in its own text, so its column is unknown: ${d.row.strayLabel}`);
             d.outcome = 'held';
             d.prizeMatch = fold(d.row.prize ?? '').length < 3 ? 'none' : 'unmatched';
             d.reasons.push('prize or column header must identify exactly one approved scheduled prize; review required');
@@ -365,6 +445,8 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             d.outcome = 'held'; d.reasons.push('this photo already published this winner and an administrator removed it; not republished');
             continue;
         }
+        if (d.row.readDate !== undefined) d.reasons.push(d.row.readDate === d.row.drawDate ? "the cell's own label names this date's approved bonus drawing"
+            : `date from the approved calendar: the cell's own label names only this date's bonus drawing; the extraction placed it on ${d.row.readDate}`);
         d.reasons.push(`all ${passes.length} extraction passes agree`, `prize matches approved calendar entry ${prize.id}`,
             `${placementLabel(position)} from ${d.row.position === null ? 'the approved calendar' : 'the printed label and approved calendar'}`,
             ...(ticketFree ? ['every extraction pass confirms no ticket number is printed'] : []));
@@ -382,11 +464,33 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     // A column whose stored winners a pass misdates cannot date tonight's cell either.
     const misdated = new Map<string, Redated & { row: DraftWinner }>();
     for (const [row, r] of redated) if (r.category && !misdated.has(r.category)) misdated.set(r.category, { ...r, row });
+    // A cell dated by its own label does not depend on its column's rows.
+    const confirmed = new Map<string, boolean>();
     for (const d of rows) {
-        const evidence = d.outcome === 'insert' ? misdated.get(schedule.find(p => p.id === d.prizeSlotId)?.category ?? '') : undefined;
-        if (!evidence) continue;
+        if (d.outcome !== 'insert' || d.row.readDate !== undefined) continue;
+        const category = schedule.find(p => p.id === d.prizeSlotId)?.category ?? '';
+        const evidence = misdated.get(category);
+        if (evidence) {
+            d.outcome = 'held';
+            d.reasons = [`an extraction pass dates an already-stored winner in this prize column differently from the reviewed record, so this column's dates cannot be verified; review required: ${evidence.category} stored ${evidence.winner.drawDate}, read ${evidence.row.drawDate}`];
+            continue;
+        }
+        if (!layoutPending) continue;
+        if (!confirmed.has(category)) confirmed.set(category, columnConfirmed(category, passes, existing, schedule, redated));
+        if (confirmed.get(category)) { d.reasons.push(`layout remark resolved: stored ${category} winners confirm this column's dates in every pass`); continue; }
         d.outcome = 'held';
-        d.reasons = [`an extraction pass dates an already-stored winner in this prize column differently from the reviewed record, so this column's dates cannot be verified; review required: ${evidence.category} stored ${evidence.winner.drawDate}, read ${evidence.row.drawDate}`];
+        d.reasons = [`an extraction pass reported an ambiguous layout and too few stored winners confirm this prize column's dates; review required: ${category}`];
+    }
+
+    // An approved prize of the announcement's own drawing that no cell accounts for (stored, published or held) is reported. Real reads of
+    // 56–60-cell tables kept only 1–2 of 13 sparse bonus cells, and a winner no pass reads would otherwise go missing without any alert.
+    if (rows.some(d => d.row.drawDate === announcementDate)) {
+        const accounted = new Set([...existing.filter(w => w.drawDate === announcementDate).map(w => storedSlot(w, schedule)),
+            ...rows.filter(d => d.row.drawDate === announcementDate).map(d => d.prizeSlotId ?? identifyPrize(d.row.prize, announcementDate, schedule)?.id)]);
+        for (const p of schedule.filter(p => p.status === 'approved' && p.drawDate === announcementDate && !accounted.has(p.id))) rows.push({
+            rowNumber: rows.length + 1, outcome: 'held', row: { drawDate: announcementDate, position: null, ticketNumber: '', name: '', town: '', notes: '', prize: p.description },
+            reasons: [`no winner was read for this approved prize; enter it from the post if it was drawn: ${p.description}`],
+            winnerId: null, prize: null, prizeSlotId: p.id, prizeMatch: 'none' });
     }
 
     const count = (o: RowOutcome) => rows.filter(d => d.outcome === o).length;
