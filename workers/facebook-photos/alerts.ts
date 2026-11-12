@@ -15,7 +15,8 @@ const SYSTEM = 'photo-automation' as const;
 const TRACKING_START = 'tracking-start';
 
 type PostRow = { post_id: string; source: string; status: string; attempts: number; error_code: string | null; last_error_code: string | null; created_at: string };
-type ReviewRow = { photo_id: string; post_id: string; status: string; updated_at: string; held: number; rejected: number };
+type ReviewRow = { photo_id: string; post_id: string; status: string; updated_at: string; held: number; rejected: number;
+    inserted?: number; reasons_json?: string | null; row_reasons?: string | null };
 export type PhotoAlertInput = { webhookConfigured: boolean; automationEnabled: boolean; pollError?: string | null; seasonStart: string;
     /** False when this tick skipped the Graph poll: its auth evidence is unknown, not healthy. */
     pollRan?: boolean;
@@ -25,7 +26,10 @@ export type PhotoAlertInput = { webhookConfigured: boolean; automationEnabled: b
 const POST_COLUMNS = 'post_id, source, status, attempts, error_code, last_error_code, created_at';
 const REVIEW_SELECT = `SELECT i.photo_id, i.post_id, i.status, i.updated_at,
         (SELECT count(*) FROM raffle_photo_auto_rows r WHERE r.photo_id=i.photo_id AND r.outcome='held') AS held,
-        (SELECT count(*) FROM raffle_photo_auto_rows r WHERE r.photo_id=i.photo_id AND r.outcome='rejected') AS rejected
+        (SELECT count(*) FROM raffle_photo_auto_rows r WHERE r.photo_id=i.photo_id AND r.outcome='rejected') AS rejected,
+        (SELECT count(*) FROM raffle_photo_auto_rows r WHERE r.photo_id=i.photo_id AND r.outcome='inserted') AS inserted, i.reasons_json,
+        (SELECT group_concat(coalesce(json_extract(r.row_json,'$.drawDate'),'undated') || ' ' || r.outcome || ': ' || coalesce(json_extract(r.reasons_json,'$[0]'),'no reason recorded'), '; ')
+            FROM raffle_photo_auto_rows r WHERE r.photo_id=i.photo_id AND r.outcome IN ('held','rejected')) AS row_reasons
     FROM raffle_photo_auto_imports i`;
 
 /** The signal a post's authoritative row implies right now; null means healthy (finished or still within its normal time). */
@@ -48,11 +52,19 @@ export function postSignal(post: PostRow, now: Date): Signal | null {
 }
 function reviewSignal(review: ReviewRow, now: Date): Signal | null {
     if (!['held', 'rejected', 'partial'].includes(review.status) || Date.parse(review.updated_at) < now.getTime() - REVIEW_WINDOW_MS) return null;
+    // Say exactly what was not published and why, so the reviewer knows which cells to check without opening the import first.
+    let imageReasons: string[] = [];
+    try { imageReasons = JSON.parse(review.reasons_json ?? '[]'); } catch { /* Older rows. */ }
+    const whole = !review.held && !review.rejected;
+    const why = (whole ? imageReasons.join(' ') : review.row_reasons ?? '').slice(0, 600) || 'no reason recorded';
     return { id: `photo:review:${review.photo_id}`, system: SYSTEM, recovery: false,
-        title: 'Winner rows need manual review',
-        problem: `A winner photo was processed but ${review.held} row(s) were held and ${review.rejected} rejected instead of being published automatically.`,
-        action: 'Open Admin > Raffle > Photo imports, compare the held/rejected rows with the Facebook post, and enter or correct those winners.',
-        detail: { postId: review.post_id, photoId: review.photo_id, importStatus: review.status, held: review.held, rejected: review.rejected } };
+        title: whole ? 'Winner photo rejected: no winners published' : 'Winner rows need manual review',
+        problem: whole ? `A winner photo was rejected as a whole, so none of its winners were published automatically. Reason: ${why}`
+            : `A winner photo was processed: ${review.inserted ?? 0} winner(s) published, ${review.held} held and ${review.rejected} rejected. Not published: ${why}`,
+        action: whole ? `Open Admin > Raffle > Photo imports, compare the post with the approved prize calendar, then enter tonight's winners manually or requeue the post.`
+            : 'Open Admin > Raffle > Photo imports and check only the held/rejected rows listed above against the Facebook post; published winners need no action.',
+        detail: { postId: review.post_id, photoId: review.photo_id, importStatus: review.status, inserted: review.inserted ?? 0, held: review.held, rejected: review.rejected,
+            reasons: why } };
 }
 
 /** Records signed-webhook receipts per post, independent of which path queued the post. Never throws. */

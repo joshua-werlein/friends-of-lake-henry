@@ -10,7 +10,11 @@ export const MAX_IMPORT_ROWS = 100;
 export type PhotoCandidate = { photoId: string; postId: string | null; sourceUrl: string; publishedAt: string | null };
 export type CellStatus = 'readable' | 'blank' | 'uncertain';
 export type DraftWinner = { drawDate: string; position: WinnerPosition; ticketNumber: string; name: string; town: string; notes: string; prize?: string;
-    townStatus?: CellStatus; ticketStatus?: CellStatus; cellText?: string };
+    townStatus?: CellStatus; ticketStatus?: CellStatus; cellText?: string;
+    /** Set only when the approved calendar dated a self-labelled bonus cell: the date of the row the extraction placed it on. */
+    readDate?: string;
+    /** A bonus label the extraction attached to this cell although the cell's own text does not contain it (dropped from prize). */
+    strayLabel?: string };
 export const WARNING_CODES = ['clipped', 'ambiguous-layout', 'uncertain-association', 'missing-heading', 'illegible', 'blank-cell', 'other'] as const;
 export type StructuredWarning = { scope: 'image' | 'row' | 'cell'; code: typeof WARNING_CODES[number]; drawDate?: string; ticketNumber?: string; name?: string;
     field?: 'drawDate' | 'ticketNumber' | 'name' | 'town' | 'prize'; message?: string };
@@ -74,7 +78,9 @@ export function parseExtraction(response: unknown): Extraction {
     if (raw === null || raw.length > 120000) throw Error('invalid-extraction');
     let value;
     try { value = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')); } catch { throw Error('invalid-extraction'); }
-    if (!value || typeof value.containsWinners !== 'boolean' || !Array.isArray(value.warnings) || value.warnings.length > 30) throw Error('invalid-extraction');
+    // One remark per cell is possible on a full month table (a real read of a 56-cell table returned 34, 31 of them "prize is missing"
+    // on cells that inherit their column heading), so the bound follows the row bound instead of rejecting a complete read.
+    if (!value || typeof value.containsWinners !== 'boolean' || !Array.isArray(value.warnings) || value.warnings.length > MAX_IMPORT_ROWS * 2) throw Error('invalid-extraction');
     const rows = draftRows(value.rows);
     if (!value.containsWinners && rows.length) throw Error('invalid-extraction');
     return { containsWinners: value.containsWinners, rows, warnings: value.warnings.map(draftWarning) };

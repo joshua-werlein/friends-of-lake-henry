@@ -302,6 +302,18 @@ test('photo signals: absence never alerts; stuck, repeated AI, failed, auth and 
     assert.match(byId['photo:post:1_3'].title, /AI extraction/);
     assert.match(byId['photo:post:1_4'].title, /stopped/);
     assert.deepEqual([byId['photo:review:9'].detail.held, byId['photo:review:9'].detail.rejected, byId['photo:review:9'].recovery], [1, 1, false]);
+    assert.match(byId['photo:review:9'].problem, /1 winner\(s\) published, 1 held and 1 rejected\. Not published: undated held: no reason recorded; undated rejected/);
+    // November 11: the whole image was rejected with no rows. The alert must say no winners were published, and why.
+    await DB.prepare(`INSERT INTO raffle_photo_auto_imports (photo_id, post_id, status, reasons_json, updated_at) VALUES ('10','1_10','rejected',?,'2026-11-07T00:52:00Z')`)
+        .bind(JSON.stringify(['image has unresolved extraction warnings; review required', 'The layout of the table is ambiguous.'])).run();
+    await DB.prepare(`INSERT INTO raffle_photo_auto_imports (photo_id, post_id, status, updated_at) VALUES ('11','1_11','partial','2026-11-07T00:53:00Z')`).run();
+    await DB.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, row_json, reasons_json) VALUES ('11',1,'inserted','{"drawDate":"2026-11-06"}','[]'),
+        ('11',2,'held','{"drawDate":"2026-11-06"}','["row was read by only 1 of 2 extraction passes"]')`).run();
+    const later = Object.fromEntries((await photoSignals(DB, now, input())).signals.map(s => [s.id, s]));
+    assert.equal(later['photo:review:10'].title, 'Winner photo rejected: no winners published');
+    assert.match(later['photo:review:10'].problem, /none of its winners were published.*Reason: image has unresolved extraction warnings; review required The layout of the table is ambiguous\./);
+    assert.match(later['photo:review:11'].problem, /1 winner\(s\) published, 1 held and 0 rejected\. Not published: 2026-11-06 held: row was read by only 1 of 2 extraction passes/);
+    assert.match(later['photo:review:11'].action, /published winners need no action/);
     assert.deepEqual([byId['photo:graph-auth'].threshold, byId['photo:graph-auth'].detail.affectedPosts], [2, 1]);
     const other = await photoSignals(DB, now, input({ webhookConfigured: false, pollError: 'permission-denied' }));
     assert.ok(other.signals.some(s => s.id === 'photo:webhook-config'));
