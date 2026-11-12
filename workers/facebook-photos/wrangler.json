@@ -33,6 +33,9 @@
   "ai": {
     "binding": "AI"
   },
+  "images": {
+    "binding": "IMAGES"
+  },
   "services": [
     {
       "binding": "FACEBOOK_READS",
