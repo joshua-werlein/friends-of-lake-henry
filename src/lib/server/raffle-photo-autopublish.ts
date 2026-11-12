@@ -14,20 +14,36 @@ export type RowDecision = { rowNumber: number; outcome: RowOutcome; reasons: str
 export type PhotoDecision = { status: 'published' | 'partial' | 'duplicate' | 'held' | 'rejected' | 'ignored';
     reasons: string[]; rows: RowDecision[] };
 
-const WINDOW_DAYS = 2; // An announcement may report today's or the previous two days' drawings.
+export const WINDOW_DAYS = 2; // An announcement may report today's or the previous two days' drawings.
+/** The announcement window, oldest first: the dates a photo posted on `announcementDate` may publish. */
+export const windowDates = (announcementDate: string) => Array.from({ length: WINDOW_DAYS + 1 }, (_, i) =>
+    new Date(Date.parse(announcementDate + 'T12:00:00Z') - (WINDOW_DAYS - i) * 86400000).toISOString().slice(0, 10));
 const MAX_AUTO_ROWS = 12; // Bound the eligible rows even when the Page posts a cumulative table.
-const fold = (v: string) => v.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9$]+/g, ' ').trim();
+// fold and realDate run on the same few hundred strings thousands of times per decision; a bounded cache keeps CPU low (Workers Free).
+const cached = <T>(f: (v: string) => T) => { const memo = new Map<string, T>();
+    return (v: string) => { let r = memo.get(v); if (r === undefined) { if (memo.size > 20000) memo.clear(); memo.set(v, r = f(v)); } return r; }; };
+const fold = cached(v => v.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9$]+/g, ' ').trim());
 const same = (a: string | null | undefined, b: string | null | undefined) => fold(a ?? '') === fold(b ?? '');
 export const chicagoDate = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago',
     year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-const realDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v + 'T12:00:00Z'))
-    && new Date(v + 'T12:00:00Z').toISOString().slice(0, 10) === v;
+const realDate = cached(v => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v + 'T12:00:00Z'))
+    && new Date(v + 'T12:00:00Z').toISOString().slice(0, 10) === v);
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400000);
 export const winnerId = (date: string, ticket: number) => `${date.slice(0, 7)}-${date}-${ticket}`.replace(/[^\w-]/g, ''); // Same as manual entry.
 
 const CATEGORY_HEADINGS: Record<string, string> = { 'gift card': 'Gift card', firearm: 'Firearm',
     bonus: 'Bonus drawing', 'bonus prize': 'Bonus drawing', 'bonus drawing': 'Bonus drawing', '2nd drawing': 'Bonus drawing' };
-function identifyPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]) {
+// Prize identification is a pure function of (label, date, calendar). A full month table asks it for every cell against every date,
+// which cost ~13 ms of CPU per decision on a 73-cell table, more than the Workers Free 10 ms budget; each answer is computed once.
+const prizeMemo = new WeakMap<ScheduledPrize[], Map<string, ScheduledPrize | null>>();
+function identifyPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]): ScheduledPrize | null {
+    let memo = prizeMemo.get(schedule);
+    if (!memo) prizeMemo.set(schedule, memo = new Map());
+    const key = drawDate + '\u0000' + (text ?? '');
+    if (!memo.has(key)) memo.set(key, findPrize(text, drawDate, schedule));
+    return memo.get(key) ?? null;
+}
+function findPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]) {
     const visible = fold(text ?? '');
     if (visible.length < 3) return null;
     const eligible = schedule.filter(p => p.status === 'approved' && p.drawDate === drawDate);
@@ -85,9 +101,20 @@ const BLANK_TEXT = /\b(?:blank|empty|missing|no (?:ticket|hometown|town)|not (?:
 const NO_WARNING = /^no (?:warnings|issues)[.!]?$/i;
 const warningText = (w: ExtractionWarning) => typeof w === 'string' ? w : w.message || w.code;
 type RowWarning = { row: DraftWinner; reason: string | null; blankField?: 'ticketNumber' | 'town' | 'prize' };
-function classifyWarnings(passes: Extraction[]) {
+// A two-stage pass carries its source reads: each read's warnings name that read's own rows, so they are matched there and then
+// moved to the cell that represents them in the merged pass (a focused twin). Remarks about rows a focused read should not have
+// returned stay with those rows, which take no part in the decision.
+type Merged = Extraction & { sources?: Extraction[]; twins?: Map<DraftWinner, DraftWinner> };
+const withoutLayout = (p: Merged): Merged => ({ ...p, warnings: p.warnings.filter(w => !OUTVOTABLE(w)),
+    ...(p.sources ? { sources: p.sources.map(s => ({ ...s, warnings: s.warnings.filter(w => !OUTVOTABLE(w)) })) } : {}) });
+function classifyWarnings(passes: Merged[]): { imageWide: string[]; rowWarnings: RowWarning[] } {
     const imageWide: string[] = [], rowWarnings: RowWarning[] = [];
-    for (const pass of passes) for (const warning of pass.warnings) {
+    for (const pass of passes.filter(p => p.sources)) {
+        const c = classifyWarnings(pass.sources!);
+        imageWide.push(...c.imageWide);
+        rowWarnings.push(...c.rowWarnings.map(w => ({ ...w, row: pass.twins?.get(w.row) ?? w.row })));
+    }
+    for (const pass of passes.filter(p => !p.sources)) for (const warning of pass.warnings) {
         const text = warningText(warning).trim();
         if (typeof warning === 'string' && (!text || NO_WARNING.test(text))) continue;
         if (typeof warning !== 'string') {
@@ -124,11 +151,11 @@ const OUTVOTABLE = (w: ExtractionWarning) => typeof w !== 'string' && w.scope ==
 const publishable = (r: DraftWinner, announcementDate: string) => !realDate(r.drawDate) || daysBetween(r.drawDate, announcementDate) <= WINDOW_DAYS;
 // Row-level remarks (blank-cell notes) are judged per row as usual; only image-wide ones decide the vote.
 // A stored winner a pass reads under the wrong date (below) is not a current row: it is never written, and its column is held instead.
-function outvotedLayoutWarning(passes: Extraction[], announcementDate: string, redated: Map<DraftWinner, Redated>) {
+function outvotedLayoutWarning(passes: Merged[], announcementDate: string, redated: Map<DraftWinner, Redated>) {
     const imageWide = (p: Extraction) => classifyWarnings([p]).imageWide.length > 0;
     const flagged = passes.filter(imageWide);
     if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.some(OUTVOTABLE)
-        || imageWide({ ...flagged[0], warnings: flagged[0].warnings.filter(w => !OUTVOTABLE(w)) })) return false;
+        || imageWide(withoutLayout(flagged[0]))) return false;
     const current = (p: Extraction) => p.rows.filter(r => publishable(r, announcementDate) && !redated.has(r));
     const read = (p: Extraction) => JSON.stringify(current(p).map(r => ROW_FIELDS.map(f => r[f] ?? null)));
     return passes.every(p => current(p).length > 0 && read(p) === read(passes[0]));
@@ -167,7 +194,15 @@ function redatedRows(passes: Extraction[], existing: ExistingWinner[], schedule:
 // differently in each pass, while the one-cell-per-row Firearm and Gift Card columns were read on the right rows. A label that
 // names exactly one approved prize in the whole month, and that prize is a bonus drawing, fixes the drawing it belongs to.
 // Labels that fit several drawings ("Rod"), column headings ("Bonus") and recurring prizes keep the row's date and its checks.
+const bonusMemo = new WeakMap<ScheduledPrize[], Map<string, ScheduledPrize | null>>();
 function calendarBonus(row: Pick<DraftWinner, 'prize'>, schedule: ScheduledPrize[]) {
+    let memo = bonusMemo.get(schedule);
+    if (!memo) bonusMemo.set(schedule, memo = new Map());
+    const key = row.prize ?? '';
+    if (!memo.has(key)) memo.set(key, findCalendarBonus(row, schedule));
+    return memo.get(key) ?? null;
+}
+function findCalendarBonus(row: Pick<DraftWinner, 'prize'>, schedule: ScheduledPrize[]) {
     const visible = fold(row.prize ?? '');
     if (visible.length < 3 || Object.hasOwn(CATEGORY_HEADINGS, visible)) return null;
     const dates = [...new Set(schedule.filter(p => p.status === 'approved').map(p => p.drawDate))];
@@ -215,6 +250,34 @@ function columnConfirmed(category: string, passes: Extraction[], existing: Exist
     });
 }
 
+// ---- Focused window reads ----
+// A whole-table read of a 56–73-cell month table drops most sparse bonus cells (real reads of rendered Nov 28/30 tables kept 0 of 12
+// and 0 of 13), while a read asked only for the window's rows found them. Pass k's window rows therefore come from focused read k,
+// plus any window cell only whole-table read k saw (a focused read can still miss one: Nov 30 focused pass 1 kept 2 of 2, pass 0 none).
+// A whole-table cell that the focused read gives differently (another ticket or hometown for that person and date) is kept beside it,
+// so the disagreement holds that cell instead of either read winning. Rows outside the window, which a focused read ignores, come
+// from the whole-table read, so stored-winner checks of each column still use the month's history.
+function withFocus(full: Extraction, focus: Extraction, window: Set<string>): Merged {
+    const inWindow = (r: DraftWinner) => window.has(r.drawDate);
+    const sameCell = (a: DraftWinner, b: DraftWinner) => a.drawDate === b.drawDate && same(a.name, b.name)
+        && Number(a.ticketNumber || 0) === Number(b.ticketNumber || 0) && fold(a.town).replace(/ /g, '') === fold(b.town).replace(/ /g, '');
+    // The same printed cell (same date, same copied text) read by both prompts is one cell: when they split it into different fields
+    // (a real focused read returned name "Winner" for "442 - Winner 28G, Taylor, WI"), the cell is flagged and held, not duplicated.
+    const sameText = (a: DraftWinner, b: DraftWinner) => a.drawDate === b.drawDate && !!fold(a.cellText ?? '') && fold(a.cellText ?? '') === fold(b.cellText ?? '');
+    const twins = new Map<DraftWinner, DraftWinner>();
+    const focused = focus.rows.filter(inWindow).map(f => {
+        const twin = full.rows.find(r => inWindow(r) && (sameText(f, r) || sameCell(f, r)));
+        const row = twin && !(sameCell(f, twin) && fold(f.prize ?? '') === fold(twin.prize ?? ''))
+            ? { ...f, notes: [f.notes, 'the whole-table and focused reads split this cell into different fields'].filter(Boolean).join('; ') } : f;
+        twins.set(f, row);
+        if (twin) twins.set(twin, row);
+        return row;
+    });
+    return { containsWinners: full.containsWinners, warnings: [...full.warnings, ...focus.warnings], sources: [full, focus], twins,
+        rows: [...full.rows.filter(r => !inWindow(r)), ...focused, ...full.rows.filter(r => inWindow(r) && !twins.has(r))]
+            .sort((a, b) => a.drawDate.localeCompare(b.drawDate)) };
+}
+
 // ---- Row identity: passes may reorder rows or disagree on how many there are ----
 // An empty date is still identity: a row both passes read without a date reaches row-level review, not an image-wide rejection.
 const ticketKey = (r: DraftWinner) => /^\d{1,9}$/.test(r.ticketNumber) && Number(r.ticketNumber) > 0 ? `${r.drawDate}:${Number(r.ticketNumber)}` : null;
@@ -259,6 +322,12 @@ function cellTextProblems(row: DraftWinner) {
     if (row.ticketNumber === '' && /^\W{0,3}\d+(?:\s*[-–—:#]|\s+[A-Za-z])/.test(cell)) problems.push('cell text shows a ticket number that was not extracted');
     if (row.ticketNumber !== '' && !new RegExp(`(?:^|\\D)${row.ticketNumber.replace(/\D/g, '') || 'x'}(?:\\D|$)`).test(cell)) problems.push('ticket number is not in the cell text');
     if (fold(row.name) && !words.includes(` ${fold(row.name)} `)) problems.push('name is not in the cell text');
+    // The name is the whole text between the ticket or label dash and the first comma ("442 - Winner 28G, Taylor, WI"); a real focused
+    // read copied that cell exactly but returned name "Winner". A shortened or extended name is held, never repaired from the cell.
+    else if (fold(row.name)) {
+        const printed = /^\s*(?:[^,]*?\s+[-–—]\s+)?([^,]+?)\s*,/.exec(cell)?.[1];
+        if (printed !== undefined && fold(printed) !== fold(row.name)) problems.push('name differs from the name printed in the cell');
+    }
     // Spacing around commas differs between reads (Auburn,WA), so hometowns compare without separators.
     if (row.town && !fold(cell).replace(/ /g, '').includes(fold(row.town).replace(/ /g, ''))) problems.push('hometown is not in the cell text');
     if (!row.town && row.townStatus === 'blank' && /,/.test(cell.slice(cell.indexOf(row.name) + row.name.length))) problems.push('cell text shows a hometown that was not extracted');
@@ -291,18 +360,23 @@ function rowProblems(row: DraftWinner, announcementDate: string): { reasons: str
  * already published that an administrator has since deleted: a requeue must not bring them back.
  */
 export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], schedule: ScheduledPrize[], announcementDate: string,
-    options: { removedWinnerIds?: Set<string> } = {}): PhotoDecision {
+    options: { removedWinnerIds?: Set<string>; focused?: Extraction[] } = {}): PhotoDecision {
     if (!passes.length) return { status: 'rejected', reasons: ['no extraction'], rows: [] };
     const [first] = passes;
     if (passes.some(p => p.containsWinners !== first.containsWinners)) return { status: 'rejected', reasons: ['extraction passes disagree about whether this is a winner announcement'], rows: [] };
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
     if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
     passes = passes.map(p => calendarDated(p, schedule));
+    // Focused reads are used only as a complete set, one per whole-table pass; a partial set changes nothing.
+    if (options.focused?.length === passes.length && options.focused.every(f => f.containsWinners)) {
+        const window = new Set(windowDates(announcementDate));
+        passes = passes.map((p, i) => withFocus(p, calendarDated(options.focused![i], schedule), window));
+    }
     const { imageWide, rowWarnings } = classifyWarnings(passes);
     const redated = redatedRows(passes, existing, schedule);
     // Layout remarks alone ("ambiguous date/prize association") are checked against stored winners instead of rejecting the image:
     // tonight's cells then publish only in prize columns whose dates the stored winners confirm. Any other image-wide warning rejects.
-    const layoutOnly = imageWide.length > 0 && !classifyWarnings(passes.map(p => ({ ...p, warnings: p.warnings.filter(w => !OUTVOTABLE(w)) }))).imageWide.length;
+    const layoutOnly = imageWide.length > 0 && !classifyWarnings(passes.map(withoutLayout)).imageWide.length;
     const layoutPending = imageWide.length > 0 && !outvotedLayoutWarning(passes, announcementDate, redated);
     if (layoutPending && !layoutOnly) return { status: 'rejected', reasons: ['image has unresolved extraction warnings; review required', ...imageWide], rows: [] };
     if (passes.every(p => !p.rows.length)) return { status: 'rejected', reasons: ['announcement contains no readable winner rows'], rows: [] };
@@ -660,6 +734,16 @@ export async function claimPost(db: D1Database, postId: string, now = new Date()
     const res = await db.prepare(`UPDATE raffle_photo_auto_posts SET status='processing', locked_until=?, attempts=attempts+1,
         updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE post_id=? AND (status IN ('queued','retry') AND next_attempt_at<=?
         OR status='processing' AND locked_until<?)`).bind(until, postId, now.toISOString(), now.toISOString()).run();
+    return res.meta.changes === 1;
+}
+/**
+ * Extends the lease of a post this run still holds (same attempt, still processing) before each long AI read, so the cron cannot
+ * reclaim an active extraction however long the reads take. A lease never outlives the run that renews it: Cloudflare ends the
+ * invocation, renewals stop and the last lease lapses. False means another run took the post; the caller must stop.
+ */
+export async function renewLease(db: D1Database, postId: string, attempt: number, now = new Date(), leaseSeconds = 600) {
+    const res = await db.prepare(`UPDATE raffle_photo_auto_posts SET locked_until=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE post_id=? AND status='processing' AND attempts=?`).bind(new Date(now.getTime() + leaseSeconds * 1000).toISOString(), postId, attempt).run();
     return res.meta.changes === 1;
 }
 export async function duePosts(db: D1Database, now = new Date(), limit = 5) {

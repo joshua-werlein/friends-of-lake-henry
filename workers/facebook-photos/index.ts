@@ -4,18 +4,18 @@
 import { graphReader, GRAPH_PAGE_ID, isoTime } from '../facebook-live/graph';
 import { pageAccessToken, usesFohlSync, type FacebookCredentials } from '../facebook-live/credentials';
 import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
-import { base64Image, downloadPhoto, extractPhotoCandidates, visionRequest, winnerPrompt } from '../facebook-live/photos';
-import { PHOTO_MODEL, hashBytes, parseExtraction, type Extraction } from '../../src/lib/raffle-photo-import';
+import { downloadPhoto, extractPhotoCandidates } from '../facebook-live/photos';
+import { PHOTO_MODEL, hashBytes } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
-    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
+    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, windowDates, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
+import { extractPasses, readableImage, PHOTO_LEASE_SECONDS, type ReadEnv } from './reads';
 import { evaluatePhotoAlerts, recordWebhookReceipts } from './alerts';
 import type { AlertEnv } from '../../src/lib/server/alerts';
 
-export type Env = FacebookCredentials & AlertEnv & {
+export type Env = FacebookCredentials & AlertEnv & ReadEnv & {
     DB: D1Database;
     FACEBOOK_LIVE?:{notify(id:string):Promise<unknown>;recordDiagnostic?(value:unknown):Promise<unknown>};
     FACEBOOK_READS?: { read(path:string,params:Record<string,string>):Promise<Record<string,unknown>> };
-    AI?: { run(model: string, input: unknown): Promise<unknown> };
     FB_APP_SECRET?: string;            // secret: verifies X-Hub-Signature-256
     FB_WEBHOOK_VERIFY_TOKEN?: string;  // secret: echoed by Meta during subscription
     FOHL_SYNC_APP_SECRET?: string;
@@ -110,35 +110,6 @@ function photoReader(env:Env, now:Date, fetcher:Fetcher) {
 }
 class Permanent extends Error {}
 
-type AttemptContext = { postId: string; photoId: string; attempt: number | null };
-// The cumulative month table reaches 70+ cells. A real read of a rendered Nov 28 table needed 8,650 output tokens: past the shared
-// 8,192 default, the reply is cut off mid-JSON, can never parse and fails identically on every retry. Same prompt and model.
-const PHOTO_MAX_TOKENS = 16384;
-// Each pass of a 60-cell table took ~108 s (6,580 tokens); two sequential passes outlast a 180 s lease, so the next cron tick would
-// reclaim a post that is still being read. The lease covers two full-length passes plus the download.
-const PHOTO_LEASE_SECONDS = 600;
-async function extractPasses(env: Env, bytes: Uint8Array, mime: string, announcementDate: string, context: AttemptContext): Promise<Extraction[]> {
-    const passes = Math.min(3, Math.max(2, Number(env.FB_PHOTO_EXTRACTION_PASSES) || 2));
-    const out: Extraction[] = [], dataUrl = `data:${mime};base64,${base64Image(bytes)}`; // Encode once for all passes.
-    for (let i = 0; i < passes; i++) {
-        const started = Date.now(), passNumber = i + 1;
-        try {
-            const pass = parseExtraction(await env.AI!.run(PHOTO_MODEL, { ...visionRequest(PHOTO_MODEL, winnerPrompt(announcementDate.slice(0, 7), announcementDate, i), dataUrl),
-                max_tokens: PHOTO_MAX_TOKENS }));
-            out.push(pass);
-            const detail = { containsWinners: pass.containsWinners, rows: pass.rows.length, warnings: pass.warnings.length, durationMs: Date.now() - started };
-            log('extraction-pass', { ...context, attempt: context.attempt ?? 0, passNumber, ...detail });
-            await recordAttempts(env.DB, [{ ...context, stage: 'pass', passNumber, outcome: 'ok', detail }]);
-        } catch (e) {
-            const code = sanitizeCode(e);
-            log('extraction-pass-failed', { ...context, attempt: context.attempt ?? 0, passNumber, code, durationMs: Date.now() - started });
-            await recordAttempts(env.DB, [{ ...context, stage: 'pass', passNumber, outcome: 'failed', code, detail: { durationMs: Date.now() - started } }]);
-            throw e;
-        }
-        if (i === 0 && !out[0].containsWinners) break; // A non-winner photo needs no confirmation pass.
-    }
-    return out;
-}
 // Photos already final on an earlier run report their stored status; this run's rows supply the counts.
 function summaryFor(statuses: string[], counts: Omit<PublicationSummary, 'status' | 'photos'>): PublicationSummary {
     const has = (status: string) => statuses.includes(status);
@@ -169,12 +140,15 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
         if (finalStatus) { queue = 'done'; statuses.push(finalStatus); continue; }
         try {
             const { image, dimensions } = await downloadPhoto(get, fetcher, photo.photoId);
-            const passes = await extractPasses(env, image.bytes, image.mime, announcementDate, context);
+            const readable = await readableImage(env, image.bytes, image.mime, dimensions.width, context);
+            const { passes, focused } = await extractPasses(env, readable.bytes, readable.mime, announcementDate, context);
             const months = new Set([announcementDate.slice(0, 7), ...passes.flatMap(p => p.rows.map(r => r.drawDate.slice(0, 7))).filter(m => /^\d{4}-\d{2}$/.test(m))]);
             const { existing, schedule } = await loadContext(env.DB, [...months]);
-            const decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId) });
+            const decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId), focused });
+            // The stored extraction keeps every read: whole-table passes, then focused passes marked with the dates they covered.
+            const reads = [...passes, ...focused.map(f => ({ ...f, focus: windowDates(announcementDate), enlarged: readable.enlarged }))];
             const status = await writeDecision(env.DB, { photoId: photo.photoId, postId, sha256: await hashBytes(image.bytes),
-                width: dimensions.width, height: dimensions.height, model: PHOTO_MODEL, passes }, decision, env.FB_PHOTO_AUTOPUBLISH === 'true');
+                width: dimensions.width, height: dimensions.height, model: PHOTO_MODEL, passes: reads }, decision, env.FB_PHOTO_AUTOPUBLISH === 'true');
             // Stored outcomes, not the plan: a row can lose a race with manual entry during the write.
             const stored = (await env.DB.prepare(`SELECT outcome, count(*) AS n FROM raffle_photo_auto_rows WHERE photo_id=? GROUP BY outcome`).bind(photo.photoId).all<{ outcome: string; n: number }>()).results;
             const stat = (o: string) => stored.find(r => r.outcome === o)?.n ?? 0;
