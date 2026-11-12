@@ -19,9 +19,12 @@ async function calendar(t) {
     const mf = new Miniflare({ modules: true, script: 'export default {fetch(){return new Response()}}', d1Databases: ['DB'], d1Persist: false });
     t.after(() => mf.dispose());
     const DB = await mf.getD1Database('DB');
-    for (const name of ['001_schema.sql', '003_raffle_prize_supplements.sql']) {
-        const sql = (await readFile(new URL('../migrations/' + name, import.meta.url), 'utf8')).replace(/--[^\n]*/g, '');
-        for (const s of sql.split(';').filter(v => v.trim())) await DB.prepare(s).run();
+    // Migration 009 (approved calendars, reviewed recurring prizes) exists only once the future-season code is merged. It records
+    // November 2026 exactly as production computes it without 009, so the same expectations hold on both schemas.
+    for (const name of ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '009_raffle_season_calendar.sql']) {
+        const file = await readFile(new URL('../migrations/' + name, import.meta.url), 'utf8').catch(e => { if (e.code === 'ENOENT' && name.startsWith('009')) return null; throw e; });
+        if (file === null) continue;
+        for (const s of file.replace(/--[^\n]*/g, '').split(';').filter(v => v.trim())) await DB.prepare(s).run();
     }
     for (const e of events) await DB.prepare('INSERT INTO events(id,title,kind,status,date_start,summary) VALUES(?,?,?,?,?,?)').bind(e.id, e.title, e.kind ?? 'raffle', e.status, e.date_start, e.summary ?? null).run();
     return prizeSchedule(DB, '2026-11');
