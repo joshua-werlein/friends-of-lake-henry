@@ -1,5 +1,9 @@
 # Winner-photo bonus cells: two-stage extraction (2026-11-12)
 
+> **Superseded by `docs/raffle-photo-ai-usage-2026-11-12.md` (branch `fix/photo-ai-usage`).** The resolution findings and image enlargement
+> below still apply. The extra focused reads (stage B) and their merge with whole-table reads were replaced by two window+anchor reads
+> and removed. Keep this page for its measurements only.
+
 **Status: committed on `hotfix/photo-nov11-column-association`, NOT deployed.** Production stays on Photo Worker
 `13311c6d` (rollback `c3f121f6`). Deploy only after the live check below passes.
 
