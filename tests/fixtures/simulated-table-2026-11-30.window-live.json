@@ -1,0 +1,470 @@
+{
+ "source": "Workers AI REST, 2026-11-13T01:22Z, @cf/mistralai/mistral-small-3.1-24b-instruct, temperature 0, max_tokens 6144; PIL-rendered table enlarged to 1540 px (tests/live/render_tables.py, realistic names)",
+ "dates": [
+  "2026-11-24",
+  "2026-11-25",
+  "2026-11-26",
+  "2026-11-27",
+  "2026-11-28",
+  "2026-11-29",
+  "2026-11-30"
+ ],
+ "usage": [
+  {
+   "promptTokens": 3214,
+   "completionTokens": 1928,
+   "neurons": 199.7903289794922
+  },
+  {
+   "promptTokens": 3212,
+   "completionTokens": 1928,
+   "neurons": 199.72657775878906
+  }
+ ],
+ "windowPasses": [
+  {
+   "containsWinners": true,
+   "rows": [
+    {
+     "drawDate": "2026-11-24",
+     "position": null,
+     "ticketNumber": "430",
+     "name": "Vera Berge",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "430 - Vera Berge, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-24",
+     "position": null,
+     "ticketNumber": "431",
+     "name": "Lyle Brekke",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "431 - Lyle Brekke, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-25",
+     "position": null,
+     "ticketNumber": "698",
+     "name": "Dennis McHenry",
+     "town": "LaCrosse, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "698 - Dennis McHenry, LaCrosse, WI"
+    },
+    {
+     "drawDate": "2026-11-25",
+     "position": null,
+     "ticketNumber": "433",
+     "name": "Sam Rude",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "433 - Sam Rude, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-26",
+     "position": null,
+     "ticketNumber": "434",
+     "name": "Mark Nyhus",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "434 - Mark Nyhus, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-26",
+     "position": null,
+     "ticketNumber": "436",
+     "name": "Ruth Berge",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "436 - Ruth Berge, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-26",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Dale Lund",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gun Safe",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Gun Safe - Dale Lund, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-27",
+     "position": null,
+     "ticketNumber": "437",
+     "name": "Erin Ness",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "437 - Erin Ness, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-27",
+     "position": null,
+     "ticketNumber": "439",
+     "name": "Gus Moe",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "439 - Gus Moe, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-27",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Ida Gilbertson",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Chain Saw",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Chain Saw - Ida Gilbertson, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-28",
+     "position": null,
+     "ticketNumber": "440",
+     "name": "Owen Thorson",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "440 - Owen Thorson, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-28",
+     "position": null,
+     "ticketNumber": "442",
+     "name": "Faye Nyhus",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "442 - Faye Nyhus, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-28",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Neil Dahl",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Life Jacket",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Life Jacket - Neil Dahl, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-29",
+     "position": null,
+     "ticketNumber": "443",
+     "name": "Jo Haugen",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "443 - Jo Haugen, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-29",
+     "position": null,
+     "ticketNumber": "445",
+     "name": "Carl Ness",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "445 - Carl Ness, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-29",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Bea Sather",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gun Vise",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Gun Vise - Bea Sather, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-30",
+     "position": null,
+     "ticketNumber": "446",
+     "name": "Hank Hagen",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "446 - Hank Hagen, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-30",
+     "position": null,
+     "ticketNumber": "447",
+     "name": "Vera Thorson",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "447 - Vera Thorson, Taylor, WI"
+    }
+   ],
+   "warnings": []
+  },
+  {
+   "containsWinners": true,
+   "rows": [
+    {
+     "drawDate": "2026-11-24",
+     "position": null,
+     "ticketNumber": "430",
+     "name": "Vera Berge",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "430 - Vera Berge, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-24",
+     "position": null,
+     "ticketNumber": "431",
+     "name": "Lyle Brekke",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "431 - Lyle Brekke, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-25",
+     "position": null,
+     "ticketNumber": "698",
+     "name": "Dennis McHenry",
+     "town": "LaCrosse, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "698 - Dennis McHenry, LaCrosse, WI"
+    },
+    {
+     "drawDate": "2026-11-25",
+     "position": null,
+     "ticketNumber": "433",
+     "name": "Sam Rude",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "433 - Sam Rude, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-26",
+     "position": null,
+     "ticketNumber": "434",
+     "name": "Mark Nyhus",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "434 - Mark Nyhus, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-26",
+     "position": null,
+     "ticketNumber": "436",
+     "name": "Ruth Berge",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "436 - Ruth Berge, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-26",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Dale Lund",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gun Safe",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Gun Safe - Dale Lund, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-27",
+     "position": null,
+     "ticketNumber": "437",
+     "name": "Erin Ness",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "437 - Erin Ness, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-27",
+     "position": null,
+     "ticketNumber": "439",
+     "name": "Gus Moe",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "439 - Gus Moe, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-27",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Ida Gilbertson",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Chain Saw",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Chain Saw - Ida Gilbertson, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-28",
+     "position": null,
+     "ticketNumber": "440",
+     "name": "Owen Thorson",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "440 - Owen Thorson, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-28",
+     "position": null,
+     "ticketNumber": "442",
+     "name": "Faye Nyhus",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "442 - Faye Nyhus, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-28",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Neil Dahl",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Life Jacket",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Life Jacket - Neil Dahl, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-29",
+     "position": null,
+     "ticketNumber": "443",
+     "name": "Jo Haugen",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "443 - Jo Haugen, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-29",
+     "position": null,
+     "ticketNumber": "445",
+     "name": "Carl Ness",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "445 - Carl Ness, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-29",
+     "position": null,
+     "ticketNumber": "",
+     "name": "Bea Sather",
+     "town": "Blair, WI",
+     "notes": "",
+     "prize": "Gun Vise",
+     "townStatus": "readable",
+     "ticketStatus": "blank",
+     "cellText": "Gun Vise - Bea Sather, Blair, WI"
+    },
+    {
+     "drawDate": "2026-11-30",
+     "position": null,
+     "ticketNumber": "446",
+     "name": "Hank Hagen",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Firearm",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "446 - Hank Hagen, Taylor, WI"
+    },
+    {
+     "drawDate": "2026-11-30",
+     "position": null,
+     "ticketNumber": "447",
+     "name": "Vera Thorson",
+     "town": "Taylor, WI",
+     "notes": "",
+     "prize": "Gift Card",
+     "townStatus": "readable",
+     "ticketStatus": "readable",
+     "cellText": "447 - Vera Thorson, Taylor, WI"
+    }
+   ],
+   "warnings": []
+  }
+ ]
+}
