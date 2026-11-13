@@ -101,20 +101,10 @@ const BLANK_TEXT = /\b(?:blank|empty|missing|no (?:ticket|hometown|town)|not (?:
 const NO_WARNING = /^no (?:warnings|issues)[.!]?$/i;
 const warningText = (w: ExtractionWarning) => typeof w === 'string' ? w : w.message || w.code;
 type RowWarning = { row: DraftWinner; reason: string | null; blankField?: 'ticketNumber' | 'town' | 'prize' };
-// A two-stage pass carries its source reads: each read's warnings name that read's own rows, so they are matched there and then
-// moved to the cell that represents them in the merged pass (a focused twin). Remarks about rows a focused read should not have
-// returned stay with those rows, which take no part in the decision.
-type Merged = Extraction & { sources?: Extraction[]; twins?: Map<DraftWinner, DraftWinner> };
-const withoutLayout = (p: Merged): Merged => ({ ...p, warnings: p.warnings.filter(w => !OUTVOTABLE(w)),
-    ...(p.sources ? { sources: p.sources.map(s => ({ ...s, warnings: s.warnings.filter(w => !OUTVOTABLE(w)) })) } : {}) });
-function classifyWarnings(passes: Merged[]): { imageWide: string[]; rowWarnings: RowWarning[] } {
+const withoutLayout = (p: Extraction): Extraction => ({ ...p, warnings: p.warnings.filter(w => !OUTVOTABLE(w)) });
+function classifyWarnings(passes: Extraction[]): { imageWide: string[]; rowWarnings: RowWarning[] } {
     const imageWide: string[] = [], rowWarnings: RowWarning[] = [];
-    for (const pass of passes.filter(p => p.sources)) {
-        const c = classifyWarnings(pass.sources!);
-        imageWide.push(...c.imageWide);
-        rowWarnings.push(...c.rowWarnings.map(w => ({ ...w, row: pass.twins?.get(w.row) ?? w.row })));
-    }
-    for (const pass of passes.filter(p => !p.sources)) for (const warning of pass.warnings) {
+    for (const pass of passes) for (const warning of pass.warnings) {
         const text = warningText(warning).trim();
         if (typeof warning === 'string' && (!text || NO_WARNING.test(text))) continue;
         if (typeof warning !== 'string') {
@@ -151,7 +141,7 @@ const OUTVOTABLE = (w: ExtractionWarning) => typeof w !== 'string' && w.scope ==
 const publishable = (r: DraftWinner, announcementDate: string) => !realDate(r.drawDate) || daysBetween(r.drawDate, announcementDate) <= WINDOW_DAYS;
 // Row-level remarks (blank-cell notes) are judged per row as usual; only image-wide ones decide the vote.
 // A stored winner a pass reads under the wrong date (below) is not a current row: it is never written, and its column is held instead.
-function outvotedLayoutWarning(passes: Merged[], announcementDate: string, redated: Map<DraftWinner, Redated>) {
+function outvotedLayoutWarning(passes: Extraction[], announcementDate: string, redated: Map<DraftWinner, Redated>) {
     const imageWide = (p: Extraction) => classifyWarnings([p]).imageWide.length > 0;
     const flagged = passes.filter(imageWide);
     if (flagged.length !== 1 || flagged.length === passes.length || !flagged[0].warnings.some(OUTVOTABLE)
@@ -250,34 +240,6 @@ function columnConfirmed(category: string, passes: Extraction[], existing: Exist
     });
 }
 
-// ---- Focused window reads ----
-// A whole-table read of a 56–73-cell month table drops most sparse bonus cells (real reads of rendered Nov 28/30 tables kept 0 of 12
-// and 0 of 13), while a read asked only for the window's rows found them. Pass k's window rows therefore come from focused read k,
-// plus any window cell only whole-table read k saw (a focused read can still miss one: Nov 30 focused pass 1 kept 2 of 2, pass 0 none).
-// A whole-table cell that the focused read gives differently (another ticket or hometown for that person and date) is kept beside it,
-// so the disagreement holds that cell instead of either read winning. Rows outside the window, which a focused read ignores, come
-// from the whole-table read, so stored-winner checks of each column still use the month's history.
-function withFocus(full: Extraction, focus: Extraction, window: Set<string>): Merged {
-    const inWindow = (r: DraftWinner) => window.has(r.drawDate);
-    const sameCell = (a: DraftWinner, b: DraftWinner) => a.drawDate === b.drawDate && same(a.name, b.name)
-        && Number(a.ticketNumber || 0) === Number(b.ticketNumber || 0) && fold(a.town).replace(/ /g, '') === fold(b.town).replace(/ /g, '');
-    // The same printed cell (same date, same copied text) read by both prompts is one cell: when they split it into different fields
-    // (a real focused read returned name "Winner" for "442 - Winner 28G, Taylor, WI"), the cell is flagged and held, not duplicated.
-    const sameText = (a: DraftWinner, b: DraftWinner) => a.drawDate === b.drawDate && !!fold(a.cellText ?? '') && fold(a.cellText ?? '') === fold(b.cellText ?? '');
-    const twins = new Map<DraftWinner, DraftWinner>();
-    const focused = focus.rows.filter(inWindow).map(f => {
-        const twin = full.rows.find(r => inWindow(r) && (sameText(f, r) || sameCell(f, r)));
-        const row = twin && !(sameCell(f, twin) && fold(f.prize ?? '') === fold(twin.prize ?? ''))
-            ? { ...f, notes: [f.notes, 'the whole-table and focused reads split this cell into different fields'].filter(Boolean).join('; ') } : f;
-        twins.set(f, row);
-        if (twin) twins.set(twin, row);
-        return row;
-    });
-    return { containsWinners: full.containsWinners, warnings: [...full.warnings, ...focus.warnings], sources: [full, focus], twins,
-        rows: [...full.rows.filter(r => !inWindow(r)), ...focused, ...full.rows.filter(r => inWindow(r) && !twins.has(r))]
-            .sort((a, b) => a.drawDate.localeCompare(b.drawDate)) };
-}
-
 // ---- Row identity: passes may reorder rows or disagree on how many there are ----
 // An empty date is still identity: a row both passes read without a date reaches row-level review, not an image-wide rejection.
 const ticketKey = (r: DraftWinner) => /^\d{1,9}$/.test(r.ticketNumber) && Number(r.ticketNumber) > 0 ? `${r.drawDate}:${Number(r.ticketNumber)}` : null;
@@ -322,7 +284,7 @@ function cellTextProblems(row: DraftWinner) {
     if (row.ticketNumber === '' && /^\W{0,3}\d+(?:\s*[-–—:#]|\s+[A-Za-z])/.test(cell)) problems.push('cell text shows a ticket number that was not extracted');
     if (row.ticketNumber !== '' && !new RegExp(`(?:^|\\D)${row.ticketNumber.replace(/\D/g, '') || 'x'}(?:\\D|$)`).test(cell)) problems.push('ticket number is not in the cell text');
     if (fold(row.name) && !words.includes(` ${fold(row.name)} `)) problems.push('name is not in the cell text');
-    // The name is the whole text between the ticket or label dash and the first comma ("442 - Winner 28G, Taylor, WI"); a real focused
+    // The name is the whole text between the ticket or label dash and the first comma ("442 - Winner 28G, Taylor, WI"); a real window
     // read copied that cell exactly but returned name "Winner". A shortened or extended name is held, never repaired from the cell.
     else if (fold(row.name)) {
         const printed = /^\s*(?:[^,]*?\s+[-–—]\s+)?([^,]+?)\s*,/.exec(cell)?.[1];
@@ -360,18 +322,13 @@ function rowProblems(row: DraftWinner, announcementDate: string): { reasons: str
  * already published that an administrator has since deleted: a requeue must not bring them back.
  */
 export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], schedule: ScheduledPrize[], announcementDate: string,
-    options: { removedWinnerIds?: Set<string>; focused?: Extraction[] } = {}): PhotoDecision {
+    options: { removedWinnerIds?: Set<string> } = {}): PhotoDecision {
     if (!passes.length) return { status: 'rejected', reasons: ['no extraction'], rows: [] };
     const [first] = passes;
     if (passes.some(p => p.containsWinners !== first.containsWinners)) return { status: 'rejected', reasons: ['extraction passes disagree about whether this is a winner announcement'], rows: [] };
     if (!first.containsWinners) return { status: 'ignored', reasons: ['not a winner announcement'], rows: [] };
     if (passes.length < 2) return { status: 'rejected', reasons: ['winner publication requires at least two extraction passes'], rows: [] };
     passes = passes.map(p => calendarDated(p, schedule));
-    // Focused reads are used only as a complete set, one per whole-table pass; a partial set changes nothing.
-    if (options.focused?.length === passes.length && options.focused.every(f => f.containsWinners)) {
-        const window = new Set(windowDates(announcementDate));
-        passes = passes.map((p, i) => withFocus(p, calendarDated(options.focused![i], schedule), window));
-    }
     const { imageWide, rowWarnings } = classifyWarnings(passes);
     const redated = redatedRows(passes, existing, schedule);
     // Layout remarks alone ("ambiguous date/prize association") are checked against stored winners instead of rejecting the image:
