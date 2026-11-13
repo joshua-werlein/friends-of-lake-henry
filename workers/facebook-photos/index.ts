@@ -7,8 +7,8 @@ import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, we
 import { downloadPhoto, extractPhotoCandidates } from '../facebook-live/photos';
 import { PHOTO_MODEL, hashBytes } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
-    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, windowDates, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
-import { extractPasses, readableImage, PHOTO_LEASE_SECONDS, type ReadEnv } from './reads';
+    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
+import { extractPasses, readableImage, PHOTO_LEASE_SECONDS, QuotaExhausted, type ReadEnv } from './reads';
 import { evaluatePhotoAlerts, recordWebhookReceipts } from './alerts';
 import type { AlertEnv } from '../../src/lib/server/alerts';
 import { configureSeason } from '../../src/lib/server/raffle-season';
@@ -148,15 +148,18 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
         if (finalStatus) { queue = 'done'; statuses.push(finalStatus); continue; }
         try {
             const { image, dimensions } = await downloadPhoto(get, fetcher, photo.photoId);
+            const sha256 = await hashBytes(image.bytes);
             const readable = await readableImage(env, image.bytes, image.mime, dimensions.width, context);
-            const { passes, focused } = await extractPasses(env, readable.bytes, readable.mime, announcementDate, context);
+            const { passes, reads, aiCalls, reused, fallback } = await extractPasses(env, readable.bytes, readable.mime, announcementDate, context,
+                { sha256, width: dimensions.width, height: dimensions.height }, readable.enlarged);
             const months = new Set([announcementDate.slice(0, 7), ...passes.flatMap(p => p.rows.map(r => r.drawDate.slice(0, 7))).filter(m => /^\d{4}-\d{2}$/.test(m))]);
             const { existing, schedule } = await loadContext(env.DB, [...months]);
-            const decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId), focused });
-            // The stored extraction keeps every read: whole-table passes, then focused passes marked with the dates they covered.
-            const reads = [...passes, ...focused.map(f => ({ ...f, focus: windowDates(announcementDate), enlarged: readable.enlarged }))];
-            const status = await writeDecision(env.DB, { photoId: photo.photoId, postId, sha256: await hashBytes(image.bytes),
+            const decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId) });
+            // The stored extraction keeps every read with its kind, dates, prompt version and token usage.
+            const status = await writeDecision(env.DB, { photoId: photo.photoId, postId, sha256,
                 width: dimensions.width, height: dimensions.height, model: PHOTO_MODEL, passes: reads }, decision, env.FB_PHOTO_AUTOPUBLISH === 'true');
+            const estNeurons = Math.round(reads.reduce((n, r) => n + (r.read.usage?.estNeurons ?? 0), 0));
+            log('photo-ai-usage', { ...context, attempt: attempt ?? 0, aiCalls, reused, fallback: fallback ?? 'none', estNeurons });
             // Stored outcomes, not the plan: a row can lose a race with manual entry during the write.
             const stored = (await env.DB.prepare(`SELECT outcome, count(*) AS n FROM raffle_photo_auto_rows WHERE photo_id=? GROUP BY outcome`).bind(photo.photoId).all<{ outcome: string; n: number }>()).results;
             const stat = (o: string) => stored.find(r => r.outcome === o)?.n ?? 0;
@@ -167,7 +170,8 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
                 decisionRejections: decision.rows.filter(r => r.outcome === 'rejected').length, decisionHolds: decision.rows.filter(r => r.outcome === 'held').length,
                 imageReasons: decision.reasons.length });
             for (const row of rows) console.log(JSON.stringify({ event: 'row-decision', ...context, ...row }));
-            await recordAttempts(env.DB, [{ ...context, stage: 'photo', outcome: status, detail: { imageReasons: decision.reasons.map(r => sanitizeCode(r.split(':')[0])) } },
+            await recordAttempts(env.DB, [{ ...context, stage: 'photo', outcome: status, detail: { imageReasons: decision.reasons.map(r => sanitizeCode(r.split(':')[0])),
+                aiCalls, reused, fallback, estNeurons } },
                 ...rows.map(r => ({ ...context, stage: 'row' as const, rowNumber: r.rowNumber, outcome: r.outcome, detail: r }))]);
             if (status !== 'ignored') queue = 'done';
         } catch (e) {
@@ -182,7 +186,7 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
 
 export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?: string[]) {
     const ids = only ?? await duePosts(env.DB, now);
-    for (const id of ids) {
+    for (const [index, id] of ids.entries()) {
         if (!(await claimPost(env.DB, id, now, PHOTO_LEASE_SECONDS))) continue;
         const claimed = await env.DB.prepare(`SELECT source, attempts FROM raffle_photo_auto_posts WHERE post_id=?`).bind(id).first<{ source: string; attempts: number }>();
         const attempt = claimed?.attempts ?? 1;
@@ -195,10 +199,12 @@ export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?:
             await recordAttempts(env.DB, [{ postId: id, attempt, stage: 'post', outcome: result.queue, code: result.publication?.status ?? 'none', detail: result.publication ?? {} }]);
         } catch (e) {
             const code = sanitizeCode(e);
-            const retryAfter = Number((e as any)?.retryAfterSeconds) || 0;
-            await failPost(env.DB, id, code, attempt, now, retryAfter, e instanceof Permanent);
-            log('post-failed', { postId: id, attempt: attempt ?? 0, code, retryAfterSeconds: retryAfter });
-            await recordAttempts(env.DB, [{ postId: id, attempt, stage: 'post', outcome: 'failed', code, detail: { retryAfterSeconds: retryAfter, permanent: e instanceof Permanent } }]);
+            const retryAfter = Number((e as any)?.retryAfterSeconds) || 0, quota = e instanceof QuotaExhausted;
+            await failPost(env.DB, id, code, attempt, now, retryAfter, e instanceof Permanent, quota);
+            log('post-failed', { postId: id, attempt: attempt ?? 0, code, retryAfterSeconds: retryAfter, quota });
+            await recordAttempts(env.DB, [{ postId: id, attempt, stage: 'post', outcome: 'failed', code, detail: { retryAfterSeconds: retryAfter, permanent: e instanceof Permanent, quota } }]);
+            // Every other post would hit the same exhausted allocation; they keep their place in the queue for the next attempt.
+            if (quota) { if (index < ids.length - 1) log('drain-stopped-quota', { skipped: ids.length - index - 1 }); break; }
         }
     }
 }

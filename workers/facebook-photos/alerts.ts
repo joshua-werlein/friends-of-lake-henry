@@ -11,6 +11,7 @@ export const WEBHOOK_GRACE_MS = 10 * 60_000;   // A signed webhook normally arri
 export const ACTIVE_LOAD_LIMIT = 200;
 export const AUTH_CODES = ['token-expired', 'permission-denied', 'missing-token'];
 const AI_CODE = /extraction|vision|model|inference|neuron|capacity|^ai[-_:.]|workers-ai/i;
+const QUOTA_CODE = /^4006\b|daily-free-allocation|neurons/i;
 const SYSTEM = 'photo-automation' as const;
 const TRACKING_START = 'tracking-start';
 
@@ -43,6 +44,12 @@ export function postSignal(post: PostRow, now: Date): Signal | null {
         problem: `Automatic processing of a Facebook post stopped after ${post.attempts} attempts; any winners in it were not published automatically.`,
         action: 'Open Admin > Raffle > Photo imports, review the failure, then requeue the post or enter the winners manually.',
         detail: { postId: post.post_id, attempts: post.attempts, code, source: post.source } };
+    // A quota refusal gives its attempt back (failPost), so age alone reports it, with what will happen next.
+    if (post.status === 'retry' && QUOTA_CODE.test(code) && age >= STUCK_AFTER_MS) return { id: `photo:post:${post.post_id}`, system: SYSTEM,
+        title: 'Workers AI daily allocation used up: winner photo waiting',
+        problem: `The account's daily Workers AI allocation is exhausted, so a winner photo queued ${Math.round(age / 60_000)} minutes ago cannot be read yet. It retries hourly and just after the 00:00 UTC reset, for up to 30 hours.`,
+        action: 'Enter tonight\'s winners manually from the post if they should appear before the allocation resets. Do not requeue: retries continue automatically.',
+        detail: { postId: post.post_id, attempts: post.attempts, status: post.status, code, source: post.source } };
     if (['queued', 'retry', 'processing'].includes(post.status) && (age >= STUCK_AFTER_MS || post.attempts >= REPEATED_ATTEMPTS)) return { id: `photo:post:${post.post_id}`, system: SYSTEM,
         title: ai ? 'Repeated winner photo AI extraction failures' : 'Winner photo processing not completing',
         problem: `A Facebook post queued ${Math.round(age / 60_000)} minutes ago has not finished processing (${post.attempts} attempts, status ${post.status}). It is still retrying.`,

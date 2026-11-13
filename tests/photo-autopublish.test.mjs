@@ -685,9 +685,9 @@ test('actual November 3 image and both captured AI passes retain exact names, le
  const duplicate=schedule.filter(p=>p.drawDate==='2026-11-03'&&p.category==='Gift card')[0];assert.equal(matchPrize('Gift Card','2026-11-03',[...schedule,{...duplicate,id:'another'}]).match,'unmatched');
 });
 
-test('two-stage Worker extraction: Images enlargement with fallback, focused reads only for month tables, renewed lease', async t => {
+test('Worker extraction: Images enlargement with fallback, anchored window reads, bounded whole-table fallback, quota classification, renewed lease', async t => {
     const DB = await database(t);
-    const { readableImage, extractPasses } = await import('../workers/facebook-photos/reads.ts');
+    const { readableImage, extractPasses, readDates, estimateNeurons, isQuotaExhausted, QuotaExhausted } = await import('../workers/facebook-photos/reads.ts');
     const { renewLease, claimPost, enqueuePost } = await import('../src/lib/server/raffle-photo-autopublish.ts');
     const { focusPrompt, FOCUS_SCHEMA } = await import('../workers/facebook-photos/focus.ts');
     const { winnerPrompt } = await import('../workers/facebook-live/photos.ts');
@@ -707,27 +707,42 @@ test('two-stage Worker extraction: Images enlargement with fallback, focused rea
     // The focused prompt uses the same response schema and names only dates, never winners or prizes.
     assert.ok(winnerPrompt('2026-11', '2026-11-28', 0).includes(FOCUS_SCHEMA));
     assert.match(focusPrompt(['2026-11-26', '2026-11-27', '2026-11-28'], 0), /2026-11-26 \(printed like "Nov 26" or "11\/26"\).*2026-11-28/);
-    // AI stub: whole-table reads first, then focused reads (recognised by their prompt).
+    // AI stub: a window read (recognised by its prompt) returns only the rows of the dates it names; a whole-table read returns every row.
     const row = (drawDate, name) => ({ drawDate, position: null, ticketNumber: '101', ticketStatus: 'readable', name, town: 'Blair, WI', townStatus: 'readable', prize: 'Firearm', notes: '', cellText: `101 - ${name}, Blair, WI` });
-    const run = (rows, fail) => { const calls = []; return { calls, AI: { async run(model, input) { const prompt = input.messages[0].content[0].text; calls.push({ prompt, max: input.max_tokens });
-        if (fail && fail(prompt)) throw Error('ai-unavailable');
-        return { response: { containsWinners: true, rows: prompt.startsWith('This image is a raffle winner table') ? rows.filter(r => r.drawDate >= '2026-11-26') : rows, warnings: [] } }; } } }; };
+    const usage = { prompt_tokens: 3000, completion_tokens: 1800 };
+    const run = (rows, { fail, reply } = {}) => { const calls = []; return { calls, AI: { async run(model, input) { const prompt = input.messages[0].content[0].text;
+        const window = prompt.startsWith('This image is a raffle winner table'), asked = new Set(prompt.match(/\d{4}-\d{2}-\d{2}(?= \(printed)/g) ?? []);
+        calls.push({ window, max: input.max_tokens, dates: [...asked] });
+        if (fail && fail(window, calls.length)) throw fail.error ?? Error('ai-unavailable');
+        if (reply) return reply(window);
+        return { response: { containsWinners: true, rows: window ? rows.filter(r => asked.has(r.drawDate)) : rows, warnings: [] }, usage }; } } }; };
     await enqueuePost(DB, context.postId, 'webhook');
     assert.equal(await claimPost(DB, context.postId, new Date(), 600), true);
-    const month = run([row('2026-11-01', 'Old Winner'), row('2026-11-28', 'New Winner')]);
+    // The window (Nov 26-28) and four anchor dates (Nov 22-25), read twice; the month's other rows are never transcribed.
+    assert.deepEqual(readDates('2026-11-28'), ['2026-11-22', '2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27', '2026-11-28']);
+    assert.deepEqual(readDates('2026-11-02'), ['2026-11-01', '2026-11-02']); // never before the month's first row
+    const month = run([row('2026-11-01', 'Old Winner'), row('2026-11-24', 'Anchor Winner'), row('2026-11-28', 'New Winner')]);
     const reads = await extractPasses({ DB, ...month }, jpeg, 'image/jpeg', '2026-11-28', context);
-    assert.deepEqual([reads.passes.length, reads.focused.length, month.calls.length, month.calls.every(c => c.max === 16384)], [2, 2, 4, true]);
-    assert.deepEqual(reads.focused.map(f => f.rows.map(r => r.name)), [['New Winner'], ['New Winner']]);
-    // A single-night announcement needs no focused reads.
-    const single = run([row('2026-11-28', 'New Winner')]);
-    assert.equal((await extractPasses({ DB, ...single }, jpeg, 'image/jpeg', '2026-11-28', context)).focused.length, 0);
-    assert.equal(single.calls.length, 2);
-    // A failed focused read falls back to the whole-table reads instead of failing (and later repeating) every AI read.
-    const flaky = run([row('2026-11-01', 'Old Winner'), row('2026-11-28', 'New Winner')], p => p.startsWith('This image is a raffle winner table'));
-    const fallback = await extractPasses({ DB, ...flaky }, jpeg, 'image/jpeg', '2026-11-28', context);
-    assert.deepEqual([fallback.passes.length, fallback.focused.length], [2, 0]);
-    const failedFocus = await DB.prepare(`SELECT detail_json FROM raffle_photo_auto_attempts WHERE post_id=? AND outcome='failed'`).bind(context.postId).first();
-    assert.match(failedFocus.detail_json, /"fallback":"whole-table reads"/);
+    assert.deepEqual([reads.passes.length, reads.aiCalls, reads.reused, reads.fallback, month.calls.every(c => c.window && c.max === 6144 && c.dates.length === 7)], [2, 2, 0, null, true]);
+    assert.deepEqual(reads.passes.map(p => p.rows.map(r => r.name)), [['Anchor Winner', 'New Winner'], ['Anchor Winner', 'New Winner']]);
+    assert.deepEqual(reads.reads.map(r => [r.read.kind, r.read.pass, r.read.usage.estNeurons]), [['window', 0, estimateNeurons(3000, 1800)], ['window', 1, estimateNeurons(3000, 1800)]]);
+    assert.ok(reads.passes.every(p => !('read' in p)));
+    // A table without the requested dates (no printed dates) falls back once to the two whole-table reads.
+    const undated = run([row('', 'New Winner')]);
+    const tableReads = await extractPasses({ DB, ...undated }, jpeg, 'image/jpeg', '2026-11-28', context);
+    assert.deepEqual([undated.calls.map(c => c.window), undated.calls.map(c => c.max), tableReads.fallback, tableReads.passes[0].rows.length], [[true, true, false, false], [6144, 6144, 16384, 16384], 'no-window-dates', 1]);
+    // An unparseable (cut-off) window reply is not repeated: the whole-table reads decide instead.
+    const cut = run([row('2026-11-28', 'New Winner')], { reply: window => window ? { response: '{"containsWinners":true,"rows":[{"cellText":"101 - New' } : { response: { containsWinners: true, rows: [row('2026-11-28', 'New Winner')], warnings: [] } } });
+    const recovered = await extractPasses({ DB, ...cut }, jpeg, 'image/jpeg', '2026-11-28', context);
+    assert.deepEqual([cut.calls.map(c => c.window), recovered.fallback, recovered.passes.length], [[true, false, false], 'unparseable', 2]);
+    // A non-winner photo stops after one read.
+    const notWinners = run([], { reply: () => ({ response: { containsWinners: false, rows: [], warnings: [] } }) });
+    assert.deepEqual([(await extractPasses({ DB, ...notWinners }, jpeg, 'image/jpeg', '2026-11-28', context)).passes.length, notWinners.calls.length], [1, 1]);
+    // Any other AI failure still fails the attempt (retried with backoff); a 4006 refusal is classified as quota exhaustion.
+    await assert.rejects(extractPasses({ DB, ...run([], { fail: () => true }) }, jpeg, 'image/jpeg', '2026-11-28', context), e => !(e instanceof QuotaExhausted) && /ai-unavailable/.test(e.message));
+    const refusal = Object.assign(() => true, { error: Error('4006: you have used up your daily free allocation of 10,000 neurons, please upgrade') });
+    await assert.rejects(extractPasses({ DB, ...run([], { fail: refusal }) }, jpeg, 'image/jpeg', '2026-11-28', context), QuotaExhausted);
+    assert.ok(isQuotaExhausted('4006:-you-have-used-up-your-daily-free-allocation-of-10-000-neurons-please-upgra') && !isQuotaExhausted('ai-unavailable') && !isQuotaExhausted('error 40060'));
     // Every read renews this run's lease; once another run has taken the post the old run stops before its next read.
     const lease = async () => (await DB.prepare(`SELECT locked_until FROM raffle_photo_auto_posts WHERE post_id=?`).bind(context.postId).first()).locked_until;
     const before = await lease();
@@ -737,4 +752,68 @@ test('two-stage Worker extraction: Images enlargement with fallback, focused rea
     assert.equal(await claimPost(DB, context.postId, new Date(), 600), true); // attempt 2 takes over after the lease lapsed
     assert.equal(await renewLease(DB, context.postId, 1), false);
     await assert.rejects(extractPasses({ DB, ...run([row('2026-11-28', 'X')]) }, jpeg, 'image/jpeg', '2026-11-28', context), /lease-lost/);
+});
+
+test('AI quota: completed reads are checkpointed and reused, refusals give the attempt back and retry hourly and after the UTC reset', async t => {
+    const DB = await database(t);
+    const { extractPasses, storedReads } = await import('../workers/facebook-photos/reads.ts');
+    const { claimPost, enqueuePost, failPost, nextQuotaAttempt, MAX_ATTEMPTS } = await import('../src/lib/server/raffle-photo-autopublish.ts');
+    const { postSignal } = await import('../workers/facebook-photos/alerts.ts');
+    const context = { postId: '144051422124740_7', photoId: '7', attempt: null };
+    const jpeg = new Uint8Array([255, 216, 255, 224, 1, 2, 3]);
+    const image = { sha256: 'a'.repeat(64), width: 958, height: 680 };
+    const cellRow = { drawDate: '2026-11-12', position: null, ticketNumber: '377', ticketStatus: 'readable', name: 'Test Winner', town: 'Tomah, WI', townStatus: 'readable', prize: 'Firearm', notes: '', cellText: '377 - Test Winner, Tomah, WI' };
+    const QUOTA = '4006: you have used up your daily free allocation of 10,000 neurons, please upgrade';
+    const ai = refuseFrom => { const s = { calls: 0 }; s.AI = { async run() { if (++s.calls >= refuseFrom) throw Error(QUOTA); return { response: { containsWinners: true, rows: [cellRow], warnings: [] }, usage: { prompt_tokens: 2400, completion_tokens: 1700 } }; } }; return s; };
+    // Pass 1 succeeds and pass 2 is refused: pass 1 is kept.
+    const first = ai(2);
+    await assert.rejects(extractPasses({ DB, AI: first.AI }, jpeg, 'image/jpeg', '2026-11-12', context, image, true), /4006/);
+    assert.equal((await storedReads(DB, context.photoId, image.sha256)).length, 1);
+    // The retry pays only for pass 2.
+    const second = ai(Infinity);
+    const done = await extractPasses({ DB, AI: second.AI }, jpeg, 'image/jpeg', '2026-11-12', context, image, true);
+    assert.deepEqual([second.calls, done.aiCalls, done.reused, done.passes.length], [1, 1, 1, 2]);
+    // Reuse needs the same image bytes, enlargement and prompt version.
+    const other = ai(Infinity);
+    await extractPasses({ DB, AI: other.AI }, jpeg, 'image/jpeg', '2026-11-12', { ...context, photoId: '8' }, { ...image, sha256: 'b'.repeat(64) }, true);
+    assert.equal(other.calls, 2);
+    const notEnlarged = ai(Infinity);
+    await extractPasses({ DB, AI: notEnlarged.AI }, jpeg, 'image/jpeg', '2026-11-12', context, image, false);
+    assert.equal(notEnlarged.calls, 2);
+    await DB.prepare(`UPDATE raffle_photo_auto_imports SET extraction_json=? WHERE photo_id=?`)
+        .bind(JSON.stringify((await storedReads(DB, context.photoId, image.sha256)).map(r => ({ ...r, read: { ...r.read, version: 'older-prompt' } }))), context.photoId).run();
+    const newPrompt = ai(Infinity);
+    await extractPasses({ DB, AI: newPrompt.AI }, jpeg, 'image/jpeg', '2026-11-12', context, image, false);
+    assert.equal(newPrompt.calls, 2);
+    // A decided photo is never reopened by stored reads.
+    await DB.prepare(`UPDATE raffle_photo_auto_imports SET status='published' WHERE photo_id=?`).bind(context.photoId).run();
+    assert.equal((await storedReads(DB, context.photoId, image.sha256)).length, 0);
+
+    // Queue: Nov 12 at 00:06 UTC on Nov 13 (6:06 PM Central). A refusal leaves the attempt budget unchanged and retries within the hour.
+    const postId = '144051422124740_122335449590073310', at = new Date('2026-11-13T00:06:49Z');
+    const state = () => DB.prepare(`SELECT status, attempts, next_attempt_at AS next FROM raffle_photo_auto_posts WHERE post_id=?`).bind(postId).first();
+    await enqueuePost(DB, postId, 'webhook');
+    await DB.prepare(`UPDATE raffle_photo_auto_posts SET created_at=? WHERE post_id=?`).bind('2026-11-13T00:06:00.000Z', postId).run();
+    for (let i = 0; i < MAX_ATTEMPTS + 4; i++) {
+        const now = new Date(at.getTime() + i * 3600000);
+        assert.equal(await claimPost(DB, postId, new Date(Math.max(now.getTime(), Date.parse((await state()).next))), 600), true);
+        await failPost(DB, postId, '4006:-you-have-used-up-your-daily-free-allocation', 1, now, 0, false, true);
+        const s = await state();
+        assert.deepEqual([s.status, s.attempts], ['retry', 0], `refusal ${i + 1}`);
+        assert.equal(s.next, nextQuotaAttempt(now).toISOString());
+    }
+    assert.equal(nextQuotaAttempt(new Date('2026-11-13T00:06:49Z')).toISOString(), '2026-11-13T01:06:49.000Z');
+    assert.equal(nextQuotaAttempt(new Date('2026-11-13T23:40:00Z')).toISOString(), '2026-11-14T00:05:00.000Z'); // just after the reset
+    // The owner is told it is the allocation and that retries continue.
+    const waiting = postSignal({ post_id: postId, source: 'webhook', status: 'retry', attempts: 0, error_code: '4006:-you-have-used-up-your-daily-free-allocation', last_error_code: null,
+        created_at: '2026-11-13T00:06:00.000Z' }, new Date('2026-11-13T00:40:00Z'));
+    assert.match(waiting.title, /daily allocation used up/);
+    // An ordinary failure afterwards still has its full backoff budget.
+    assert.equal(await claimPost(DB, postId, new Date('2026-11-14T12:00:00Z'), 600), true);
+    await failPost(DB, postId, 'ai-unavailable', 1, new Date('2026-11-14T12:00:00Z'));
+    assert.equal((await state()).status, 'retry');
+    // After 30 hours of refusals the post is parked as failed (and alerted) for an administrator.
+    assert.equal(await claimPost(DB, postId, new Date('2026-11-14T12:05:00Z'), 600), true);
+    await failPost(DB, postId, '4006:-you-have-used-up-your-daily-free-allocation', 2, new Date('2026-11-14T12:05:00Z'), 0, false, true);
+    assert.equal((await state()).status, 'failed');
 });
