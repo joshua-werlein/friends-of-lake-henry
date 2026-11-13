@@ -68,7 +68,7 @@ The rest of November (Nov 13–30, 18 nights) comes to about **6,800 neurons wit
 2. **Enlargement uses the Images binding** (Cloudflare Images transformations; free-plan monthly limit applies). It was verified once on this account by 6e8043f. A failure reads the original image.
 3. A cell from an unrequested older row that the model moves into the window in both reads, identically, is caught only by the slot, duplicate and repeat-winner checks, not by `redatedRows`, which needs the stored date to be among the read dates.
 4. The Nov 13 00:06 UTC refusals remain unexplained without dashboard data.
-5. Main has migration-009 code (`f6c73a4`). This branch is based on the pre-009 lineage that production runs. Cherry-picking `6e8043f` and this commit onto `main` is conflict-free (checked with `git merge-tree`), but main's tests and 009 must pass before the Worker is built from main.
+5. Main has migration-009 code (`f6c73a4`). This branch is based on the pre-009 lineage that production runs. Cherry-picking `6e8043f` alone onto `main` is conflict-free. With this commit, the only conflict is the `package.json` test-script line, where main also lists `future-season.test.mjs` (checked with `git merge-tree`). Main's tests and 009 must pass before the Worker is built from main.
 
 ## Deployment requirements (not done)
 
