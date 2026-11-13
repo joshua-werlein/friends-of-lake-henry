@@ -1,6 +1,6 @@
 # Winner-photo Workers AI usage: investigation and fix (2026-11-12)
 
-**Status: local branch `fix/photo-ai-usage` (on top of `6e8043f`), NOT pushed or deployed.** Production stays on Photo Worker `13311c6d`.
+**Status: local branch `fix/photo-ai-usage` (on top of `6e8043f`), NOT pushed or deployed. The capped live check passed on 2026-11-13.** Production stays on Photo Worker `13311c6d`.
 
 ## What happened on November 12
 
@@ -57,23 +57,67 @@ The rest of November (Nov 13–30, 18 nights) comes to about **6,800 neurons wit
 
 ## Validation
 
-- `npm test`: **192 pass, 0 fail**. That's the 186 before plus new tests: the window-read Nov 12–30 suite (`tests/raffle-window-reads.test.mjs`), checkpoint/reuse/quota (`tests/photo-autopublish.test.mjs`), and the revised real-Worker replay (`tests/raffle-november-6.test.mjs`: requeue re-decides with 0 AI calls).
+- `npm test`: **190 pass, 0 fail** on this branch. On `main` with these commits cherry-picked: **195 pass**, including main's season tests. New tests: the window-read Nov 12–30 suite and live-read replay (`tests/raffle-window-reads.test.mjs`), checkpoint/reuse/quota (`tests/photo-autopublish.test.mjs`), and the revised real-Worker replay (`tests/raffle-november-6.test.mjs`: requeue re-decides with 0 AI calls). The four tests that only exercised the removed focused-read merge were deleted; their remaining cases are ported.
 - Covered: normal two-winner nights; three-winner bonus nights; sparse and late bonus columns; a Firearm column read a row late (held through the anchors); misdated cells; label bleed; clipped and missing-heading images (rejected); missing and disputed cells (held one by one); no stored anchors (dated columns held); a late photo spanning the window; repeated posts (no duplicates; month ends with unique IDs and slots, history unchanged); window size and token bound through Nov 30; quota refusal and recovery; prompt-version invalidation.
 - Real reads: the real Nov 9, 10 and 11 production reads, restricted to the window and anchor rows, give exactly the same inserts as before. Rendered Nov 12, 20 and 30 real reads, restricted the same way, publish exactly tonight's winners. Real focused reads of Nov 28 and 30 publish nothing wrong.
-- All four TypeScript projects, Astro build, both Worker builds, `check-deployment.mjs` and `wrangler deploy --dry-run` pass. No AI calls were made.
+- All four TypeScript projects, Astro build, both Worker builds, `check-deployment.mjs` and `wrangler deploy --dry-run` pass.
+
+## Live check (approved, 2026-11-13 01:22–01:24 UTC)
+
+One run of `tests/live/extraction-check.test.mjs`, `NIGHTS=13,30 NEURON_CAP=1500`.
+- **Isolation:** the test's only network call is Workers AI inference (`/ai/run`). Its D1 is in-memory Miniflare (`d1Persist: false`), the tables are rendered locally, and output goes to a scratch directory. No production D1, KV, R2, winner or queue state can be touched.
+- **Cap:** checked before every call against that call's worst case (4,000 prompt + 6,144 output tokens = 437.7 neurons), so the run can't exceed 1,500. Billing comes from each response's own usage, and a response without usage stops the run.
+- **Quota:** a `4006` stops at once without retry (dry-run verified with a stubbed `fetch`).
+- **Allocation:** production had still been refused at 00:56:50 UTC. The first live call served as the allocation check and succeeded.
+- **Tables:** PIL-rendered, then resized to 1540 px. That's representative, but not the Images binding's own output.
+
+| Night | Read | Input tokens | Output tokens | Neurons | Time | Cells copied exactly | Window | Bonus | Field errors | Warnings |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Nov 13 (1540×495) | row-wise | 1,976 | 1,857 | 156.7 | 45 s | 17/17 | 7/7 | 3/3 | 0 | 0 |
+| | column-wise | 1,974 | 1,857 | 156.7 | 36 s | 17/17 | 7/7 | 3/3 | 0 | 0 |
+| Nov 30 (1540×1095) | row-wise | 3,214 | 1,928 | 199.8 | 33 s | 18/18 | 8/8 | 4/4 | 0 | 0 |
+| | column-wise | 3,212 | 1,928 | 199.7 | 36 s | 18/18 | 8/8 | 4/4 | 0 | 0 |
+
+- **Totals:** 4 calls, **712.9 neurons**, 0 fallback calls (none would have been triggered), 0 parse errors, 0 failures.
+- **Accuracy:** "Cells" counts every printed cell on the 7 requested rows, anchors included. Every date, ticket, name, hometown and bonus label was exact, and no extra rows were returned.
+- **Decisions:** Nov 13 published 3/3 (Firearm, Gift Card, Panfish Rod bonus). Nov 30 published 2/2. **No false publications and no missing winners.**
+- **Per night:** 313 neurons (Nov 13) and 400 (Nov 30), consistent with the estimates (~330, ~415).
+- **Independence:** the two prompts returned byte-identical rows on both nights. Their agreement therefore proves little on its own; see risk 1.
+- **Not run:** a real Nov 12 photo check. The Chrome extension isn't connected, and there's no other authorized route to the image (the importer never stored it).
+- **Replay:** both reads are kept as `tests/fixtures/simulated-table-2026-11-{13,30}.window-live.json` and replayed in `npm test`.
+
+## Which parts of `6e8043f` are still needed
+
+| Part of `6e8043f` | Verdict |
+|---|---|
+| Images-binding enlargement to 1540 px (`readableImage`, `IMAGES` binding, preflight) | **Keep.** The live window reads ran at 1540 px. Real 961 px window reads missed 2 of 8 cells (Nov 30 pass 0). Cost: about +37 neurons per read on Nov 30 |
+| `focus.ts` date-only prompt | **Keep.** It is now the primary prompt |
+| Two extra focused reads after the whole-table reads (`focusedPasses`) | **Replaced.** Removed in `e8a35f8` |
+| Merge of whole-table and focused reads (`withFocus`, `Merged` warning routing, `decidePhoto` `focused` option) | **Unreachable.** Removed in `857e718` (the pre-6e8043f warning classifier is restored) |
+| Printed-name check (`name differs from the name printed in the cell`) | **Keep.** Applies to every read |
+| Lease renewal per read, 600 s lease | **Keep.** The whole-table fallback can take ~108 s per read |
+| CPU memoisation in the decision | **Keep.** Harmless, and needed for a whole-table fallback decision |
+| `render_tables.py`, `november-table.mjs`, live check, Nov 28/30 fixtures | **Keep** (tests; the Nov 28/30 focused reads are used by the window-read tests) |
+| `docs/raffle-photo-two-stage-2026-11-12.md` | Marked superseded |
+
+`6e8043f` is still needed as a base: it carries the enlargement, prompt, lease and memoisation. Its focused-read stage is fully undone by `e8a35f8` and `857e718`, so it can't run.
 
 ## Remaining risks
 
-1. **No live read of the new prompt with 7 dates yet.** The window prompt was measured live only with 3 dates (Nov 13/22/28/30 at 961 px, plus the 1540 px whole-table reads). Restricting real whole-table reads approximates a 7-date read but isn't one. The two-night live check (~800 neurons) is the justified paid test before deploying.
-2. **Enlargement uses the Images binding** (Cloudflare Images transformations; free-plan monthly limit applies). It was verified once on this account by 6e8043f. A failure reads the original image.
-3. A cell from an unrequested older row that the model moves into the window in both reads, identically, is caught only by the slot, duplicate and repeat-winner checks, not by `redatedRows`, which needs the stored date to be among the read dates.
-4. The Nov 13 00:06 UTC refusals remain unexplained without dashboard data.
-5. Main has migration-009 code (`f6c73a4`). This branch is based on the pre-009 lineage that production runs. Cherry-picking `6e8043f` alone onto `main` is conflict-free. With this commit, the only conflict is the `package.json` test-script line, where main also lists `future-season.test.mjs` (checked with `git merge-tree`). Main's tests and 009 must pass before the Worker is built from main.
+1. **Shared misreads.** The two reads are byte-identical in practice, so a cell both read identically wrong (for example a wrong name with matching cell text) publishes. Only stored-winner, slot, calendar and duplicate checks catch it. The same was true of the deployed two whole-table reads. Setting `FB_PHOTO_EXTRACTION_PASSES=3` does not help: pass 3 repeats pass 1's prompt. **Option for review:** read pass 2 from the original 961 px image (cheaper input, an independent rendering). The trade-off is that a 961 px read missed window cells once, which holds them rather than publishing them.
+2. **Real Images-binding output is untested with the new prompt.** The live check used PIL resizing. 6e8043f verified the binding once on this account (Cloudflare Images free-plan transformation limits apply). A failure reads the original image.
+3. A cell from an unrequested row that both reads move into the window identically is caught only by the slot, duplicate and repeat-winner checks. A stray row from an unrequested date can also hold a column whose stored winner won again (tested: held, never wrong).
+4. The Nov 13 00:06–00:56 UTC refusals remain unexplained without dashboard data. Calls succeeded again by 01:22 UTC, which fits a rolling 24-hour window better than a 00:00 UTC reset.
+5. The Nov 12 post is parked `failed` in production. Its winners were entered manually. Don't requeue it: it has no stored reads, so a requeue would make two AI reads only to record duplicates.
 
-## Deployment requirements (not done)
+## Integration sequence (not done; each step needs approval)
 
-1. Owner review of this branch.
-2. After a drawing has been processed (after ~00:30 UTC): `NIGHTS=13,30 NEURON_CAP=1500` live check. Require 0 false publications and tonight's bonus cells published.
-3. Deploy the Photo Worker from this branch, which adds the `IMAGES` binding: `npx wrangler deploy --config workers/facebook-photos/wrangler.json`. Do it outside 5:45–6:45 PM Central. Don't requeue anything.
-4. Watch the next post's `photo-ai-usage` log event and `raffle_photo_auto_attempts` usage.
-5. Later, port `6e8043f` and this commit to `main`.
+**A. Production Photo Worker (pre-009 lineage, as today):**
+1. Review `fix/photo-ai-usage`: `6e8043f`, `e8a35f8`, `3fe4d3b`, `857e718`, `ad718a9` and this doc commit, on top of `6c65cec`.
+2. Deploy from the `../folh-ai-usage` worktree, outside 5:45–6:45 PM Central: `npx wrangler deploy --config workers/facebook-photos/wrangler.json`. This adds the `IMAGES` binding; the flags are unchanged. Record the new version ID. Rollback is version `13311c6d`, or the same command from `../folh-hotfix`.
+3. Requeue nothing. Watch the Nov 13 post (about 00:05 UTC on Nov 14): the `photo-ai-usage` log event, the pass usage in `raffle_photo_auto_attempts`, and the public table.
+
+**B. `main` (after A is verified):**
+4. Don't merge `hotfix/photo-nov11-column-association`. Its `b0ce99b`, `363e81d` and `6c65cec` duplicate main's `f460ba9` and `d7b15a7`.
+5. On a branch from `main`: `git cherry-pick 6e8043f e8a35f8 3fe4d3b 857e718 ad718a9 <doc commit>`. Resolve the one `package.json` conflict by keeping main's test list (with `future-season.test.mjs`) and adding `tests/raffle-window-reads.test.mjs`. This was done locally as `integrate/photo-ai-usage-main` in `../folh-main-integration`: 195/195 tests, typechecks, build and preflight pass. It is not pushed.
+6. Push and open a PR. `[CF-Pages-Skip]` keeps Pages unchanged. Build the Photo Worker from main only after migration 009 is applied in production.
