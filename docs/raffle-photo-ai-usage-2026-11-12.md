@@ -121,3 +121,77 @@ One run of `tests/live/extraction-check.test.mjs`, `NIGHTS=13,30 NEURON_CAP=1500
 4. Don't merge `hotfix/photo-nov11-column-association`. Its `b0ce99b`, `363e81d` and `6c65cec` duplicate main's `f460ba9` and `d7b15a7`.
 5. On a branch from `main`: `git cherry-pick 6e8043f e8a35f8 3fe4d3b 857e718 ad718a9 <doc commit>`. Resolve the one `package.json` conflict by keeping main's test list (with `future-season.test.mjs`) and adding `tests/raffle-window-reads.test.mjs`. This was done locally as `integrate/photo-ai-usage-main` in `../folh-main-integration`: 195/195 tests, typechecks, build and preflight pass. It is not pushed.
 6. Push and open a PR. `[CF-Pages-Skip]` keeps Pages unchanged. Build the Photo Worker from main only after migration 009 is applied in production.
+
+## Production deployment (2026-11-13)
+
+| | |
+|---|---|
+| Deployed | 2026-11-13 01:53:54 UTC (7:53 PM Central), outside the drawing window |
+| Worker | `folh-facebook-winner-photos` only. Live Worker, Pages, D1 data, billing and the nonprofit account unchanged |
+| Commit | `893d371` on `fix/photo-ai-usage` (pre-009 lineage; worktree `../folh-ai-usage`, clean) |
+| Version | **`3d4928c9-4fe6-46a8-8989-6c2ece78458d`** (100%) |
+| Previous / rollback | `13311c6d-2f4a-4cba-b329-b846657e1ba4` (still listed) |
+| Config change | added `IMAGES` binding only. Vars, all 5 secrets, D1 `folh-db`, AI, both service bindings, cron `*/2 * * * *` and compatibility date are identical to `13311c6d` |
+| D1 | no migration or data change (the new code uses existing columns only) |
+
+**Checks before the deploy:**
+- Working tree clean.
+- The live version's vars, secrets (JSON view) and cron schedule (API) compared with the config.
+- Queue idle.
+- `check-deployment.mjs` and `wrangler deploy --dry-run` passed. All typechecks passed.
+- `npm test` failed once (1 of 190; the test name wasn't captured). Seven runs straight afterwards passed 190/190, three of them concurrently under load. The likely cause is an existing end-to-end test that waits a fixed time for Miniflare background work.
+
+**Checks after the deploy (no AI triggered):**
+- Deployment 100% on `3d4928c9`; bindings, secrets and vars as listed.
+- `GET /` returns 404.
+- Three cron ticks (01:54, 01:56, 01:58 UTC) on `3d4928c9` returned `ok`, with no exceptions; each only evaluated alerts.
+- 0 AI passes since the deploy, and the queue is empty.
+- The Nov 12 post is still `failed` (untouched). 57 winners, the Nov 12 rows unchanged.
+- The Nov 13 event is published.
+- The Graph poll will run 5:55–6:15 PM Central on Nov 13. The Images binding is exercised for the first time by the Nov 13 photo; if it fails, the original image is read.
+
+**Rollback:** `npx wrangler rollback 13311c6d-2f4a-4cba-b329-b846657e1ba4 --config workers/facebook-photos/wrangler.json`. That restores the old reads (no window reads, no quota handling), with the same flags.
+
+## Monitoring (Nov 13 onward)
+
+**Live log:**
+```
+npx wrangler tail folh-facebook-winner-photos --config workers/facebook-photos/wrangler.json --format json
+```
+Events per post, in order:
+- `extraction-pass` (`kind` window/table, `rows`, `promptTokens`, `completionTokens`, `estNeurons`), or `extraction-pass-reused` (no AI).
+- `extraction-fallback` (whole-table reads; should be rare).
+- `photo-ai-usage` (`aiCalls`, `reused`, `fallback`, `estNeurons`; expect 2 calls and ~300–420 neurons on a normal night).
+- `photo-processed`, `row-decision`, `post-finished` (`publication`, `inserted`).
+
+Quota appears as `extraction-pass-failed` with `quota:true`, then `post-failed` with `quota:true`, and `drain-stopped-quota` if other posts were waiting.
+
+**D1 (read-only):**
+```sql
+-- AI passes and their cost
+SELECT created_at, post_id, attempt, pass_number, outcome, substr(code,1,40) AS code,
+       json_extract(detail_json,'$.kind') AS kind, json_extract(detail_json,'$.rows') AS rows,
+       json_extract(detail_json,'$.promptTokens') AS input, json_extract(detail_json,'$.completionTokens') AS output,
+       json_extract(detail_json,'$.estNeurons') AS neurons
+FROM raffle_photo_auto_attempts WHERE stage='pass' ORDER BY id DESC LIMIT 12;
+-- Per photo: calls, reuse, fallback, total
+SELECT created_at, post_id, outcome, json_extract(detail_json,'$.aiCalls') AS calls, json_extract(detail_json,'$.reused') AS reused,
+       json_extract(detail_json,'$.fallback') AS fallback, json_extract(detail_json,'$.estNeurons') AS neurons
+FROM raffle_photo_auto_attempts WHERE stage='photo' ORDER BY id DESC LIMIT 5;
+-- Queue and quota errors (a quota refusal shows status retry, last_error_code 4006..., attempts unchanged)
+SELECT post_id, source, status, attempts, next_attempt_at, last_error_code, last_error_at, publication_status
+FROM raffle_photo_auto_posts ORDER BY updated_at DESC LIMIT 5;
+-- Published winners
+SELECT draw_date, winner_name, town, ticket_number_text, prize, prize_slot_id, created_at FROM raffle_winners WHERE draw_date >= '2026-11-13' ORDER BY draw_date, prize_slot_id;
+```
+Run with `npx wrangler d1 execute folh-db --remote --config wrangler.json --command "..."` from the main checkout (`wrangler.json` targets production; `wrangler.toml` targets dev).
+
+**Public:** https://friendsoflakehenry.com/raffle and `/api/raffle/month?month=2026-11`.
+
+**Expected Nov 13:** the post arrives ~00:05 UTC Nov 14 → 2 window reads (~310 neurons) → 3 inserts (Firearm, Gift Card, Panfish Rod bonus) → `publication: published`.
+
+**Act on these:**
+- `held` / `partial` / `rejected`: an alert email names the rows. Enter those winners manually.
+- `quota:true`: allocation exhausted. Retries continue hourly; enter winners manually if needed and don't requeue.
+- `fallback` ≠ none: the window reads found no requested dates; check the image.
+- More than 2 AI calls for one photo: investigate.
