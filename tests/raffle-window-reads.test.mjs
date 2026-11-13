@@ -132,10 +132,61 @@ test('real model reads: Nov 9–11 production and rendered Nov 12, 20, 28 and 30
         assert.equal(d.status, 'published', `Nov ${n}`);
         assert.deepEqual(slots(d), tonight(truth, n));
     }
-    // The real focused reads (window dates only) of rendered Nov 28 and 30 tables never publish a wrong winner.
+    // The real focused reads (window dates only) of rendered Nov 28 and 30 tables never publish a wrong winner. Their synthetic names
+    // contain digits ("Winner 28G"); the reads copied the cell exactly but returned name "Winner", and each such cell is held for that.
     for (const n of [28, 30]) {
         const { focusPasses } = await fixture(`simulated-table-2026-11-${n}.live-extraction.json`);
         const d = decidePhoto(focusPasses, stored.filter(w => w.drawDate < day(n)), schedule, day(n));
         assertTrue(d, truth);
+        for (const r of d.rows.filter(r => r.row.drawDate === day(n) && r.row.name === 'Winner')) {
+            assert.equal(r.outcome, 'held');
+            assert.ok(r.reasons.includes('name differs from the name printed in the cell'));
+        }
     }
+});
+
+test('real model window reads (live, 2026-11-13): rendered Nov 13 and Nov 30 tables publish exactly tonight\'s winners', async t => {
+    const schedule = await calendar(t);
+    const truth = futureTruth(schedule, { realistic: true });
+    for (const n of [13, 30]) {
+        const live = await fixture(`simulated-table-2026-11-${n}.window-live.json`);
+        assert.deepEqual(live.dates, readDates(day(n)));
+        const stored = [...storedThrough11, ...truth.filter(r => r.drawDate < day(n)).map(r => ({ id: r.slot, drawDate: r.drawDate,
+            ticketNumber: r.ticketNumber ? Number(r.ticketNumber) : null, name: r.name, town: r.town, prize: null, prizeSlotId: r.slot }))];
+        // Every printed cell on the seven requested rows, anchors and bonus cells included, copied exactly by both reads.
+        const printed = read(n, truth).rows.filter(r => live.dates.includes(r.drawDate));
+        const cells = rows => rows.map(r => JSON.stringify([r.drawDate, r.cellText, r.ticketNumber, r.name, r.town])).sort();
+        for (const p of live.windowPasses) assert.deepEqual(cells(p.rows), cells(printed), `Nov ${n}`);
+        const d = decidePhoto(live.windowPasses, stored, schedule, day(n));
+        assertTrue(d, truth);
+        assert.equal(d.status, 'published');
+        assert.deepEqual(slots(d), tonight(truth, n));
+        assert.ok(live.usage.every(u => u.completionTokens < WINDOW_MAX_TOKENS / 3));
+    }
+});
+
+test('window reads: stray rows outside the window change nothing; a genuine repeat winner still publishes', async t => {
+    const schedule = await calendar(t);
+    const truth = futureTruth(schedule);
+    const storedBefore = n => [...storedThrough11, ...truth.filter(r => r.drawDate < day(n)).map(r => ({ id: r.slot, drawDate: r.drawDate,
+        ticketNumber: r.ticketNumber ? Number(r.ticketNumber) : null, name: r.name, town: r.town, prize: null, prizeSlotId: r.slot }))];
+    for (const n of [13, 22, 28]) {
+        // A read that also returns a misread anchor row publishes exactly tonight's winners.
+        const stray = (p, back, name) => ({ ...p, rows: [...p.rows, { ...p.rows[0], drawDate: day(n - back), name, cellText: `${name}, Blair, WI`, ticketNumber: '', ticketStatus: 'blank' }] });
+        const d = decidePhoto([stray(windowRead(n, truth), 5, 'Old Misread'), stray(windowRead(n, truth), 5, 'Old Misread')], storedBefore(n), schedule, day(n));
+        assertTrue(d, truth);
+        assert.deepEqual(slots(d), tonight(truth, n));
+        // A row from a date it was not asked for makes that date a read date. On Nov 22 a stored Nov 10 gift-card winner (Gary Gran,
+        // who won again on Nov 16) then looks moved, so the Gift Card column is held for review: conservative, never a wrong insert.
+        const far = decidePhoto([stray(windowRead(n, truth), 12, 'Far Misread'), stray(windowRead(n, truth), 12, 'Far Misread')], storedBefore(n), schedule, day(n));
+        assertTrue(far, truth);
+        assert.ok(slots(far).every(s => tonight(truth, n).includes(s)));
+        for (const r of far.rows.filter(r => r.row.drawDate === day(n) && r.outcome === 'held')) assert.match(r.reasons[0], /dates an already-stored winner in this prize column differently/);
+    }
+    // Gary Gran won the Nov 10 gift card and wins again on Nov 16; Nov 10 is outside the Nov 16 read, and he publishes.
+    const d16 = decidePhoto([windowRead(16, truth), windowRead(16, truth)], storedBefore(16), schedule, day(16));
+    assert.ok(inserted(d16).some(r => r.row.name === 'Gary Gran' && r.row.drawDate === day(16) && r.prizeSlotId === 'daily:2026-11-16:0'));
+    // Dennis McHenry (Nov 11 firearm, ticket 698) wins the Nov 25 firearm with the same ticket: Nov 11 is outside the Nov 25 read.
+    const d25 = decidePhoto([windowRead(25, truth), windowRead(25, truth)], storedBefore(25), schedule, day(25));
+    assert.ok(inserted(d25).some(r => r.row.name === 'Dennis McHenry' && r.row.drawDate === day(25)));
 });
