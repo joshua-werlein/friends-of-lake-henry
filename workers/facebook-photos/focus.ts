@@ -2,13 +2,14 @@
 // one-cell-per-row Firearm and Gift Card columns but drops most sparse, self-labelled bonus cells (real Workers AI reads of rendered
 // Nov 28/30 tables kept 2 of 12). These passes ask only for the rows of the window's dates, read across to the far right edge, so the
 // model attends to the few cells that can publish tonight. They never receive winner names, tickets or prizes, only which dates to read.
+// They are the primary reads: reads.ts asks for the window plus a few anchor dates whose stored winners prove the column dates.
 
 const SCHEMA = `{"containsWinners":boolean,"rows":[{"cellText":"the winner cell's complete text, copied character for character","drawDate":"YYYY-MM-DD or empty","position":1|2|3|"Bonus"|null,"ticketNumber":"digits or empty","ticketStatus":"readable|blank|uncertain","name":"visible name or empty","town":"visible hometown or empty","townStatus":"readable|blank|uncertain","prize":"printed prize text or inherited column heading or empty","notes":"uncertainty or empty"}],"warnings":[{"scope":"image|row|cell","code":"clipped|ambiguous-layout|uncertain-association|missing-heading|illegible|blank-cell|other","drawDate":"row date or empty","ticketNumber":"row ticket or empty","name":"row name or empty","field":"drawDate|ticketNumber|name|town|prize or empty","message":"short description"}]}`;
 export const FOCUS_SCHEMA = SCHEMA; // Must equal the whole-table prompt's schema (checked in tests).
 
 const shortDate = (iso: string) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8))}`;
 
-/** `dates` are the announcement window's dates, oldest first; the last is the announcement date. */
+/** `dates` are the dates to read, oldest first; the last is the announcement date. */
 export function focusPrompt(dates: string[], pass = 0) {
     const list = dates.map(d => `${d} (printed like "${shortDate(d)}" or "${Number(d.slice(5, 7))}/${Number(d.slice(8))}")`).join(', ');
     const method = pass % 2 === 0

@@ -759,8 +759,25 @@ export async function finishPost(db: D1Database, postId: string, status: 'done' 
         updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE post_id=? AND status='processing' AND attempts=?`)
         .bind(status, publication?.status ?? 'none', JSON.stringify(publication ?? {}), postId, attempt).run();
 }
+// Workers AI refuses every call (4006, in ~0.1 s) once the daily free allocation is used up. Nov 12's post spent its six attempts on refusals
+// within two hours and was parked as failed. A refusal therefore gives the attempt back and is retried hourly, and promptly after the
+// 00:00 UTC reset, until the post is QUOTA_GIVE_UP_HOURS old. Stored reads are reused, so recovery pays only for reads not yet completed.
+export const QUOTA_RETRY_MINUTES = 60, QUOTA_GIVE_UP_HOURS = 30;
+export function nextQuotaAttempt(now: Date) {
+    const reset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 5);
+    return new Date(Math.min(now.getTime() + QUOTA_RETRY_MINUTES * 60000, reset));
+}
 /** Transient failures retry with backoff; after MAX_ATTEMPTS the post is parked as failed for admin requeue. */
-export async function failPost(db: D1Database, postId: string, code: string, attempts: number, now = new Date(), retryAfterSeconds = 0, permanent = false) {
+export async function failPost(db: D1Database, postId: string, code: string, attempts: number, now = new Date(), retryAfterSeconds = 0, permanent = false, quota = false) {
+    if (quota && !permanent) {
+        // attempts-1 keeps the fence (the post is no longer processing, so no run holds this number) and leaves the ordinary budget intact.
+        await db.prepare(`UPDATE raffle_photo_auto_posts SET status=CASE WHEN created_at < ? THEN 'failed' ELSE 'retry' END, attempts=attempts-1,
+            error_code=?, last_error_code=?, last_error_at=?, locked_until=NULL, next_attempt_at=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE post_id=? AND status='processing' AND attempts=?`)
+            .bind(new Date(now.getTime() - QUOTA_GIVE_UP_HOURS * 3600000).toISOString(), code.slice(0, 120), code.slice(0, 120), now.toISOString(),
+                nextQuotaAttempt(now).toISOString(), postId, attempts).run();
+        return;
+    }
     const delay = Math.max(retryAfterSeconds, BACKOFF_MINUTES[Math.min(attempts, MAX_ATTEMPTS) - 1] * 60);
     await db.prepare(`UPDATE raffle_photo_auto_posts SET status=?, error_code=?, last_error_code=?, last_error_at=?, locked_until=NULL, next_attempt_at=?,
         updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE post_id=? AND status='processing' AND attempts=?`)

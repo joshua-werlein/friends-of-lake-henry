@@ -585,8 +585,19 @@ test('real Worker with the real image and capture: conflict, correction, one ins
     assert.deepEqual([row.status, row.publication], ['done', 'rejected']);
     assert.deepEqual(await stored(DB), before);
     assert.equal(await importStatus(), 'rejected');
-    // Correct Kent through admin. A failed attempt then keeps its reason after the later success.
+    assert.equal(aiCalls, 2);
+    // Correct Kent through admin. A requeue re-decides from this image's stored reads without any AI call.
     assert.equal((await correctKent(DB)).status, 200);
+    const snapshot = await DB.prepare('SELECT extraction_json AS json FROM raffle_photo_auto_imports WHERE photo_id=?').bind(photoId).first();
+    await requeue();
+    await tick();
+    assert.equal((await settle(['done'])).publication, 'published');
+    assert.equal(aiCalls, 2);
+    // The same correction with reads stored by older code (no read version) reads again. A failed attempt keeps its reason after the later success.
+    await DB.prepare('DELETE FROM raffle_winners WHERE id=?').bind(LYLE_ID).run();
+    await DB.prepare(`DELETE FROM raffle_photo_auto_rows WHERE photo_id=?`).bind(photoId).run();
+    await DB.prepare(`UPDATE raffle_photo_auto_imports SET status='rejected', extraction_json=? WHERE photo_id=?`)
+        .bind(JSON.stringify(JSON.parse(snapshot.json).map(({ read, ...p }) => p)), photoId).run();
     await requeue();
     failure = 'ai-unavailable';
     await tick();
@@ -621,6 +632,7 @@ test('real Worker with the real image and capture: conflict, correction, one ins
     await tick();
     await settle(['done']);
     assert.equal((await onDay(DB)).filter(r => r.name === 'Lyle Schlomer').length, 0);
+    assert.equal(aiCalls, calls); // The reopened photo was re-decided from its stored reads.
     const refused = await DB.prepare(`SELECT reasons_json AS reasons FROM raffle_photo_auto_rows WHERE photo_id=? AND outcome='held' AND json_extract(row_json,'$.name')='Lyle Schlomer'`).bind(photoId).first();
     assert.match(refused.reasons, /administrator removed it/);
 });
