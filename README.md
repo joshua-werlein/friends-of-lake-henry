@@ -185,7 +185,7 @@ All timestamps are normalized and displayed in **America/Chicago** time.
 
 ### Prerequisites
 
-- Node.js 20 (see `.nvmrc` and `package.json` engines)
+- Node.js 22.23.5 or a newer Node 22 patch (see `.nvmrc` and `package.json` engines)
 - Cloudflare account
 - Wrangler CLI (for local Workers / D1 development)
 
