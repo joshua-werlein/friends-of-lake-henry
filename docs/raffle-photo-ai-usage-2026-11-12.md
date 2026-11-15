@@ -154,6 +154,8 @@ One run of `tests/live/extraction-check.test.mjs`, `NIGHTS=13,30 NEURON_CAP=1500
 
 ## Monitoring (Nov 13 onward)
 
+The November 13 expectation below is historical. See the [November 15 follow-up](#production-follow-up-2026-11-15) for the actual outcome.
+
 **Live log:**
 ```
 npx wrangler tail folh-facebook-winner-photos --config workers/facebook-photos/wrangler.json --format json
@@ -195,3 +197,20 @@ Run with `npx wrangler d1 execute folh-db --remote --config wrangler.json --comm
 - `quota:true`: allocation exhausted. Retries continue hourly; enter winners manually if needed and don't requeue.
 - `fallback` ≠ none: the window reads found no requested dates; check the image.
 - More than 2 AI calls for one photo: investigate.
+
+## Production follow-up (2026-11-15)
+
+- The November 13 fallback poll queued a qualifying winner photo at 6:06 p.m. Central and finished at 6:07 p.m.
+  on Photo Worker version `3d4928c9`. Two AI passes succeeded. Publication was `partial`: **3 inserts, 12 duplicate
+  rows, 2 rejected rows, and 0 held rows**. Review the two rejected rows in the existing D1 attempt records against
+  the official announcement before the final migration sync. Correct only independently confirmed gaps and
+  preserve the three published winners.
+- The November 12 drawing's photo post remains terminally `failed` after six Workers AI quota errors (`4006`).
+  Its winners were entered manually. Confirm they remain complete and leave the post out of the retry queue.
+- Cloudflare recorded all ten November 14 polling-window cron ticks as successful. D1 shows one ignored webhook
+  item, no qualifying photo import, and no November 14 winners. Check the original Facebook announcement and
+  caption eligibility before classifying the gap. Successful scheduled invocations alone cannot prove that a poll
+  saw a qualifying photo or that every Graph request succeeded.
+- At review, D1 showed zero queued, processing, or retrying jobs. Two existing photo incidents were open with no
+  notification retry scheduled. Retain these records in the final sync. This follow-up requires no replay or AI
+  invocation for diagnosis.
