@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=22.23.5 <23"
   },
   "scripts": {
     "test:live-timing": "node --import ./tests/register.mjs --test tests/live-timing-journal.test.mjs tests/live-detection-timeline.test.mjs",
