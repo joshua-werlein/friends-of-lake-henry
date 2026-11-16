@@ -14,9 +14,10 @@ test('every remaining bonus label dates itself from the approved calendar; share
     for (const [n, label] of Object.entries(LABELS)) assert.equal(calendarDate({ prize: label }, schedule), day(n), label);
     for (const label of ['Cutting Board', 'Meat Bundle', 'Paddle board']) assert.ok(calendarDate({ prize: label }, schedule));
     for (const label of ['Rod', 'Bonus', 'Gift Card', 'Firearm', 'Safe', 'Henry Side Gate', '$100 gift certificate']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
-    // One-word labels match as a single-item prize's final noun or as its words joined ("Chainsaw", "Blackstone" on Nov 15); a brand or a misspelling is held.
-    for (const [label, n] of [['Chainsaw', 27], ['Blackstone', 15], ['Lifejacket', 28]]) assert.equal(calendarDate({ prize: label }, schedule), day(n), label);
-    for (const label of ['Vexilar', 'Ice Auger', 'Blackstone Griddle', 'Cutting', 'Board']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
+    // One-word labels match only as a single-item prize's final noun; a brand, a joined spelling or a misspelling is held for review.
+    for (const label of ['Vexilar', 'Chainsaw', 'Ice Auger', 'Blackstone Griddle', 'Cutting', 'Board']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
+    // The one exception (Nov 15): the prize's own opening words joined.
+    assert.equal(calendarDate({ prize: 'Blackstone' }, schedule), day(15));
 });
 
 test('November 12: tonight\'s approved Firearm and Gift Card winners publish under the failure modes seen on Nov 8–11', async t => {
