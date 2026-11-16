@@ -43,6 +43,18 @@ function identifyPrize(text: string | undefined, drawDate: string, schedule: Sch
     if (!memo.has(key)) memo.set(key, findPrize(text, drawDate, schedule));
     return memo.get(key) ?? null;
 }
+// The same letters and digits with different spacing: "Blackstone" for Black Stone 28" Griddle (Nov 15, both passes), "Life Jacket" for
+// Lifejacket. The label with its spaces removed must equal a run of whole consecutive words of the description, at least 6 characters long,
+// and the spacing must actually differ. A brand next to other words, a misspelling or part of a word is not a run and stays unmatched.
+function respaced(visible: string, description: string) {
+    const want = visible.replace(/ /g, ''), words = fold(description).split(' ');
+    if (want.length < 6) return false;
+    for (let i = 0; i < words.length; i++) for (let j = i, run = ''; j < words.length && run.length < want.length; j++) {
+        run += words[j];
+        if (run === want) return j > i || visible.includes(' ');
+    }
+    return false;
+}
 function findPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]) {
     const visible = fold(text ?? '');
     if (visible.length < 3) return null;
@@ -68,9 +80,12 @@ function findPrize(text: string | undefined, drawDate: string, schedule: Schedul
         const phrase = eligible.filter(p => ` ${fold(p.description)} `.includes(` ${visible} `));
         if (phrase.length) return phrase.length === 1 ? phrase[0] : null;
     }
+    // A differently spaced label names a prize only when exactly one of the date's approved prizes contains it, in either spacing.
+    const spaced = eligible.filter(p => respaced(visible, p.description));
+    if (spaced.length) return spaced.length === 1 && !eligible.some(p => p !== spaced[0] && ` ${fold(p.description)} `.includes(` ${visible} `)) ? spaced[0] : null;
     // A one-word label names a bonus prize only as that prize's final noun: "Griddle" for Black Stone 28" Griddle, the day's only
     // bonus ending in it. Any other single word stays unmatched, including a word of a multi-item prize ("Cutting", "Board" of the
-    // Nov 6 cutting board set), a brand ("Vexilar") or a joined spelling ("Chainsaw"), and the winner is held for review.
+    // Nov 6 cutting board set), a brand ("Vexilar") or a misspelling ("Ice Auger"), and the winner is held for review.
     if (!visible.includes(' ') && visible.length >= 5 && !/\d/.test(visible)) {
         const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && fold(p.description).split(' ').at(-1) === visible);
         if (holders.length === 1 && holders[0].category === 'Bonus drawing'
@@ -199,7 +214,8 @@ function findCalendarBonus(row: Pick<DraftWinner, 'prize'>, schedule: ScheduledP
     const hits = dates.map(d => identifyPrize(row.prize, d, schedule)).filter((p): p is ScheduledPrize => !!p);
     if (hits.length !== 1 || hits[0].category !== 'Bonus drawing') return null;
     // A one-word label dates a cell only if no other approved prize of the month uses that word ("Board": paddle board and cutting board).
-    if (!visible.includes(' ') && schedule.some(p => p !== hits[0] && p.status === 'approved' && fold(p.description).split(' ').includes(visible))) return null;
+    if (!visible.includes(' ') && schedule.some(p => p !== hits[0] && p.status === 'approved'
+        && (fold(p.description).split(' ').includes(visible) || respaced(visible, p.description)))) return null;
     return hits[0];
 }
 export const calendarDate = (row: Pick<DraftWinner, 'prize'>, schedule: ScheduledPrize[]) => calendarBonus(row, schedule)?.drawDate ?? null;
@@ -518,7 +534,15 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     if (rows.some(d => d.row.drawDate === announcementDate)) {
         const accounted = new Set([...existing.filter(w => w.drawDate === announcementDate).map(w => storedSlot(w, schedule)),
             ...rows.filter(d => d.row.drawDate === announcementDate).map(d => d.prizeSlotId ?? identifyPrize(d.row.prize, announcementDate, schedule)?.id)]);
-        for (const p of schedule.filter(p => p.status === 'approved' && p.drawDate === announcementDate && !accounted.has(p.id))) rows.push({
+        const missing = schedule.filter(p => p.status === 'approved' && p.drawDate === announcementDate && !accounted.has(p.id));
+        // Nov 15: the held "Blackstone" winner and the griddle nobody was read for were one missing winner reported as two held rows. Held
+        // winners of this drawing whose prize could not be identified already cover that many unaccounted prizes: they name the prizes
+        // (never assigned by elimination) and no separate row is added. More unaccounted prizes than such winners are still listed one by one.
+        const unplaced = rows.filter(d => d.outcome === 'held' && d.row.drawDate === announcementDate && fold(d.row.name).length >= 2
+            && !identifyPrize(d.row.prize, announcementDate, schedule));
+        if (missing.length && unplaced.length >= missing.length) for (const d of unplaced) d.reasons.push(
+            `approved for this drawing with no winner read; check whether this winner belongs to it: ${missing.map(p => p.description).join('; ')}`);
+        else for (const p of missing) rows.push({
             rowNumber: rows.length + 1, outcome: 'held', row: { drawDate: announcementDate, position: null, ticketNumber: '', name: '', town: '', notes: '', prize: p.description },
             reasons: [`no winner was read for this approved prize; enter it from the post if it was drawn: ${p.description}`],
             winnerId: null, prize: null, prizeSlotId: p.id, prizeMatch: 'none' });
