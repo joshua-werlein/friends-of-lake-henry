@@ -43,15 +43,16 @@ function identifyPrize(text: string | undefined, drawDate: string, schedule: Sch
     if (!memo.has(key)) memo.set(key, findPrize(text, drawDate, schedule));
     return memo.get(key) ?? null;
 }
-// The same letters and digits with different spacing: "Blackstone" for Black Stone 28" Griddle (Nov 15, both passes), "Life Jacket" for
-// Lifejacket. The label with its spaces removed must equal a run of whole consecutive words of the description, at least 6 characters long,
-// and the spacing must actually differ. A brand next to other words, a misspelling or part of a word is not a run and stays unmatched.
+// The prize's own opening words with different spacing: "Blackstone" for Black Stone 28" Griddle (Nov 15, both passes). The label with its
+// spaces removed must equal the description's first whole words joined, at least 6 characters, and the spacing must actually differ.
+// Words from the middle of a description ("Chainsaw" for Stihl Chain Saw MS 170), a brand next to other words, a misspelling or part of a
+// word stay unmatched and are held for review.
 function respaced(visible: string, description: string) {
     const want = visible.replace(/ /g, ''), words = fold(description).split(' ');
     if (want.length < 6) return false;
-    for (let i = 0; i < words.length; i++) for (let j = i, run = ''; j < words.length && run.length < want.length; j++) {
+    for (let j = 0, run = ''; j < words.length && run.length < want.length; j++) {
         run += words[j];
-        if (run === want) return j > i || visible.includes(' ');
+        if (run === want) return j > 0 || visible.includes(' ');
     }
     return false;
 }
@@ -85,7 +86,7 @@ function findPrize(text: string | undefined, drawDate: string, schedule: Schedul
     if (spaced.length) return spaced.length === 1 && !eligible.some(p => p !== spaced[0] && ` ${fold(p.description)} `.includes(` ${visible} `)) ? spaced[0] : null;
     // A one-word label names a bonus prize only as that prize's final noun: "Griddle" for Black Stone 28" Griddle, the day's only
     // bonus ending in it. Any other single word stays unmatched, including a word of a multi-item prize ("Cutting", "Board" of the
-    // Nov 6 cutting board set), a brand ("Vexilar") or a misspelling ("Ice Auger"), and the winner is held for review.
+    // Nov 6 cutting board set), a brand ("Vexilar") or a joined spelling ("Chainsaw"), and the winner is held for review.
     if (!visible.includes(' ') && visible.length >= 5 && !/\d/.test(visible)) {
         const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && fold(p.description).split(' ').at(-1) === visible);
         if (holders.length === 1 && holders[0].category === 'Bonus drawing'

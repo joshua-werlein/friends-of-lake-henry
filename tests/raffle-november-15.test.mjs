@@ -23,9 +23,13 @@ test('a differently spaced label names the approved prize; brands, misspellings 
         assert.deepEqual(matchPrize(label, '2026-11-15', schedule), { description: 'Black Stone 28" Griddle', match: 'scheduled' }, label);
         assert.equal(calendarDate({ prize: label }, schedule), '2026-11-15', label);
     }
-    assert.equal(matchPrize('Chainsaw', '2026-11-27', schedule).description, 'Stihl Chain Saw MS 170');
-    assert.equal(matchPrize('Lifejacket', '2026-11-28', schedule).match, 'scheduled');
-    // Not the same letters on word boundaries: held as before.
+    // Words joined from the middle of a prize name keep the manual review they had: Nov 27 "Chainsaw" (Stihl Chain Saw MS 170).
+    for (const [label, date] of [['Chainsaw', '2026-11-27'], ['Lifejacket', '2026-11-28'], ['Fishfinder', '2026-11-22'], ['Stone28', '2026-11-15']]) {
+        assert.equal(matchPrize(label, date, schedule).match, 'unmatched', label);
+        assert.equal(calendarDate({ prize: label }, schedule), null, label);
+    }
+    assert.equal(matchPrize('Chain Saw', '2026-11-27', schedule).description, 'Stihl Chain Saw MS 170'); // Unchanged: an exact phrase.
+    // Not the prize's opening words: held as before.
     for (const label of ['Blackstone Griddle', 'Blackstne', 'Blackstones', 'Black', 'Stone', 'Kstone', 'Lackstone', 'Blackston'])
         assert.equal(matchPrize(label, '2026-11-15', schedule).match, 'unmatched', label);
     // Only on the prize's own date, and never for the firearm or gift card by accident.
