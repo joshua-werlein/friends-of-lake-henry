@@ -1,21 +1,9 @@
 import type { APIRoute } from "astro";
 import type { D1Database } from "@cloudflare/workers-types";
 import { json } from "../../../../lib/http";
-import { BONUS, canonicalWinnerPrize, cleanPrizeDescription, parseWinnerPrize, placementLabel, ticketlessWinnerId, WINNER_PLACEMENT_ORDER_SQL } from "../../../../lib/winner-prize";
-import { calendarPosition, matchApprovedSlot, prizeSchedule } from "../../../../lib/server/raffle-prizes";
+import { canonicalWinnerPrize, cleanPrizeDescription, WINNER_PLACEMENT_ORDER_SQL } from "../../../../lib/winner-prize";
+import { insertWinner, isRealIsoDate, prepareNewWinner, resolveSlot } from "../../../../lib/server/raffle-winner-write";
 import { winnerTicketLabels } from '../../../../lib/server/raffle-ticket-labels';
-
-function mustBeIsoDate(s: string): boolean {
-    return /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
-function isRealIsoDate(s: string): boolean {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-    const d = new Date(`${s}T00:00:00Z`);
-    if (!Number.isFinite(d.getTime())) return false;
-    // Ensure it didn’t roll over (e.g., 2025-02-30 -> March 2)
-    return d.toISOString().slice(0, 10) === s;
-}
 
 function chicagoCurrentMonthKey(d = new Date()) {
     return new Intl.DateTimeFormat("en-CA", {
@@ -25,27 +13,6 @@ function chicagoCurrentMonthKey(d = new Date()) {
     }).format(d).slice(0, 7);
 }
 
-/**
- * Resolves the approved calendar slot this prize names. A missing ticket needs explicit confirmation plus one approved main, gift card or bonus
- * slot whose place matches the calendar. Never fabricates a ticket. A changed prize also cannot claim a place the calendar contradicts;
- * an unrelated edit to an older record keeps its stored text.
- */
-async function resolveSlot(DB: D1Database, drawDate: string, prize: string | null, ticketless: boolean, verified: unknown, previousPrize?: unknown): Promise<{ slotId: string | null; error?: string }> {
-    if (ticketless && verified !== true) return { slotId: null, error: "Enter a ticket number, or confirm the official announcement published no ticket for this winner." };
-    let schedule;
-    try { schedule = await prizeSchedule(DB, drawDate.slice(0, 7)); }
-    catch { return ticketless ? { slotId: null, error: "Prize calendar unavailable." } : { slotId: null }; }
-    const parsed = parseWinnerPrize(prize);
-    const slot = prize === null ? null : matchApprovedSlot(schedule, drawDate, parsed.description);
-    const place = slot ? calendarPosition(slot, schedule) : null;
-    if (ticketless) {
-        if (!slot || !(place === 1 || place === 2 || place === BONUS)) return { slotId: null, error: "A winner without a ticket must match one approved main, gift card or bonus prize for that date." };
-        if (parsed.position !== place) return { slotId: null, error: `That prize is ${placementLabel(place)} on the approved calendar. Select that place.` };
-    } else if (place !== null && parsed.position !== null && parsed.position !== place && prize !== previousPrize) {
-        return { slotId: null, error: `That prize is ${placementLabel(place)} on the approved calendar. Select that place.` };
-    }
-    return { slotId: slot?.id ?? null };
-}
 const duplicateMessage = (msg: string) => msg.includes("prize_slot") ? "That prize already has a winner for that day." : "That ticket number already exists for that day.";
 const logCorrection = (DB: D1Database, id: string, action: "update" | "delete", before: unknown, after: unknown) => DB.prepare(
     `INSERT INTO raffle_winner_corrections (winner_id, action, before_json, after_json) SELECT ?,?,?,? WHERE changes()=1`)
@@ -202,39 +169,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
         return json({ ok: true, id }, 200);
     }
     if (action !== "add") return json({ ok: false, error: "Unknown action" }, 400);
-    const drawDate = (data?.drawDate ?? "").toString().trim();
-    const raffleKey = drawDate.slice(0, 7); // "YYYY-MM"
-    const ticketNumberRaw = (data?.ticketNumber ?? "").toString().trim();
-    const name = (data?.name ?? "").toString().trim();
-    const town = (data?.town ?? "").toString().trim();
-    const prize = canonicalWinnerPrize(cleanPrizeDescription((data?.prize ?? "").toString()) || null);
-
-    if (!drawDate) return json({ ok: false, error: "drawDate required" }, 400);
-    if (!raffleKey) return json({ ok: false, error: "raffleKey required" }, 400);
-    if (!mustBeIsoDate(drawDate)) return json({ ok: false, error: "drawDate must be YYYY-MM-DD" }, 400);
-    if (!isRealIsoDate(drawDate)) return json({ ok: false, error: "drawDate must be a valid date" }, 400);
-
-    const ticketNumber = ticketNumberRaw === "" ? null : Number(ticketNumberRaw);
-    if (ticketNumber !== null && (!/^\d{1,9}$/.test(ticketNumberRaw) || ticketNumber <= 0)) {
-        return json({ ok: false, error: "ticketNumber must be a positive whole number" }, 400);
-    }
-    if (name.length < 2) return json({ ok: false, error: "name required" }, 400);
-
-    if (name.length > 200 || town.length > 200 || (prize?.length ?? 0) > 250) return json({ ok: false, error: "Name, hometown or prize is too long" }, 400);
-
-    // Deterministic ID helps avoid duplicates; allow same ticket across different dates.
-    const resolved = await resolveSlot(DB, drawDate, prize, ticketNumber === null, data?.ticketMissingVerified);
-    if (resolved.error) return json({ ok: false, error: resolved.error }, resolved.error === "Prize calendar unavailable." ? 503 : 400);
-    const id = ticketNumber === null ? ticketlessWinnerId(drawDate, resolved.slotId!)
-        : `${raffleKey}-${drawDate}-${ticketNumber}`.replace(/[^\w-]/g, "");
+    const prepared = await prepareNewWinner(DB, data);
+    if (!prepared.ok) return json({ ok: false, error: prepared.error }, prepared.status);
+    const { id, ticketNumber } = prepared.winner;
 
     try {
-        await DB.prepare(
-            `INSERT INTO raffle_winners (id, raffle_key, draw_date, ticket_number, winner_name, town, prize, ticket_number_text, prize_slot_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-            .bind(id, raffleKey, drawDate, ticketNumber, name, town, prize, ticketNumber === null ? null : ticketNumberRaw, resolved.slotId)
-            .run();
+        await insertWinner(DB, prepared.winner).run();
     } catch (err: any) {
         const msg = String(err?.message ?? "");
         if (msg.includes("UNIQUE") || msg.includes("constraint")) {

@@ -3,9 +3,11 @@ import type { D1Database } from '@cloudflare/workers-types';
 import { json } from '../../../../lib/http';
 import { parsePhotoSource } from '../../../../lib/raffle-photo-import';
 import { requeuePost, validPostId } from '../../../../lib/server/raffle-photo-autopublish';
+import { reviewActor, reviewContext, reviewRow } from '../../../../lib/server/raffle-photo-review';
 
-// Read-only log of the unattended importer plus requeue. Publication itself happens only in the photo Worker;
-// a requeued post is picked up by its next cron tick (every two minutes).
+// Log of the unattended importer, requeue, and administrator review of held or rejected rows. Automatic publication happens only in
+// the photo Worker; a requeued post is picked up by its next cron tick (every two minutes). Review actions publish through the same
+// winner validation as manual entry. The middleware requires an authenticated admin session and same-origin CSRF for every POST.
 const parse = (v: string | null) => { try { return JSON.parse(v ?? '[]'); } catch { return []; } };
 export const GET: APIRoute = async ({ locals }) => {
     const db = (locals.runtime?.env as { DB?: D1Database } | undefined)?.DB;
@@ -21,10 +23,12 @@ export const GET: APIRoute = async ({ locals }) => {
         const rows = await db.prepare(`SELECT r.photo_id AS photoId, r.row_number AS rowNumber, r.outcome, r.winner_id AS winnerId, r.prize,
             r.reasons_json AS reasons, r.row_json AS row FROM raffle_photo_auto_rows r
             WHERE r.photo_id IN (SELECT photo_id FROM raffle_photo_auto_imports ORDER BY created_at DESC LIMIT 40) ORDER BY r.photo_id, r.row_number`).all<any>();
+        const review = await reviewContext(db, rows.results);
         return json({ ok: true, posts: posts.results.map(p => ({ ...p, publication: p.publication ? JSON.parse(p.publication) : null })),
             attempts: attempts.results.map(a => ({ ...a, detail: JSON.parse(a.detail) })),
+            review: { available: review.available, slots: review.slots },
             imports: imports.results.map(i => ({ ...i, reasons: parse(i.reasons),
-                rows: rows.results.filter(r => r.photoId === i.photoId).map(r => ({ ...r, reasons: parse(r.reasons), row: JSON.parse(r.row) })) })) });
+                rows: rows.results.filter(r => r.photoId === i.photoId).map(r => ({ ...r, reasons: parse(r.reasons), row: JSON.parse(r.row), ...review.rows.get(r) })) })) });
     } catch { return json({ ok: false, error: 'Apply migrations 004 and 007 before using photo imports.' }, 503); }
 };
 export const POST: APIRoute = async ({ locals, request }) => {
@@ -33,6 +37,12 @@ export const POST: APIRoute = async ({ locals, request }) => {
     let body: any;
     try { const text = await request.text(); if (text.length > 4000) throw Error(); body = JSON.parse(text); }
     catch { return json({ ok: false, error: 'Invalid request.' }, 400); }
+    if (body?.action === 'approve' || body?.action === 'edit' || body?.action === 'resolve') {
+        try {
+            const result = await reviewRow(db, body, await reviewActor(request));
+            return json(result.body, result.status);
+        } catch { return json({ ok: false, error: 'Unable to review this row. Nothing was published.' }, 503); }
+    }
     let postId: string | null = null;
     if (body?.action === 'requeue' && validPostId(body.postId)) postId = body.postId;
     if (body?.action === 'queue') {
