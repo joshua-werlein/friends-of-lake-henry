@@ -3,87 +3,229 @@ import BaseLayout from '../../../layouts/BaseLayout.astro';
 export const prerender=false;
 ---
 <BaseLayout title="Admin | Facebook photo imports">
-<main class="container" style="--maxw:1100px">
+<div class="container photoImports" style="--maxw:1100px">
     <section class="card">
         <a class="pill" href="/admin/raffle">Back to raffle admin</a>
         <h1>Facebook winner-photo imports</h1>
-        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published; they are listed here with the reason. Correct or add them in raffle admin, then requeue the post if needed. A post's <em>queue</em> status only means processing finished. Its <em>winners</em> column shows what actually happened.</p>
+        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published. Each one is listed under its photo with the reason, and you can <strong>approve</strong> it, <strong>edit</strong> and publish it, or <strong>mark it resolved</strong> if the website already has the winner. A post's <em>queue</em> status only means processing finished. Its <em>winners</em> column shows what the importer did.</p>
         <form id="queueForm" class="panel">
             <label>Queue a Facebook post link<input class="input" id="queueSource" placeholder="https://www.facebook.com/61552199315213/posts/…" maxlength="2000" /></label>
             <button class="btn" type="submit">Queue post</button>
             <p class="muted">Queued posts are processed on the importer's next two-minute run.</p>
         </form>
-        <p id="importStatus" role="status"></p>
+        <p id="importStatus" role="status" aria-live="polite"></p>
         <h2>Photos</h2>
         <div id="importList"></div>
         <h2>Posts</h2>
-        <div class="tableWrap shade"><table class="importTable"><thead><tr><th>Post</th><th>Source</th><th>Queue</th><th>Winners</th><th>Attempts</th><th>Current error</th><th>Last failure</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
+        <div class="tableWrap shade" tabindex="0" aria-label="Posts table, scrolls sideways"><table class="importTable postsTable"><thead><tr><th>Post</th><th>Source</th><th>Queue</th><th>Winners</th><th>Attempts</th><th>Current error</th><th>Last failure</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
     </section>
-</main>
-<style>
-    .importTable{width:100%;border-collapse:collapse;font-size:.95rem}
-    .importTable th,.importTable td{padding:.45rem .5rem;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
-    .tableWrap{overflow-x:auto}
-    .importCard{border:1px solid var(--border);border-radius:12px;padding:.8rem 1rem;margin:.75rem 0}
-    .outcome-inserted{color:#7ee2a8}.outcome-rejected{color:#ffb4a8}.outcome-held{color:#ffd479}
+</div>
+<!-- Global, but limited to .photoImports: the tables, cards and review panels are created by the script below, so Astro's
+     scoped (data-astro-cid) selectors would never match them. -->
+<style is:global>
+    .photoImports .tableWrap{overflow-x:auto;overflow-y:hidden;max-width:100%;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+    .photoImports .importTable{width:100%;min-width:46rem;border-collapse:collapse;font-size:.95rem}
+    .photoImports .postsTable{min-width:60rem}
+    .photoImports .importTable th,.photoImports .importTable td{padding:.45rem .5rem;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+    .photoImports .importTable th{white-space:nowrap}
+    .photoImports .importTable td.reason{min-width:16rem}
+    .photoImports .importTable td.wrapAny{overflow-wrap:anywhere;min-width:8rem}
+    .photoImports .importCard{border:1px solid var(--border);border-radius:12px;padding:.8rem 1rem;margin:.75rem 0;min-width:0}
+    .photoImports .importCard > p{overflow-wrap:anywhere}
+    .photoImports .outcome-inserted{color:#7ee2a8}.photoImports .outcome-rejected{color:#ffb4a8}.photoImports .outcome-held{color:#ffd479}.photoImports .outcome-resolved{color:#9fd3ff}
+    .photoImports .reviewPanel{border:1px solid var(--border-strong);border-radius:12px;padding:.8rem;margin:.75rem 0 0;min-width:0}
+    .photoImports .reviewPanel h3{font-size:1.05rem;margin:0 0 .4rem}
+    .photoImports .reviewPanel ul{margin:.25rem 0 .5rem;padding-left:1.2rem}
+    .photoImports .reviewPanel code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;padding:.4rem .5rem;border-radius:8px;background:rgba(0,0,0,.25)}
+    .photoImports .reviewValues{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.35rem .9rem;margin:.5rem 0}
+    .photoImports .reviewValues div{min-width:0;overflow-wrap:anywhere}
+    .photoImports .reviewValues dt{font-size:.8rem;color:var(--text-soft)}.photoImports .reviewValues dd{margin:0}
+    .photoImports .reviewWarn{border-left:3px solid #ffd479;padding:.3rem .6rem;margin:.5rem 0;overflow-wrap:anywhere}
+    .photoImports .reviewActions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem;align-items:center}
+    .photoImports .reviewActions button{min-height:44px}
+    .photoImports .reviewHint{flex:1 1 100%;margin:0}
+    .photoImports .reviewForm{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.6rem;margin-top:.6rem}
+    .photoImports .reviewForm > *{min-width:0}
+    .photoImports .reviewForm .span{grid-column:1/-1}
+    .photoImports .reviewForm small{display:block;color:var(--text-soft);overflow-wrap:anywhere}
+    .photoImports .reviewError{color:#ffb4a8;overflow-wrap:anywhere}
+    @media (max-width:520px){
+        .photoImports .importCard{padding:.6rem}
+        .photoImports .reviewActions button{flex:1 1 100%}
+    }
 </style>
 <script>
+    type Row = { photoId: string; rowNumber: number; outcome: string; winnerId: string | null; prize: string | null; reasons: string[]; row: any;
+        version?: string; resolution?: any; matches?: any[] };
+    type Slot = { id: string; description: string; place: string | null; prize: string | null };
     const list = document.getElementById('importList')!, posts = document.getElementById('postRows')!, status = document.getElementById('importStatus')!;
-    const cell = (text: string, cls = '') => { const td = document.createElement('td'); td.textContent = text; if (cls) td.className = cls; return td; };
+    let slots: Record<string, Slot[]> = {}, reviewAvailable = false;
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...children: (Node | string)[]) => {
+        const node = Object.assign(document.createElement(tag), props); node.append(...children); return node;
+    };
+    const attrs = <T extends HTMLElement>(node: T, values: Record<string, string>) => { for (const [k, v] of Object.entries(values)) node.setAttribute(k, v); return node; };
+    const cell = (text: string, cls = '') => el('td', { textContent: text, className: cls });
     const local = (iso: string) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago' }) : '';
+    const ticketText = (t: unknown) => String(t ?? '') || 'None published';
+    async function post(body: unknown) {
+        const res = await fetch('/api/admin/raffle/photo-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { res, data: await res.json().catch(() => ({})) };
+    }
     async function requeue(postId: string) {
         status.textContent = 'Queuing…';
-        const res = await fetch('/api/admin/raffle/photo-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'requeue', postId }) });
-        const data = await res.json().catch(() => ({}));
+        const { res, data } = await post({ action: 'requeue', postId });
         status.textContent = res.ok && data.ok ? (data.queued ? 'Queued. It will run within two minutes.' : 'Already queued or processing.') : (data.error ?? 'Unable to queue.');
         await load();
     }
+    const winnerLine = (w: any) => `${w.name} · ticket ${ticketText(w.ticketNumber)} · ${w.town || 'no hometown'} · ${w.drawDate} · ${w.prize ?? 'no prize'}`;
+    const values = (pairs: [string, string][]) => el('dl', { className: 'reviewValues' }, ...pairs.map(([k, v]) => el('div', {}, el('dt', { textContent: k }), el('dd', { textContent: v }))));
+
+    /** One full-width panel per held or rejected row, outside the scrolling table, so every control is reachable on a phone. */
+    function reviewPanel(r: Row) {
+        const panel = el('section', { className: 'reviewPanel shade', id: `review-${r.photoId}-${r.rowNumber}` });
+        const ai = r.row ?? {};
+        if (r.resolution) {
+            const res = r.resolution;
+            panel.append(el('h3', { textContent: `Row ${r.rowNumber} · ${res.finalStatus === 'published' ? 'published after review' : 'resolved'} (${res.action})`, className: 'outcome-resolved' }),
+                el('p', { className: 'muted', textContent: `${res.actor} · ${local(res.createdAt)}${res.winnerId ? ' · winner ' + res.winnerId : ''}${res.note ? ' · ' + res.note : ''}` }));
+            const corrections = (() => { try { return Object.entries(JSON.parse(res.corrections || '{}')) as [string, any][]; } catch { return []; } })();
+            if (corrections.length) panel.append(el('p', { className: 'muted', textContent: 'Corrected: ' + corrections.map(([k, v]) => `${k} “${v.from ?? ''}” → “${v.to ?? ''}”`).join('; ') }));
+            return panel;
+        }
+        const message = attrs(el('div', { className: 'reviewError' }), { role: 'alert' });
+        panel.append(el('h3', { textContent: `Row ${r.rowNumber} · ${r.outcome}${ai.name ? ' · ' + ai.name : ''}` }),
+            el('p', { textContent: `Why it was ${r.outcome}:` }), el('ul', {}, ...r.reasons.map(t => el('li', { textContent: t }))),
+            el('p', { className: 'muted', textContent: 'Original cell text' }), el('code', { textContent: ai.cellText || 'Not recorded' }),
+            el('p', { className: 'muted', textContent: 'Extracted by the AI' }),
+            values([['Date', ai.drawDate || '—'], ['Ticket', ticketText(ai.ticketNumber)], ['Name', ai.name || '—'], ['Hometown', ai.town || '—'],
+                ['Prize read', ai.prize || '—'], ['Matched approved prize', r.prize ?? 'None']]));
+        const matches = r.matches ?? [];
+        const sameDay = matches.filter(m => m.drawDate === ai.drawDate);
+        if (matches.length) panel.append(el('div', { className: 'reviewWarn' }, el('strong', { textContent: 'Already on the website:' }),
+            el('ul', {}, ...matches.map(m => el('li', { textContent: `${winnerLine(m)} (${m.by.join(', ')})` })))));
+        const actions = el('div', { className: 'reviewActions' });
+        const area = el('div');
+        const button = (text: string, onClick: () => void, cls = 'btn') => { const b = el('button', { type: 'button', className: cls, textContent: text }); b.addEventListener('click', onClick); return b; };
+        let busy = false;
+        // One request at a time per row; the server also refuses a second review of the same row.
+        async function send(body: Record<string, unknown>, done: string) {
+            if (busy) return;
+            busy = true; message.replaceChildren(); panel.querySelectorAll('button').forEach(b => b.disabled = true);
+            try {
+                const { res, data } = await post({ ...body, photoId: r.photoId, rowNumber: r.rowNumber, version: r.version });
+                if (res.ok && data.ok) { status.textContent = done; await load(); return; }
+                message.append(data.error ?? 'Unable to save this review.');
+                if (Array.isArray(data.conflicts) && data.conflicts.length) message.append(el('ul', {}, ...data.conflicts.map((w: any) => el('li', { textContent: winnerLine(w) }))));
+            } catch { message.append('Network error. Reload the page to check whether it was saved.'); }
+            busy = false; panel.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
+        const ticketless = !ai.ticketNumber;
+        const noTicket = () => { const box = el('input', { type: 'checkbox' }); return { box, label: el('label', { className: 'span muted' }, box, ' Verified: the official announcement names this winner for this prize and published no ticket.') }; };
+
+        function approveForm() {
+            const confirm = noTicket();
+            area.replaceChildren(el('p', { textContent: `Publish ${ai.name} (ticket ${ticketText(ai.ticketNumber)}, ${ai.town || 'no hometown'}) for ${ai.drawDate} with “${r.prize}” to the public winners list?` }),
+                ...(ticketless ? [confirm.label] : []),
+                el('div', { className: 'reviewActions' },
+                    button('Confirm publish', () => void send({ action: 'approve', ticketMissingVerified: ticketless ? confirm.box.checked : undefined }, `Published ${ai.name}.`)),
+                    button('Cancel', () => area.replaceChildren(), 'pill')));
+        }
+        function editForm() {
+            const field = (label: string, input: HTMLElement, original: string) => el('label', {}, label, input, el('small', { textContent: `AI: ${original || '—'}` }));
+            const date = el('input', { type: 'date', value: ai.drawDate ?? '', required: true });
+            const ticket = el('input', { type: 'text', value: ai.ticketNumber ?? '', inputMode: 'numeric', maxLength: 9, autocomplete: 'off' });
+            const name = el('input', { type: 'text', value: ai.name ?? '', maxLength: 200, required: true, autocomplete: 'off' });
+            const town = el('input', { type: 'text', value: ai.town ?? '', maxLength: 200, autocomplete: 'off' });
+            const prizeBox = el('div');
+            const confirm = noTicket();
+            let prizeInput: HTMLSelectElement | HTMLInputElement = el('input');
+            const renderPrize = () => {
+                const options = slots[date.value] ?? [];
+                if (options.length) {
+                    const select = el('select', {}, el('option', { value: '', textContent: 'Select the approved prize' }),
+                        ...options.map(o => el('option', { value: o.id, textContent: `${o.place ?? 'Place unknown'} — ${o.description}` })));
+                    const current = options.find(o => o.prize === r.prize);
+                    if (current) select.value = current.id;
+                    prizeInput = select;
+                } else prizeInput = el('input', { type: 'text', value: r.prize ?? ai.prize ?? '', maxLength: 250, placeholder: 'No approved calendar for this date: enter the prize' });
+                prizeBox.replaceChildren(field('Prize and approved slot', prizeInput, `${ai.prize || '—'}${r.prize ? ' → ' + r.prize : ''}`));
+            };
+            date.addEventListener('change', renderPrize);
+            renderPrize();
+            area.replaceChildren(el('div', { className: 'reviewForm' },
+                field('Drawing date', date, ai.drawDate), field('Ticket number', ticket, ai.ticketNumber), field('Winner name', name, ai.name),
+                field('Hometown', town, ai.town), el('div', { className: 'span' }, prizeBox), confirm.label,
+                el('div', { className: 'reviewActions span' },
+                    button('Save & Publish', () => {
+                        const isSlot = prizeInput instanceof HTMLSelectElement;
+                        void send({ action: 'edit', winner: { drawDate: date.value, ticketNumber: ticket.value.trim(), name: name.value, town: town.value,
+                            slotId: isSlot ? prizeInput.value : '', prize: isSlot ? '' : prizeInput.value, ticketMissingVerified: confirm.box.checked } }, `Published ${name.value.trim()}.`);
+                    }),
+                    button('Cancel', () => area.replaceChildren(), 'pill'))));
+        }
+        function resolveForm() {
+            const select = el('select', {}, ...matches.map(m => el('option', { value: m.id, textContent: winnerLine(m) })), el('option', { value: '', textContent: 'No stored winner: explain in the note' }));
+            const note = el('textarea', { rows: 2, maxLength: 500, placeholder: 'Optional note (required when no stored winner is selected)' });
+            area.replaceChildren(el('div', { className: 'reviewForm' },
+                el('label', { className: 'span' }, 'This row is already on the website as', select), el('label', { className: 'span' }, 'Note', note),
+                el('p', { className: 'span muted', textContent: 'Nothing is published or changed on the website. The row is recorded as resolved.' }),
+                el('div', { className: 'reviewActions span' },
+                    button('Confirm resolved', () => void send({ action: 'resolve', winnerId: select.value, note: note.value }, 'Marked resolved.')),
+                    button('Cancel', () => area.replaceChildren(), 'pill'))));
+        }
+        const approve = button('Approve', approveForm), edit = button('Edit', editForm), resolve = button('Mark resolved', resolveForm, 'pill');
+        actions.append(approve, edit, resolve);
+        const hint = !reviewAvailable ? 'Review is unavailable until migration 010 is applied.'
+            : sameDay.length ? 'A matching winner is already stored for this date. Mark it resolved, or edit it if this is a different winner.'
+            : !r.prize ? 'No approved prize was matched. Use Edit to choose it.' : '';
+        if (hint) { approve.disabled = true; actions.append(el('p', { className: 'muted reviewHint', textContent: hint })); }
+        if (!reviewAvailable) { edit.disabled = true; resolve.disabled = true; }
+        panel.append(actions, area, message);
+        return panel;
+    }
+
     async function load() {
         const res = await fetch('/api/admin/raffle/photo-imports', { cache: 'no-store' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) { status.textContent = data.error ?? 'Unable to load imports.'; return; }
+        slots = data.review?.slots ?? {}; reviewAvailable = !!data.review?.available;
         list.replaceChildren();
         if (!data.imports.length) list.textContent = 'No photos processed yet.';
         for (const imp of data.imports) {
-            const card = document.createElement('div'); card.className = 'importCard shade';
-            const head = document.createElement('p');
-            const link = document.createElement('a'); link.href = `https://www.facebook.com/photo/?fbid=${imp.photoId}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = `Photo ${imp.photoId}`;
-            head.append(link, ` · ${imp.status} · ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : []));
-            card.append(head);
+            const card = el('div', { className: 'importCard shade' });
+            const link = el('a', { href: `https://www.facebook.com/photo/?fbid=${imp.photoId}`, target: '_blank', rel: 'noopener', textContent: `Photo ${imp.photoId}` });
+            card.append(el('p', {}, link, ` · ${imp.status} · ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : [])));
             if (imp.rows.length) {
-                const table = document.createElement('table'); table.className = 'importTable';
+                const table = el('table', { className: 'importTable' });
                 table.innerHTML = '<thead><tr><th>#</th><th>Outcome</th><th>Date</th><th>Place</th><th>Ticket</th><th>Name</th><th>Town</th><th>Prize</th><th>Reason</th></tr></thead>';
-                const body = document.createElement('tbody');
-                for (const r of imp.rows) {
-                    const tr = document.createElement('tr');
-                    tr.append(cell(String(r.rowNumber)), cell(r.outcome, 'outcome-' + r.outcome), cell(r.row.drawDate), cell(r.row.position ?? '—'),
-                        cell(r.row.ticketNumber || 'None published'), cell(r.row.name), cell(r.row.town), cell(r.prize ?? r.row.prize ?? ''), cell(r.reasons.join('; ')));
-                    body.append(tr);
+                const body = el('tbody');
+                for (const r of imp.rows as Row[]) {
+                    const outcome = r.resolution ? `${r.outcome} → ${r.resolution.finalStatus}` : r.outcome;
+                    body.append(el('tr', {}, cell(String(r.rowNumber)), cell(outcome, 'outcome-' + (r.resolution ? 'resolved' : r.outcome)), cell(r.row.drawDate), cell(r.row.position ?? '—'),
+                        cell(ticketText(r.row.ticketNumber)), cell(r.row.name, 'wrapAny'), cell(r.row.town, 'wrapAny'), cell(r.prize ?? r.row.prize ?? '', 'wrapAny'), cell(r.reasons.join('; '), 'reason')));
                 }
                 table.append(body);
-                const wrap = document.createElement('div'); wrap.className = 'tableWrap shade'; wrap.append(table); card.append(wrap);
+                card.append(attrs(el('div', { className: 'tableWrap shade', tabIndex: 0 }, table), { 'aria-label': `Rows of photo ${imp.photoId}, scrolls sideways` }));
+                for (const r of (imp.rows as Row[]).filter(r => r.resolution || ['held', 'rejected'].includes(r.outcome))) card.append(reviewPanel(r));
             }
             list.append(card);
         }
         posts.replaceChildren();
         for (const p of data.posts) {
-            const tr = document.createElement('tr');
-            const action = document.createElement('td');
+            const action = el('td');
             if (['failed', 'done', 'ignored', 'retry'].includes(p.status)) {
-                const b = document.createElement('button'); b.type = 'button'; b.className = 'pill'; b.textContent = 'Requeue';
+                const b = el('button', { type: 'button', className: 'pill', textContent: 'Requeue' });
                 b.addEventListener('click', () => void requeue(p.postId)); action.append(b);
             }
             const winners = p.publication ? `${p.publicationStatus ?? 'none'}: ${p.publication.inserted ?? 0} published, ${p.publication.duplicate ?? 0} already stored, ${p.publication.held ?? 0} held, ${p.publication.rejected ?? 0} rejected` : (p.publicationStatus ?? 'not recorded');
-            tr.append(cell(p.postId), cell(p.source), cell(p.status), cell(winners), cell(String(p.attempts)), cell(p.errorCode ?? ''),
-                cell(p.lastErrorCode ? `${p.lastErrorCode} (${local(p.lastErrorAt)})` : ''), cell(local(p.updatedAt)), action);
-            posts.append(tr);
+            posts.append(el('tr', {}, cell(p.postId, 'wrapAny'), cell(p.source), cell(p.status), cell(winners), cell(String(p.attempts)), cell(p.errorCode ?? ''),
+                cell(p.lastErrorCode ? `${p.lastErrorCode} (${local(p.lastErrorAt)})` : ''), cell(local(p.updatedAt)), action));
         }
     }
     document.getElementById('queueForm')!.addEventListener('submit', async e => {
         e.preventDefault();
         const source = (document.getElementById('queueSource') as HTMLInputElement).value;
-        const res = await fetch('/api/admin/raffle/photo-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'queue', source }) });
-        const data = await res.json().catch(() => ({}));
+        const { res, data } = await post({ action: 'queue', source });
         status.textContent = res.ok && data.ok ? 'Queued. It will run within two minutes.' : (data.error ?? 'Unable to queue.');
         await load();
     });
