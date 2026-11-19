@@ -1,32 +1,32 @@
-# Cloudflare account migration (staged 2026-11-07, production re-verified 2026-11-15)
+# Cloudflare account migration (staged 2026-11-07, production re-verified 2026-11-19)
 
 Move Friends of Lake Henry from the **personal Cloudflare account** (`aa86268490e681cccb3a41a62093e2aa`, SOURCE)
 to the **nonprofit Cloudflare account** (`ffe1aa6f4a533743f8f1b624f43c6d3d`, DESTINATION).
 Phase 1 created and filled destination resources only. Nothing in SOURCE was modified, and no traffic,
 DNS, Facebook webhook, cron, or email was switched.
 
-## Status on 2026-11-15
+## Status on 2026-11-19
 
 **Decision: no cutover before the season ends. The domain move waits until after November 30, 2026.**
 The Cloudflare Registrar move (below) cannot be undone quickly and needs the destination to accept it, so it is not
 done between nightly drawings.
 
-Pages and Worker evidence is from the November 15 production investigation. Destination staging, DNS, and the
-schema inventory below reflect the November 14 checkpoint.
+Production Pages, Worker and D1 evidence is from the November 18–19 releases (read-only checks after each). Destination
+DNS and the R2 inventory below reflect the November 14 checkpoint.
 
 | Item | SOURCE (production) | DESTINATION (staging) |
 |---|---|---|
-| Pages | `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` from `482d85107a83d8205dec7bae1f6ba77cc04d26b8`; hosted Node **22.23.5**. Production selector `main`; both automatic production and preview builds disabled | Direct Upload staging (Nov 8 build); pages 200, `/api/photos/file` **500** (no R2) |
-| D1 schema | migrations 001–008, 17 tables, **009 not applied** | same; **009 not applied** |
-| D1 data | 60 winners through 2026-11-13 | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
+| Pages | `ba1bc408-a311-4285-bb37-09552713373c` (Nov 19), **Direct Upload** of `f789234b4247da0abf3d7c1820ae610bb9772ed2` (`feat/photo-import-review`, inline photo review + mobile scrolling) built from a clean `git archive` export with Node **22.23.5**. Production branch `main`; automatic production deployments paused; preview builds off. Previous: `3a16b88e` (hosted build of `482d851`) | Direct Upload staging (**Nov 8 build; lacks every fix since**); pages 200, `/api/photos/file` **500** (no R2) |
+| D1 schema | migrations 001–008 **and 010** (010 adds only `raffle_photo_row_resolutions`); **009 not applied** | same: 001–008 and 010; **009 not applied** |
+| D1 data | 70 winners (verified unchanged through the Nov 19 releases); 20 photo-review resolutions (Nov 19) | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
 | R2 `folh-photos` | 28 objects, 16.6 MB, ENAM (unchanged since Nov 8) | **R2 not enabled** (API code 10042) |
-| Live Worker | `ced68381-190a-42dd-b426-511e14d88ea3` at 100%; successful discovery on Nov 14 | `a134d4df`, no cron, flags off |
-| Photo Worker | `3d4928c9-4fe6-46a8-8989-6c2ece78458d` at 100%, built from `893d371`; Nov 13 fallback poll processed a winner photo | `1ca3d573`, no cron, flags off |
+| Live Worker | `ced68381-190a-42dd-b426-511e14d88ea3` at 100% (unchanged) | `a134d4df`, no cron, flags off |
+| Photo Worker | `077637f8-f77a-4773-a0cc-289a7313defa` at 100% (Nov 19 02:18 UTC), built from `49b3fd3` (`fix/photo-name-separator`): `7a9d4c4` plus the Nov 16 name-separator fix. Previous: `dc1ad438` (`7a9d4c4`), `3d4928c9` (`893d371`) | `1ca3d573` (**Nov 8; lacks the Nov 12–16 fixes**), no cron, flags off |
 | Secrets | Pages 7, Live 3, Photo 5 (names below) | **none** |
 | `FOHL_SYNC_*` credentials | not set (legacy credentials in use) | not set |
 | Domain | Cloudflare Registrar, `clientTransferProhibited`, DNSSEC off, expires 2027-12-12, NS `angelina`/`sam` | not added |
 
-The [SOURCE Pages rollback](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) is `995a1755-4d19-4d31-af4e-a3227b2d9130`, built from `cf8252e` under Node 20.20.0. Keep it as an emergency artifact in SOURCE. The Node release retained the Pages build settings and production bindings, and the standalone Worker versions, binding inventories, and cron settings matched the production records.
+SOURCE Pages rollback order: `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `dc1ad438-bb57-4705-a9f6-0d8e3945ee80`. The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
 
 Cloudflare analytics recorded 79 successful Live cron invocations and 1,445 successful Photo cron invocations, with zero cron errors in the 48-hour investigation window. The Live Worker verified the November 14 broadcast at 6:15 p.m. Central with zero consecutive failures and no pending videos or backoff. Photo ran all ten cron ticks in that night's polling window. D1 has no active Photo jobs or November 14 winner rows, and the one webhook item for that window was ignored. The records do not establish whether Facebook offered a qualifying winner photo. Reconcile that drawing and review the [November 13 rejected rows and older failed job](raffle-photo-ai-usage-2026-11-12.md#production-follow-up-2026-11-15) before the final sync.
 
@@ -40,16 +40,23 @@ objects needs the dashboard object list or an R2 S3 API token (the wrangler OAut
 
 ### Release sources and dependency maintenance
 
-- The Pages source is `482d851` on `codex/pages-node-22-security`. It is a direct child of `cf8252e` with only four Node version and documentation edits. The November 15 GitHub `main` check found `608a792`, which includes the integrated Photo Worker changes, the season/calendar work (`f6c73a4`), and migration 009.
-- `main` code **requires migration 009** (Pages and the integrated Photo Worker). Until 009 is applied in production,
-  every push to `main` must carry `[CF-Pages-Skip]` on its head commit, and no Worker is deployed from `main`.
-- Production Photo Worker source: branch `fix/photo-ai-usage` (pushed) and tag `photo-worker-3d4928c9` → `893d371`.
-  Rollback Photo version `13311c6d` was built from the `../folh-hotfix` worktree lineage (believed `6c65cec`; unconfirmed).
+- **Pages production source:** `f789234` on `feat/photo-import-review` (pushed), a child of `482d851` (`codex/pages-node-22-security`,
+  itself `cf8252e` plus the Node 22.23.5 pin). The Photo imports history improvements (`4f51323` on `feat/photo-import-history`,
+  local) build on it and are **not deployed**.
+- **Photo Worker production source:** `49b3fd3` on `fix/photo-name-separator` (local tag `photo-worker-077637f8`; branch and tag
+  not pushed yet), a child of `7a9d4c4` (`fix/photo-prize-spacing`, tag `photo-worker-dc1ad438`), which extends `893d371`
+  (tag `photo-worker-3d4928c9`). Deploy Photo Worker changes from this pre-009 lineage, never from `main`, until 009 is applied.
+- **`main`:** the production fixes (Node pin `482d851`, Photo `c2769fb`/`7a9d4c4`/`49b3fd3`, Pages `f789234`/`4f51323`) are
+  integrated on `integrate/photo-review-main` (from `da838bb`; full suite 218/218 with 009), pending approval to merge.
+  `main` code **requires migration 009** (Pages and the integrated Photo Worker). Until 009 is applied in production,
+  every push to `main` must carry `[CF-Pages-Skip]` on its head commit, and nothing is deployed from `main`.
 - Kept until migration and rollback verification are complete: branches `codex/pages-node-22-security`, `fix/photo-ai-usage`,
-  `hotfix/photo-nov11-column-association`, `integrate/photo-ai-usage-main`, `codex/raffle-stabilization`,
-  `backup/bad-prod-fix`, and all worktrees.
-- Local backups: `C:\Users\Jwerl\dev\folh-all-refs-2026-11-14.bundle` (verified) and
-  `C:\Users\Jwerl\dev\folh-backups-2026-11-14\` (13 ignored `.sql` files with SHA-256 manifests).
+  `fix/photo-prize-spacing`, `fix/photo-name-separator`, `feat/photo-import-review`, `feat/photo-import-history`,
+  `integrate/photo-review-main`, `hotfix/photo-nov11-column-association`, `integrate/photo-ai-usage-main`,
+  `codex/raffle-stabilization`, `backup/bad-prod-fix`, and all worktrees.
+- Local backups: `C:\Users\Jwerl\dev\folh-all-refs-2026-11-14.bundle` (verified),
+  `C:\Users\Jwerl\dev\folh-backups-2026-11-14\` (13 ignored `.sql` files with SHA-256 manifests), and
+  `C:\Users\Jwerl\dev\folh-backups-2026-11-18-pre010\` (both D1 exports immediately before migration 010, with `SHA256SUMS.txt`).
 - Not yet identified: the commit that built Live version `ced68381`.
 
 The November 15 audit of the Pages lockfile found **23 package findings** (1 critical, 21 high, 1 low). The production-declared audit shows two high entries (`@astrojs/sitemap` and its Zod dependency) for one Zod issue, with no public validation path identified. Zod's fix starts at `4.6.6`. A sitemap-only upgrade needs an Astro 5 build and XML parity check. The Astro AVIF finding requires untrusted input to reach Sharp optimization. The deployed R2 photo routes serve stored bytes, and no public path to that optimizer was identified.
@@ -61,12 +68,31 @@ Before cutover, pin and test a Wrangler v4 release **at least `4.59.1`** for Dir
 Migration 009 is additive (old code ignores the new columns). It also records November 2026's calendar as
 `approved` with heading `Firearm`, which is the approval the integrated Photo Worker checks before any AI read.
 
-1. Cut over first with the code that runs in production today: Pages from `482d851` built with Node 22.23.5, Photo Worker from `893d371`,
-   Live Worker from the `ced68381` source commit. No schema change during the move.
+1. Cut over first with the code that runs in production at the time of the cutover. As of November 19 that is Pages
+   `f789234` built with Node 22.23.5, Photo Worker `49b3fd3`, and Live Worker from the `ced68381` source commit. If a
+   later Pages or Photo release reaches SOURCE production before the cutover (for example the history UI `4f51323`), use
+   that release instead; never an older build. No schema change during the move.
 2. After cutover is stable: apply 009 to DESTINATION D1 (the only production database by then), verify
    `raffle_months.calendar_status = 'approved'` for `2026-11` (or the current season's month), then deploy Pages and
-   the Photo Worker from `main`.
-3. Treat any proposal to run 009 before the cutover as a separate change to the plan. The reviewed cutover uses schema 001–008 in both accounts.
+   the Photo Worker from `main` (which must already contain the production fixes; see Release sources).
+3. Treat any proposal to run 009 before the cutover as a separate change to the plan. The reviewed cutover uses schema
+   001–008 plus 010 in both accounts.
+
+### Migration 010 (applied 2026-11-19)
+
+`010_raffle_photo_row_resolutions.sql` adds one audit table (`raffle_photo_row_resolutions`) and one index for the
+Photo imports review (Approve, Edit / Save & Publish, Mark resolved). It depends on 004 only, not on 009, and is
+additive: older code ignores it. Applied on November 19, 2026 (about 02:35 UTC) to **both** SOURCE `527df871` and
+DESTINATION `ecde3f50` with `wrangler d1 execute DB --remote --file migrations/010_raffle_photo_row_resolutions.sql`
+and the account-pinned Photo configs (`workers/facebook-photos/wrangler.json`, `wrangler.nonprofit.staged.json`), then
+recorded in `d1_migrations` after schema verification. Both databases now record 001–008 and 010 (010 has row id 9;
+Wrangler matches by name). Pre-change exports: `C:\Users\Jwerl\dev\folh-backups-2026-11-18-pre010\`.
+
+- **Do not run `wrangler d1 migrations apply` from `main`** before 009 is approved: it would apply 009 too.
+- 009 and 010 touch different tables and produce the same schema in either order (verified locally).
+- The final SOURCE → DESTINATION sync carries the table, its rows and the `d1_migrations` entry.
+- Rollback (destructive, not needed for code rollback): `migrations/rollback/010_raffle_photo_row_resolutions.down.sql`
+  and delete the `010_…` row from `d1_migrations`.
 
 ## Inventory and mapping
 
@@ -153,17 +179,22 @@ Live **selection** is in CONFIG KV (copied). Photo alert incidents are in D1 (co
    free tier). Then create `folh-photos` (ENAM), copy every SOURCE object, and verify count, bytes and MD5 against
    SOURCE ETags and all D1 references. Add `PHOTOS_BUCKET` to staging Pages (production and preview) and redeploy.
 2. **Secrets** (owner): enter the 15 secrets above; redeploy staging Pages.
-3. **Staging Pages build**: use a clean checkout at `482d85107a83d8205dec7bae1f6ba77cc04d26b8`. Verify
-   `node --version` reports `v22.23.5`, run `npm ci` and `npm run build`, and Direct Upload `dist` with the tested
-   patched Wrangler. Verify the DESTINATION project and runtime bindings before the upload. Record the deployment
-   ID as the cutover candidate and retain the artifact for recovery. Keep both accounts on schema 001–008 until
-   cutover is stable.
-4. **Staging tests**: public pages, `/api/photos/file`, event posters, raffle month/prizes APIs, admin login and one
-   admin read (no edits), contact form against the DESTINATION Turnstile widget. Workers stay without cron, flags off.
-5. **Live source commit**: identify the commit behind `ced68381` and record it here.
-6. **DNS export** (owner): SOURCE dashboard → DNS → Records → Export, plus a list of zone settings (SSL/TLS mode, edge
+3. **Staging Pages build** (the Nov 8 staging build is outdated): use a clean `git archive` export of the commit that
+   serves SOURCE production (today `f789234b4247da0abf3d7c1820ae610bb9772ed2`; the commit of any later SOURCE release
+   instead). Verify `node --version` reports `v22.23.5`, run `npm ci` and `npm run build`, and Direct Upload `dist` with
+   the tested patched Wrangler and `CLOUDFLARE_ACCOUNT_ID=ffe1aa6f4a533743f8f1b624f43c6d3d`. Verify the DESTINATION
+   project and runtime bindings before the upload. Record the deployment ID as the cutover candidate and retain the
+   artifact for recovery. Keep both accounts on schema 001–008 plus 010 until cutover is stable.
+4. **Staged Photo Worker** (the staged `1ca3d573` is outdated): deploy the SOURCE production Photo source (today `49b3fd3`)
+   with `workers/facebook-photos/wrangler.nonprofit.staged.json` (no cron, all `FB_PHOTO_*` and alert flags off) and the
+   repository's Wrangler; record the version as the activation candidate. Do not activate it before the cutover runbook.
+5. **Staging tests**: public pages, `/api/photos/file`, event posters, raffle month/prizes APIs, admin login and one
+   admin read (no edits, including Admin > Raffle > Photo imports, which needs 010), contact form against the DESTINATION
+   Turnstile widget. Workers stay without cron, flags off.
+6. **Live source commit**: identify the commit behind `ced68381` and record it here.
+7. **DNS export** (owner): SOURCE dashboard → DNS → Records → Export, plus a list of zone settings (SSL/TLS mode, edge
    certificates, email obfuscation, bot/AI-crawler settings, page/redirect/cache rules, Turnstile, any Workers routes).
-7. **Resend**: confirm in the Resend dashboard which domain `FROM_EMAIL` uses and which DNS records it requires.
+8. **Resend**: confirm in the Resend dashboard which domain `FROM_EMAIL` uses and which DNS records it requires.
 
 ## Domain move: Cloudflare Registrar procedure (after November 30)
 
@@ -195,7 +226,7 @@ Before starting the move, in DESTINATION (zone added, pending):
 1. Import the SOURCE DNS export. Check every record's proxy status and TTL; an import that proxies records wrongly can
    cause error 1000.
 2. Recreate the apex/`www` records the Pages custom domain needs (added through the Pages project once the zone is
-   active), the `google-site-verification` TXT, and any Resend/mail records found in step 7 of the staging requirements.
+   active), the `google-site-verification` TXT, and any Resend/mail records found in step 8 of the staging requirements.
 3. Recreate zone settings and rules from the inventory.
 4. After the move, compare a fresh DESTINATION export with the SOURCE export line by line, and re-check public answers.
 
@@ -205,8 +236,8 @@ Schedule one supervised window outside 17:45–18:45 Central, after the last dra
 Agree on a maintenance window and an abort point before accepting the Registrar transfer. SOURCE is authoritative
 until the final sync and domain switch. DESTINATION becomes the sole writer after the public site is verified there.
 
-1. **Rehearse on DESTINATION.** Complete the staging checks with Pages at `482d851` under Node 22.23.5 and schema
-   001–008. Verify that Pages `DB` and Photo `DB` use the same DESTINATION D1 ID, Pages `CONFIG` and Live `CONFIG`
+1. **Rehearse on DESTINATION.** Complete the staging checks with Pages at the SOURCE production commit (today `f789234`)
+   under Node 22.23.5 and schema 001–008 plus 010. Verify that Pages `DB` and Photo `DB` use the same DESTINATION D1 ID, Pages `CONFIG` and Live `CONFIG`
    use the same DESTINATION KV ID, the Live Durable Object and both Pages service bindings resolve there, and Pages
    reads the DESTINATION bucket. Validate the exact Worker source, cron expressions, flags, and bindings for
    activation. Keep staging automation inactive, and close staging write paths before the final sync.
@@ -232,7 +263,7 @@ until the final sync and domain switch. DESTINATION becomes the sole writer afte
    routing, Pages deployment ID, and read-only parity on the actual domain. Treat the waiting period as maintenance
    if the apex or its certificate is unavailable.
 5. **Activate DESTINATION against the same data the public site reads.** Confirm the old SOURCE Pages aliases and
-   previews remain write-gated. Activate Live first from the verified `ced68381` source, then Photo from `893d371`,
+   previews remain write-gated. Activate Live first from the verified `ced68381` source, then Photo from the SOURCE production Photo source (today `49b3fd3`),
    using the DESTINATION resource IDs, the exact UTC schedules and flags in the inventory, and the Photo
    `IMAGES` binding. The copied season ends at midnight Central on December 1. Expect no November backup polling
    after its eligible window, and verify the next eligible natural executions without extending the season.
@@ -256,11 +287,13 @@ SOURCE resources stay intact for at least 7 days after the domain moves (and lon
 cancelling any pending move. Keep DESTINATION writes gated. Reconcile any writes that escaped the freeze and verify
 SOURCE data before restoring its webhook at
 `https://folh-facebook-winner-photos.jjwerlein.workers.dev/facebook/webhook`, Worker versions, schedules, and public
-write paths. If the SOURCE Pages build itself fails, use SOURCE rollback `995a1755` and verify its production alias.
+write paths. If the SOURCE Pages release itself fails, roll SOURCE back to `3a16b88e` (or the emergency `995a1755`) and
+verify its production alias. If the SOURCE Photo Worker fails, roll back to `dc1ad438`.
 
 **After DESTINATION accepts:** keep the public site and any active writers in DESTINATION during recovery.
-- **Application fault:** use the verified DESTINATION Pages artifact built from `482d851` or a known-good deployment
-  in the DESTINATION project. SOURCE deployment `995a1755` cannot roll back the DESTINATION project.
+- **Application fault:** use the verified DESTINATION Pages artifact built from the cutover commit (staging step 3) or a
+  known-good deployment in the DESTINATION project. SOURCE deployments (`ba1bc408`, `3a16b88e`, `995a1755`) cannot roll back
+  the DESTINATION project.
 - **Data fault:** freeze DESTINATION writes, preserve the current snapshot, and reconcile post-cutover writes before
   restoring with D1 Time Travel or the cutover export. Recheck KV and R2 consistency before reopening.
 - **Automation fault:** gate the DESTINATION callback, crons, and flags until the known-good versions and bindings
@@ -268,12 +301,37 @@ write paths. If the SOURCE Pages build itself fails, use SOURCE rollback `995a17
 - **DNS or certificate fault:** restore the DESTINATION routing and zone settings from the export. Keep the write gate
   until the apex, certificate, and Pages deployment are confirmed.
 
-## Git deployments
+## Git deployments and release procedure
 
-Keep the tested DESTINATION Direct Upload project for cutover. Build `482d851` with Node 22.23.5, then use
-the tested Wrangler v4 release at or above `4.59.1` to run
-`wrangler pages deploy dist --project-name friends-of-lake-henry` with the DESTINATION account.
+**SOURCE Pages releases (verified November 19, `ba1bc408`).** The project is Git-connected with production branch `main`
+and automatic production deployments paused. The dashboard offers no way to make a production *hosted* build of a
+non-`main` branch: "Retry deployment" rebuilds a record's own branch in its own environment. The account audit log shows
+`3a16b88e` (Nov 15) was created by a PowerShell API script that PATCHed the project settings before and after the deployment.
+Releases from a non-`main` branch therefore use Direct Upload, which Cloudflare supports for Git-integrated projects
+without changing the Git connection or settings:
+
+1. Outside 17:45–18:45 Central. Confirm the live deployment and project settings (read-only), and back up D1 if the
+   release depends on a migration.
+2. Build the exact commit: `git archive <full SHA> | tar -x -C <empty dir>`, then Node 22.23.5 (`node --version`),
+   `npm ci`, `npm test`, `npm run build`.
+3. Use a patched Wrangler v4 at or above `4.59.1` from outside the application lockfile (4.156.0 was used) and run from the
+   export directory with `CLOUDFLARE_ACCOUNT_ID=aa86268490e681cccb3a41a62093e2aa`. The login can see both accounts, and
+   Pages ignores `account_id` in `wrangler.json`; Wrangler 4.50 once preferred a cached `node_modules/.cache/wrangler/pages.json`
+   from another account. A fresh export has no cache; confirm with `wrangler pages project list` that the project shows
+   `friendsoflakehenry.com`, and that any `pages.json` it writes names `aa86…`.
+4. Compare `wrangler.json` (D1, KV, R2, services, vars, compatibility) with the project's production configuration; secrets stay
+   in the project and are not touched by an upload.
+5. `wrangler pages deploy dist --project-name friends-of-lake-henry --branch main --commit-hash <full SHA>
+   --commit-message "<summary>" --commit-dirty=false`. `--branch main` (the production branch) makes it a production
+   deployment; it does not change Git `main` or any project setting.
+6. Verify: the new deployment is canonical and aliased to `friendsoflakehenry.com`, an asset unique to the new build is served
+   on the domain, the public winners/prizes APIs are unchanged, the project settings match the pre-release snapshot, and the
+   Worker versions are unchanged. Roll back with "Rollback to this deployment" on the previous production deployment.
+
+**DESTINATION.** Keep the tested Direct Upload project for cutover and build the SOURCE production commit as in staging step 3,
+with `CLOUDFLARE_ACCOUNT_ID=ffe1aa6f4a533743f8f1b624f43c6d3d` and `--project-name friends-of-lake-henry`.
 Cloudflare does not convert a Direct Upload project to Git integration in place. Revisit Git integration after
 cutover in a separate change.
-Keep the SOURCE project's GitHub connection and both automatic build modes disabled during the cutover. Restore
+
+Keep the SOURCE project's GitHub connection and automatic production deployments paused during the cutover. Restore
 automatic production builds only after the newer application and migration 009 are approved for release.
