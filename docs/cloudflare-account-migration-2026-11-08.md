@@ -14,9 +14,20 @@ done between nightly drawings.
 Production and staging Pages, Worker and D1 evidence is from the November 18–19 releases (read-only checks after each). DNS and
 the R2 inventory below reflect the November 14 checkpoint. **Migration 009 is not applied to either database.**
 
+**Security release (Nov 19, 21:54 UTC SOURCE, 22:04 UTC DESTINATION).** Both accounts run
+`da5333c782ad9a401c4877e36b9d515874daaa85` (`security/astro5-pages-d92eb2c`, pushed, not merged; parent `d92eb2c`): Astro
+`5.18.2`, `@astrojs/cloudflare` `12.6.13`, `@astrojs/sitemap` `3.7.1`, passthrough image service, and `/_image` excluded from
+Pages Functions with its route mapped to a constant 404. Before it, `/_image?href=/favicon.svg` returned **200** on both
+hostnames (the adapter image endpoint proxied local assets). After it, every tested variant returns 404 in both accounts. The
+two uploads used the same `dist` (110 files, fingerprint `9bb9881efa4188c8`, Node 22.23.5, clean `git archive` export, 188 + 16
+tests, four typechecks, built-Worker smoke test). No binding, secret, Worker, D1 or KV change. **`d92eb2c` and every older
+Pages build expose that endpoint; do not upload them to either account except as an emergency rollback.** The Astro AVIF
+advisory (GHSA-26w7) and other Astro 5 advisories remain in the installed package until the Astro 7 upgrade; the release
+removes the reachable image-processing path, it does not resolve them.
+
 | Item | SOURCE (production) | DESTINATION (staging) |
 |---|---|---|
-| Pages | `2f96df08-e195-4a5f-8e14-36070fb6d74c` (Nov 19, 15:20 UTC), **Direct Upload** of `d92eb2cf8ed44d17bd64eb9acb3ccb3c7e73ed0e` (`feat/photo-import-history`: inline photo review, history with Needs review / Issues / Completed / All, mobile scrolling) built from a clean `git archive` export with Node **22.23.5**. Production branch `main`; automatic production deployments paused; preview builds off. Previous: `ba1bc408` (`f789234`), `3a16b88e` (hosted build of `482d851`) | `7cdc9851-cd39-4eeb-a2c6-b13af849aac1` (Nov 19), Direct Upload of the **same `d92eb2c` build** with DESTINATION bindings, on `friends-of-lake-henry-d16.pages.dev` only. Previous: `df1fc387` (Nov 8, `97c81a0`). `/api/photos/file` **500** until R2 exists |
+| Pages | `93fe0d3b-8991-41c1-bad2-3d9594ca2a0c` (Nov 19, 21:54 UTC), **Direct Upload** of `da5333c` (the security release above on `d92eb2c`: inline photo review, history with Needs review / Issues / Completed / All, mobile scrolling) built from a clean `git archive` export with Node **22.23.5**. Production branch `main`; automatic production deployments paused; preview builds off. Previous: `2f96df08` (`d92eb2c`, unpatched `/_image`), `ba1bc408` (`f789234`), `3a16b88e` (hosted build of `482d851`) | `1c163014-f387-4bdc-8ee9-ce6a831680da` (Nov 19, 22:04 UTC), Direct Upload of the **same `da5333c` `dist`** with DESTINATION bindings, on `friends-of-lake-henry-d16.pages.dev` only. Previous: `7cdc9851` (`d92eb2c`, unpatched), `df1fc387` (Nov 8, `97c81a0`). `/api/photos/file` and both poster routes **500** until R2 exists |
 | D1 schema | migrations 001–008 **and 010** (010 adds only `raffle_photo_row_resolutions`); **009 not applied** | same: 001–008 and 010; **009 not applied** |
 | D1 data | 70 winners (verified unchanged through every Nov 19 release); 20 photo-review resolutions (Nov 19); 2 open whole-photo Issues (the Nov 12 quota failure and a Nov 5 rejection) to mark handled after checking their winners | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
 | R2 `folh-photos` | 28 objects, 16.6 MB, ENAM (unchanged since Nov 8) | **R2 not enabled** (API code 10042) |
@@ -26,13 +37,14 @@ the R2 inventory below reflect the November 14 checkpoint. **Migration 009 is no
 | `FOHL_SYNC_*` credentials | not set (legacy credentials in use) | not set |
 | Domain | Cloudflare Registrar, `clientTransferProhibited`, DNSSEC off, expires 2027-12-12, NS `angelina`/`sam` | not added |
 
-SOURCE Pages rollback order: `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `dc1ad438-bb57-4705-a9f6-0d8e3945ee80`. DESTINATION rollbacks: Pages `df1fc387`, Photo `1ca3d573` (both outdated; only for a failed staging upload). The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
+SOURCE Pages rollback order: `2f96df08-e195-4a5f-8e14-36070fb6d74c` (`d92eb2c`, same features as `93fe0d3b` but with the unpatched `/_image` endpoint; verified listed and serving on its alias Nov 19; use only for an application regression and re-release a patched build promptly), then `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `dc1ad438-bb57-4705-a9f6-0d8e3945ee80`. DESTINATION rollbacks: Pages `7cdc9851` (`d92eb2c`, unpatched), then `df1fc387`, Photo `1ca3d573` (all outdated; only for a failed staging upload, never for cutover). The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
 
 **Remaining before the account cutover (none started):** enable R2 in DESTINATION and copy `folh-photos` (staging step 1;
 billing/payment method needed); enter the 15 DESTINATION secrets, and decide whether to rotate the Facebook Page token, app secret,
 webhook verify token and Resend key as part of the move rather than copying them (staging step 2); add `IMAGES` to the staged
 Photo config; identify the Live `ced68381` source commit and refresh the staged Live Worker `a134d4df` from it; export DNS and
-zone settings and confirm the Resend records; then the freeze, final D1/KV/R2 sync, Registrar move and activation in the cutover
+zone settings (including HSTS: `Strict-Transport-Security: max-age=15552000; includeSubDomains` comes from the SOURCE zone, not
+the application, and is absent on every `pages.dev` alias) and confirm the Resend records; then the freeze, final D1/KV/R2 sync, Registrar move and activation in the cutover
 runbook. Migration 009 is applied only after the cutover is stable, to DESTINATION.
 
 Cloudflare analytics recorded 79 successful Live cron invocations and 1,445 successful Photo cron invocations, with zero cron errors in the 48-hour investigation window. The Live Worker verified the November 14 broadcast at 6:15 p.m. Central with zero consecutive failures and no pending videos or backoff. Photo ran all ten cron ticks in that night's polling window. D1 has no active Photo jobs or November 14 winner rows, and the one webhook item for that window was ignored. The records do not establish whether Facebook offered a qualifying winner photo. Reconcile that drawing and review the [November 13 rejected rows and older failed job](raffle-photo-ai-usage-2026-11-12.md#production-follow-up-2026-11-15) before the final sync.
@@ -47,9 +59,14 @@ objects needs the dashboard object list or an R2 S3 API token (the wrangler OAut
 
 ### Release sources and dependency maintenance
 
-- **Pages production source:** `d92eb2c` on `feat/photo-import-history` (pushed), built on `f789234` (`feat/photo-import-review`)
+- **Pages production source:** `da5333c` on `security/astro5-pages-d92eb2c` (pushed; the Astro 5 security release), a child of
+  `d92eb2c` on `feat/photo-import-history`, built on `f789234` (`feat/photo-import-review`)
   and `482d851` (`codex/pages-node-22-security`, itself `cf8252e` plus the Node 22.23.5 pin). This pre-009 lineage is what runs
-  in both accounts; deploy Pages releases from it (or a branch from it), never from `main`, until 009 is applied.
+  in both accounts; deploy Pages releases from `da5333c` (or a branch from it), never from `main` or an older commit, until 009 is applied.
+- **`main` does not contain the security release** (it still pins Astro `^5.16.6`, adapter `^12.6.12`, sitemap `^3.6.0` and the
+  default image endpoint). Port `da5333c` (config, pins, lockfile, `src/lib/server/disabled-image-endpoint.ts`,
+  `tests/pages-security-smoke.mjs`) to `main`, or supersede it with the Astro 7 upgrade, and confirm `/_image` returns 404 before
+  any Pages release from `main`.
 - **Photo Worker production source:** `49b3fd3` on `fix/photo-name-separator` (pushed; tag `photo-worker-077637f8` on origin), a
   child of `7a9d4c4` (`fix/photo-prize-spacing`, tag `photo-worker-dc1ad438`), which extends `893d371` (tag `photo-worker-3d4928c9`).
   Deploy Photo Worker changes from this pre-009 lineage, never from `main`, until 009 is applied.
@@ -70,7 +87,16 @@ objects needs the dashboard object list or an R2 S3 API token (the wrangler OAut
   `C:\Users\Jwerl\dev\folh-backups-2026-11-18-pre010\` (both D1 exports immediately before migration 010, with `SHA256SUMS.txt`).
 - Not yet identified: the commit that built Live version `ced68381`.
 
-The November 15 audit of the Pages lockfile found **23 package findings** (1 critical, 21 high, 1 low). The production-declared audit shows two high entries (`@astrojs/sitemap` and its Zod dependency) for one Zod issue, with no public validation path identified. Zod's fix starts at `4.6.6`. A sitemap-only upgrade needs an Astro 5 build and XML parity check. The Astro AVIF finding requires untrusted input to reach Sharp optimization. The deployed R2 photo routes serve stored bytes, and no public path to that optimizer was identified.
+**November 19 audit of the `da5333c` lockfile:** 17 package entries (1 critical, 15 high, 1 low), down from 23. Resolved:
+devalue, h3, js-yaml, smol-toml, defu, diff and the sitemap/Zod finding. Open: Astro (AVIF RCE GHSA-26w7, fixed only in 7.2.8,
+plus XSS/SSRF advisories whose triggering features this site does not use: no `define:vars`, template spreads, view
+transitions, server islands, prerendered pages, MDX or `base`); the adapter image-transform SSRF (endpoint no longer bundled);
+Sharp `0.34.5` (optional, not bundled; Miniflare's `0.33.5` is test-only); and build/dev-only tooling (Vite, esbuild,
+Rollup, PostCSS, SVGO, picomatch, source-map-js, undici, ws, zod via Miniflare). The production-declared audit reports zero,
+but Astro is a dev dependency whose runtime is bundled into the Worker, so that figure is not a clean bill. Do not expose
+`astro dev`. Carry the open items into the Astro 7 review.
+
+The November 15 audit of the Pages lockfile (`d92eb2c`) found **23 package findings** (1 critical, 21 high, 1 low). The production-declared audit shows two high entries (`@astrojs/sitemap` and its Zod dependency) for one Zod issue, with no public validation path identified. Zod's fix starts at `4.6.6`. A sitemap-only upgrade needs an Astro 5 build and XML parity check. The Astro AVIF finding requires untrusted input to reach Sharp optimization. The deployed R2 photo routes serve stored bytes, and no public path to that optimizer was identified.
 
 Before cutover, pin and test a Wrangler v4 release **at least `4.59.1`** for Direct Upload. This is the [CLI command-injection fix floor](https://github.com/advisories/GHSA-36p8-mvp6-cv38), and the audit can still report inherited findings above that floor. If passing `--commit-hash`, use the verified full Git SHA. Use the patched CLI outside the application lockfile. Schedule the broader [Astro and Cloudflare adapter upgrade](astro-7-upgrade-assessment.md) after the account cutover stabilizes. The newer adapter removes Pages support and requires a separate move to Workers and changes to how binding access works.
 
@@ -80,7 +106,7 @@ Migration 009 is additive (old code ignores the new columns). It also records No
 `approved` with heading `Firearm`, which is the approval the integrated Photo Worker checks before any AI read.
 
 1. Cut over first with the code that runs in production at the time of the cutover. As of November 19 that is Pages
-   `d92eb2c` built with Node 22.23.5 (staged as `7cdc9851`), Photo Worker `49b3fd3` (staged as `82b7d603`), and Live Worker
+   `da5333c` built with Node 22.23.5 (SOURCE `93fe0d3b`, staged as `1c163014`; not `d92eb2c`/`7cdc9851`, which expose `/_image`), Photo Worker `49b3fd3` (staged as `82b7d603`), and Live Worker
    from the `ced68381` source commit. If a later Pages or Photo release reaches SOURCE production before the cutover, stage
    and use that release instead; never an older build. No schema change during the move.
 2. After cutover is stable: apply 009 to DESTINATION D1 (the only production database by then), verify
@@ -190,8 +216,17 @@ Live **selection** is in CONFIG KV (copied). Photo alert incidents are in D1 (co
    free tier). Then create `folh-photos` (ENAM), copy every SOURCE object, and verify count, bytes and MD5 against
    SOURCE ETags and all D1 references. Add `PHOTOS_BUCKET` to staging Pages (production and preview) and redeploy.
 2. **Secrets** (owner): enter the 15 secrets above; redeploy staging Pages.
-3. **Staging Pages build** — done Nov 19: `7cdc9851` from `d92eb2c`, the SOURCE production commit. Repeat if SOURCE gets a
-   later Pages release. Procedure: a clean `git archive` export of that commit, Node `v22.23.5`, `npm ci`, `npm run build`;
+3. **Staging Pages build** — done Nov 19, 22:04 UTC: `1c163014` from `da5333c`, the SOURCE production commit (replacing
+   `7cdc9851` from `d92eb2c`). It reused the verified SOURCE `dist` (fingerprint `9bb9881efa4188c8`); the config was generated
+   from the committed `wrangler.json` with the IDs below and checked for SOURCE IDs (none). The project's downloaded settings
+   were identical before and after. Verified on `friends-of-lake-henry-d16.pages.dev`: `/_image` and its variants 404 (200
+   before); public pages, sitemaps, `robots.txt` and the raffle month/prizes/Live and events APIs return 200, with the APIs
+   byte-identical to before the upload; Replay embeds render; admin pages redirect to login; the admin file route returns 401;
+   cross-site login returns 403; login returns `err=server` (no secrets); `nosniff`, `X-Frame-Options`, `Referrer-Policy` and
+   `Permissions-Policy` present. Not exercisable until R2 and secrets exist: gallery images and posters (500), admin sign-in
+   and admin reads, photo-review privacy on real objects, contact and photo submit (both refuse without `TURNSTILE_SECRET`).
+   Staged Workers (`a134d4df`, `82b7d603`) and DESTINATION D1 (46 winners, 21 photos, 001–008 + 010) were unchanged. Repeat if SOURCE gets a
+   later Pages release; never stage a build older than SOURCE production. Procedure: a clean `git archive` export of that commit, Node `v22.23.5`, `npm ci`, `npm run build`;
    copy `dist` to a separate folder with a temporary `wrangler.json` made from the committed one with the DESTINATION IDs
    (`DB` → `ecde3f50-a040-415b-ae61-06045302c37e`, `SESSION` → `4d6784e6b44d4353a7f8b54f76e5a4e1`, `CONFIG` →
    `c4ea8ffeb28a419abc8dafc250a0b6ba`, no `r2_buckets` until R2 exists; same services, vars and compatibility settings), then
@@ -251,8 +286,9 @@ Schedule one supervised window outside 17:45–18:45 Central, after the last dra
 Agree on a maintenance window and an abort point before accepting the Registrar transfer. SOURCE is authoritative
 until the final sync and domain switch. DESTINATION becomes the sole writer after the public site is verified there.
 
-1. **Rehearse on DESTINATION.** Complete the staging checks with Pages at the SOURCE production commit (today `d92eb2c`)
-   under Node 22.23.5 and schema 001–008 plus 010. Verify that Pages `DB` and Photo `DB` use the same DESTINATION D1 ID, Pages `CONFIG` and Live `CONFIG`
+1. **Rehearse on DESTINATION.** Complete the staging checks with Pages at the SOURCE production commit (today `da5333c`,
+   staged as `1c163014`; it must be `da5333c` or a later release containing the same security changes, and `/_image` must
+   return 404 on the DESTINATION deployment before the domain moves) under Node 22.23.5 and schema 001–008 plus 010. Verify that Pages `DB` and Photo `DB` use the same DESTINATION D1 ID, Pages `CONFIG` and Live `CONFIG`
    use the same DESTINATION KV ID, the Live Durable Object and both Pages service bindings resolve there, and Pages
    reads the DESTINATION bucket. Validate the exact Worker source, cron expressions, flags, and bindings for
    activation. Keep staging automation inactive, and close staging write paths before the final sync.
@@ -304,13 +340,15 @@ SOURCE resources stay intact for at least 7 days after the domain moves (and lon
 cancelling any pending move. Keep DESTINATION writes gated. Reconcile any writes that escaped the freeze and verify
 SOURCE data before restoring its webhook at
 `https://folh-facebook-winner-photos.jjwerlein.workers.dev/facebook/webhook`, Worker versions, schedules, and public
-write paths. If the SOURCE Pages release itself fails, roll SOURCE back to `3a16b88e` (or the emergency `995a1755`) and
-verify its production alias. If the SOURCE Photo Worker fails, roll back to `dc1ad438`.
+write paths. If the SOURCE Pages release itself fails, roll SOURCE back to `93fe0d3b` (the security release) if it is not
+already live; use `2f96df08` (unpatched `/_image`) only if `93fe0d3b` itself is at fault, then `3a16b88e` (or the emergency
+`995a1755`), and verify its production alias. If the SOURCE Photo Worker fails, roll back to `dc1ad438`.
 
 **After DESTINATION accepts:** keep the public site and any active writers in DESTINATION during recovery.
 - **Application fault:** use the verified DESTINATION Pages artifact built from the cutover commit (staging step 3) or a
-  known-good deployment in the DESTINATION project. SOURCE deployments (`2f96df08`, `ba1bc408`, `3a16b88e`, `995a1755`) cannot roll back
-  the DESTINATION project.
+  known-good deployment in the DESTINATION project (today `1c163014`, `da5333c`). `7cdc9851` and `df1fc387` are older and
+  expose `/_image`; use them only as a last resort and re-release a patched build. SOURCE deployments (`93fe0d3b`, `2f96df08`,
+  `ba1bc408`, `3a16b88e`, `995a1755`) cannot roll back the DESTINATION project.
 - **Data fault:** freeze DESTINATION writes, preserve the current snapshot, and reconcile post-cutover writes before
   restoring with D1 Time Travel or the cutover export. Recheck KV and R2 consistency before reopening.
 - **Automation fault:** gate the DESTINATION callback, crons, and flags until the known-good versions and bindings
@@ -320,7 +358,9 @@ verify its production alias. If the SOURCE Photo Worker fails, roll back to `dc1
 
 ## Git deployments and release procedure
 
-**SOURCE Pages releases (verified November 19: `ba1bc408`, then `2f96df08`).** The project is Git-connected with production branch `main`
+**SOURCE Pages releases (verified November 19: `ba1bc408`, then `2f96df08`, then `93fe0d3b` from `da5333c`).** Pushing a
+non-`main` branch whose head carries `[CF-Pages-Skip]` creates only an Idle (skipped) preview record that serves nothing
+(seen as `513aa184` for the security branch). The project is Git-connected with production branch `main`
 and automatic production deployments paused. The dashboard offers no way to make a production *hosted* build of a
 non-`main` branch: "Retry deployment" rebuilds a record's own branch in its own environment. The account audit log shows
 `3a16b88e` (Nov 15) was created by a PowerShell API script that PATCHed the project settings before and after the deployment.
