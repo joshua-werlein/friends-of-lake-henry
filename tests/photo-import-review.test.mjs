@@ -11,7 +11,7 @@ import { onRequest } from '../src/middleware.ts';
 
 // Administrator review of held/rejected winner-photo rows. Local Miniflare D1 only: no network, no Workers AI, no remote database.
 const events = JSON.parse(await readFile(new URL('./fixtures/november-2026-published-raffle-events.json', import.meta.url))).events;
-const BASE = ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '004_raffle_photo_autopublish.sql',
+const BASE = ['001_schema.sql', 'migrations/00x_raffle_poster.sql', '003_raffle_prize_supplements.sql', '009_raffle_season_calendar.sql', '004_raffle_photo_autopublish.sql',
     '005_winner_ticket_text.sql', '006_bonus_winner_tickets.sql', '007_photo_import_diagnostics.sql', '008_ops_alert_incidents.sql'];
 const run = async (DB, file) => {
     const sql = (await readFile(new URL('../migrations/' + file, import.meta.url), 'utf8')).replace(/--[^\n]*/g, '');
