@@ -41,12 +41,12 @@ objects needs the dashboard object list or an R2 S3 API token (the wrangler OAut
 ### Release sources and dependency maintenance
 
 - **Pages production source:** `f789234` on `feat/photo-import-review` (pushed), a child of `482d851` (`codex/pages-node-22-security`,
-  itself `cf8252e` plus the Node 22.23.5 pin). The Photo imports history improvements (`4f51323` on `feat/photo-import-history`,
+  itself `cf8252e` plus the Node 22.23.5 pin). The Photo imports history improvements and Issues filter (`d92eb2c` on `feat/photo-import-history`,
   local) build on it and are **not deployed**.
 - **Photo Worker production source:** `49b3fd3` on `fix/photo-name-separator` (local tag `photo-worker-077637f8`; branch and tag
   not pushed yet), a child of `7a9d4c4` (`fix/photo-prize-spacing`, tag `photo-worker-dc1ad438`), which extends `893d371`
   (tag `photo-worker-3d4928c9`). Deploy Photo Worker changes from this pre-009 lineage, never from `main`, until 009 is applied.
-- **`main`:** the production fixes (Node pin `482d851`, Photo `c2769fb`/`7a9d4c4`/`49b3fd3`, Pages `f789234`/`4f51323`) are
+- **`main`:** the production fixes (Node pin `482d851`, Photo `c2769fb`/`7a9d4c4`/`49b3fd3`, Pages `f789234`/`4f51323`/`d92eb2c`) are
   integrated on `integrate/photo-review-main` (from `da838bb`; full suite 218/218 with 009), pending approval to merge.
   `main` code **requires migration 009** (Pages and the integrated Photo Worker). Until 009 is applied in production,
   every push to `main` must carry `[CF-Pages-Skip]` on its head commit, and nothing is deployed from `main`.
@@ -70,7 +70,7 @@ Migration 009 is additive (old code ignores the new columns). It also records No
 
 1. Cut over first with the code that runs in production at the time of the cutover. As of November 19 that is Pages
    `f789234` built with Node 22.23.5, Photo Worker `49b3fd3`, and Live Worker from the `ced68381` source commit. If a
-   later Pages or Photo release reaches SOURCE production before the cutover (for example the history UI `4f51323`), use
+   later Pages or Photo release reaches SOURCE production before the cutover (for example the history UI `d92eb2c`), use
    that release instead; never an older build. No schema change during the move.
 2. After cutover is stable: apply 009 to DESTINATION D1 (the only production database by then), verify
    `raffle_months.calendar_status = 'approved'` for `2026-11` (or the current season's month), then deploy Pages and
