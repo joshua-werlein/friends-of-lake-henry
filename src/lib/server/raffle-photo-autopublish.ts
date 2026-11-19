@@ -290,6 +290,18 @@ export function reconcileRows(passes: Extraction[]): RowGroup[] {
 }
 
 /**
+ * The name printed in a cell: the text before the first comma, after the extracted ticket's own dash (any spacing: "797 -JJ Demaske",
+ * Nov 16) or after a ticket or label dash spaced on both sides ("Life Jacket - Name"). Only the extracted ticket's exact digits at the
+ * start of the cell are stripped with uneven spacing, so a hyphen inside a name ("Smith-Jones"), another number ("1797-", "798 -") or a
+ * label with uneven spacing ("Life Jacket -Name") is never treated as the separator. Colons are not separators here.
+ */
+export function printedName(cell: string, ticketNumber: string): string | undefined {
+    const digits = /^\d{1,9}$/.test(ticketNumber) ? ticketNumber : '';
+    const lead = digits ? new RegExp(String.raw`^\s*#?${digits}\s*[-–—]\s*(?=\S)([^,]+?)\s*,`).exec(cell) : null;
+    return (lead ?? /^\s*(?:[^,]*?\s+[-–—]\s+)?([^,]+?)\s*,/.exec(cell))?.[1];
+}
+
+/**
  * Real captures show both passes can agree on a false blank (ticket 894 read as blank) and can take a hometown from the next cell.
  * Each pass therefore copies the raw cell, and the parsed fields must be consistent with it. A ticket-free row must supply it.
  */
@@ -304,7 +316,7 @@ function cellTextProblems(row: DraftWinner) {
     // The name is the whole text between the ticket or label dash and the first comma ("442 - Winner 28G, Taylor, WI"); a real window
     // read copied that cell exactly but returned name "Winner". A shortened or extended name is held, never repaired from the cell.
     else if (fold(row.name)) {
-        const printed = /^\s*(?:[^,]*?\s+[-–—]\s+)?([^,]+?)\s*,/.exec(cell)?.[1];
+        const printed = printedName(cell, row.ticketNumber);
         if (printed !== undefined && fold(printed) !== fold(row.name)) problems.push('name differs from the name printed in the cell');
     }
     // Spacing around commas differs between reads (Auburn,WA), so hometowns compare without separators.
