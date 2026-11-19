@@ -38,55 +38,72 @@ const row = (drawDate, name, ticket, extra = {}) => ({ drawDate, position: null,
 
 /**
  * Seeds `count` photos, newest first by created_at, cycling through every history shape:
- *   0 published only · 1 held, unresolved · 2 held, resolved · 3 rejected, unresolved · 4 rejected, resolved · 5 image-level rejection, no rows
- *   6 partial: published + held unresolved · 7 outside-window only
+ *   0 published only · 1 held, unresolved · 2 held, resolved · 3 rejected, unresolved · 4 rejected, resolved
+ *   5 whole-photo rejection, no rows · 6 partial: published + held unresolved · 7 outside-window only
+ *   8 processing failure, no rows · 9 whole-photo rejection, no rows, already marked handled (photo-level resolution, row 0)
  */
+const NO_ROWS = [5, 8, 9];
+const hasRows = s => !NO_ROWS.includes(s.shape);
 async function seed(DB, count, rowsPerPhoto = 3, { resolutions = true } = {}) {
-    const shapes = [], imports = [], rows = [], resolved = [];
+    const shapes = [], imports = [], rows = [], resolved = [], handled = [];
     for (let i = 0; i < count; i++) {
-        const photoId = String(900000000000000 + i), postId = `144051422124740_${800000000000000 + i}`, shape = i % 8;
+        const photoId = String(900000000000000 + i), postId = `144051422124740_${800000000000000 + i}`, shape = i % 10;
         const created = new Date(Date.UTC(2025, 0, 1) + i * 3600_000).toISOString();
         const day = `2026-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}`;
-        const status = ['published', 'held', 'published', 'rejected', 'published', 'rejected', 'partial', 'duplicate'][shape];
-        imports.push([photoId, postId, status, created, JSON.stringify(shape === 5 ? ['extraction passes disagree about whether this is a winner announcement'] : [])]);
-        const outcomes = shape === 5 ? [] : Array.from({ length: rowsPerPhoto }, (_, n) =>
+        const status = ['published', 'held', 'published', 'rejected', 'published', 'rejected', 'partial', 'duplicate', 'failed', 'rejected'][shape];
+        const reasons = shape === 5 || shape === 9 ? ['extraction passes disagree about whether this is a winner announcement'] : shape === 8 ? ['ai-unavailable'] : [];
+        imports.push([photoId, postId, status, created, JSON.stringify(reasons)]);
+        const outcomes = NO_ROWS.includes(shape) ? [] : Array.from({ length: rowsPerPhoto }, (_, n) =>
             shape === 0 ? 'inserted' : shape === 1 || shape === 2 ? (n === 0 ? 'held' : 'inserted') : shape === 3 || shape === 4 ? 'rejected'
             : shape === 6 ? (n === 0 ? 'held' : 'inserted') : 'outside-window');
         outcomes.forEach((outcome, n) => rows.push([photoId, n + 1, outcome, outcome === 'inserted' ? MAIN : null,
             JSON.stringify([outcome === 'inserted' ? 'all 2 extraction passes agree' : 'name differs from the name printed in the cell']), JSON.stringify(row(day, `Winner${i}x${n} Lake`, 100 + n))]));
         if (resolutions && (shape === 2 || shape === 4)) outcomes.forEach((outcome, n) => { if (outcome === 'held' || outcome === 'rejected') resolved.push([photoId, n + 1, outcome]); });
-        shapes.push({ photoId, shape, created, day, needs: shape === 1 || shape === 3 || shape === 6 });
+        if (resolutions && shape === 9) handled.push([photoId, new Date(Date.parse(created) + 1800_000).toISOString()]);
+        shapes.push({ photoId, postId, shape, created, day, needs: shape === 1 || shape === 3 || shape === 6, issue: shape === 5 || shape === 8 || (shape === 9 && !resolutions) });
     }
     // One statement per table (rows passed as one JSON parameter): thousands of single inserts overwhelm Miniflare's local bridge
     // when the whole suite runs in parallel, and D1 allows at most 100 bound parameters per statement.
-    const statements = [DB.prepare(`INSERT INTO raffle_photo_auto_imports (photo_id, post_id, status, created_at, reasons_json)
-            SELECT value->>0, value->>1, value->>2, value->>3, value->>4 FROM json_each(?)`).bind(JSON.stringify(imports)),
+    const statements = [DB.prepare(`INSERT INTO raffle_photo_auto_imports (photo_id, post_id, status, created_at, updated_at, reasons_json)
+            SELECT value->>0, value->>1, value->>2, value->>3, value->>3, value->>4 FROM json_each(?)`).bind(JSON.stringify(imports)),
         DB.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
             SELECT value->>0, value->>1, value->>2, NULL, value->>3, value->>4, value->>5 FROM json_each(?)`).bind(JSON.stringify(rows))];
     if (resolved.length) statements.push(DB.prepare(`INSERT INTO raffle_photo_row_resolutions (photo_id, row_number, action, final_status, original_outcome, original_row_json, actor)
             SELECT value->>0, value->>1, 'resolve', 'resolved', value->>2, '{}', 'admin:test' FROM json_each(?)`).bind(JSON.stringify(resolved)));
+    if (handled.length) statements.push(DB.prepare(`INSERT INTO raffle_photo_row_resolutions (photo_id, row_number, action, final_status, original_outcome, original_row_json, note, actor, created_at)
+            SELECT value->>0, 0, 'resolve', 'resolved', 'rejected', '{}', 'Winners entered manually', 'admin:test', value->>1 FROM json_each(?)`).bind(JSON.stringify(handled)));
     await DB.batch(statements);
     return shapes;
 }
 
-test('Needs review lists only photos with unresolved held or rejected rows; resolved and historical outcomes are Completed', async t => {
+test('Needs review, Issues, Completed and All split the history; whole-photo problems are not Completed until handled', async t => {
     const DB = await database(t);
     const shapes = await seed(DB, 40);
-    const needs = shapes.filter(s => s.needs).map(s => s.photoId), done = shapes.filter(s => !s.needs).map(s => s.photoId);
+    const needs = shapes.filter(s => s.needs).map(s => s.photoId), issues = shapes.filter(s => s.issue).map(s => s.photoId);
+    const done = shapes.filter(s => !s.needs && !s.issue).map(s => s.photoId);
     const page = await summary(DB, { pageSize: '50' }); // default filter
     assert.equal(page.filter, 'needs-review');
-    assert.deepEqual(page.counts, { 'needs-review': needs.length, completed: done.length, all: 40 });
+    assert.deepEqual(page.counts, { 'needs-review': needs.length, issues: issues.length, completed: done.length, all: 40 });
+    assert.equal(needs.length + issues.length + done.length, 40);
     assert.deepEqual(page.photos.map(p => p.photoId).sort(), [...needs].sort());
-    assert.ok(page.photos.every(p => p.unresolved > 0));
+    assert.ok(page.photos.every(p => p.unresolved > 0 && p.category === 'needs-review'));
+    // Issues: whole-photo rejections and processing failures with no winner rows, not yet handled.
+    const open = await summary(DB, { filter: 'issues', pageSize: '50' });
+    assert.deepEqual(open.photos.map(p => p.photoId).sort(), [...issues].sort());
+    assert.ok(open.photos.every(p => p.rows === 0 && p.issue === 1 && p.handled === 0 && ['rejected', 'failed'].includes(p.status)));
+    assert.deepEqual([...new Set(open.photos.map(p => p.status))].sort(), ['failed', 'rejected']);
+    assert.equal(open.handledIssues, shapes.filter(s => s.shape === 9).length);
+    // Completed: published, duplicate, resolved rows, outside-window rows and handled issues.
     const completed = await summary(DB, { filter: 'completed', pageSize: '50' });
     assert.deepEqual(completed.photos.map(p => p.photoId).sort(), [...done].sort());
-    assert.ok(completed.photos.every(p => p.unresolved === 0));
-    // A photo whose held row was resolved, an image-level rejection with no rows and outside-window rows are history, not open work.
+    assert.ok(completed.photos.every(p => p.unresolved === 0 && p.category === 'completed'));
     const byId = Object.fromEntries(completed.photos.map(p => [p.photoId, p]));
-    const resolvedHeld = shapes.find(s => s.shape === 2), imageLevel = shapes.find(s => s.shape === 5), outside = shapes.find(s => s.shape === 7);
+    const resolvedHeld = shapes.find(s => s.shape === 2), handledIssue = shapes.find(s => s.shape === 9), outside = shapes.find(s => s.shape === 7);
     assert.deepEqual([byId[resolvedHeld.photoId].resolved, byId[resolvedHeld.photoId].unresolved, byId[resolvedHeld.photoId].published], [1, 0, 2]);
-    assert.deepEqual([byId[imageLevel.photoId].rows, byId[imageLevel.photoId].status], [0, 'rejected']);
-    assert.deepEqual(byId[imageLevel.photoId].reasons, ['extraction passes disagree about whether this is a winner announcement']);
+    // A historic, manually handled rejection is distinguishable from an outstanding one: same status and reasons, but handled.
+    assert.deepEqual([byId[handledIssue.photoId].status, byId[handledIssue.photoId].rows, byId[handledIssue.photoId].issue, byId[handledIssue.photoId].handled],
+        ['rejected', 0, 1, 1]);
+    assert.deepEqual(byId[handledIssue.photoId].reasons, ['extraction passes disagree about whether this is a winner announcement']);
     assert.equal(byId[outside.photoId].unresolved, 0);
     const partial = page.photos.find(p => p.photoId === shapes.find(s => s.shape === 6).photoId);
     assert.deepEqual([partial.published, partial.unresolved, partial.rows], [2, 1, 3]);
@@ -134,17 +151,17 @@ test('search matches dates, winner names and photo IDs, combines with filters an
     assert.deepEqual(ids(await summary(DB, { filter: 'all', q: 'winner17x2' })), [target.photoId]);
     assert.deepEqual(ids(await summary(DB, { filter: 'all', q: `WINNER17X` })), [target.photoId]);
     // Dates: exact ISO date, month, and month/day with or without a year.
-    const expectDay = day => shapes.filter(s => s.shape !== 5 && s.day === day).map(s => s.photoId).sort();
+    const expectDay = day => shapes.filter(s => hasRows(s) && s.day === day).map(s => s.photoId).sort();
     assert.deepEqual(ids(await summary(DB, { filter: 'all', q: target.day, pageSize: '50' })), expectDay(target.day));
     const [, mm, dd] = target.day.split('-');
     assert.deepEqual(ids(await summary(DB, { filter: 'all', q: `${Number(mm)}/${Number(dd)}`, pageSize: '50' })), expectDay(target.day));
     assert.deepEqual(ids(await summary(DB, { filter: 'all', q: `${mm}/${dd}/2026`, pageSize: '50' })), expectDay(target.day));
     assert.deepEqual(ids(await summary(DB, { filter: 'all', q: `${mm}/${dd}/2025`, pageSize: '50' })), []);
     const month = target.day.slice(0, 7);
-    assert.deepEqual(ids(await summary(DB, { filter: 'all', q: month, pageSize: '50' })), shapes.filter(s => s.shape !== 5 && s.day.startsWith(month)).map(s => s.photoId).sort());
+    assert.deepEqual(ids(await summary(DB, { filter: 'all', q: month, pageSize: '50' })), shapes.filter(s => hasRows(s) && s.day.startsWith(month)).map(s => s.photoId).sort());
     // Counts follow the search; filters still apply.
     const searched = await summary(DB, { filter: 'all', q: 'winner1' });
-    const matching = shapes.filter(s => s.shape !== 5 && /^1/.test(String(shapes.indexOf(s))));
+    const matching = shapes.filter(s => hasRows(s) && /^1/.test(String(shapes.indexOf(s))));
     assert.equal(searched.counts.all, matching.length);
     assert.equal(searched.counts['needs-review'], matching.filter(s => s.needs).length);
     assert.ok((await summary(DB, { q: 'winner1', pageSize: '50' })).photos.every(p => p.unresolved > 0));
@@ -221,8 +238,84 @@ test('without migration 010 the history still loads and every held or rejected r
     const body = await summary(DB, { pageSize: '50' });
     assert.equal(body.reviewAvailable, false);
     assert.equal(body.counts['needs-review'], shapes.filter(s => [1, 2, 3, 4, 6].includes(s.shape)).length);
+    // Nothing can have been handled either: every whole-photo problem is an open issue.
+    assert.equal(body.counts.issues, shapes.filter(s => NO_ROWS.includes(s.shape)).length);
     const detail = (await get(DB, { view: 'photo', photoId: shapes[1].photoId })).body;
     assert.equal(detail.review.available, false);
+    const issue = (await get(DB, { view: 'photo', photoId: shapes[5].photoId })).body;
+    assert.deepEqual([issue.issue.handled, issue.issue.handlings], [false, []]);
+    assert.equal((await post(DB, { action: 'resolve-photo', photoId: shapes[5].photoId, version: issue.photo.version, note: 'Entered by hand' })).status, 503);
+});
+
+test('Issues: paging, search, context, Mark handled with audit, and reopening after a later failure', async t => {
+    const DB = await database(t);
+    const shapes = await seed(DB, 120);
+    const open = shapes.filter(s => s.issue);
+    // Paging over the Issues filter only.
+    const seen = [];
+    for (let page = 1; ; page++) {
+        const body = await summary(DB, { filter: 'issues', page: String(page), pageSize: '5' });
+        assert.equal(body.total, open.length);
+        assert.ok(body.photos.every(p => p.category === 'issues'));
+        seen.push(...body.photos.map(p => p.photoId));
+        if (page >= body.pages) break;
+    }
+    assert.deepEqual(seen, [...open].sort((a, b) => b.created.localeCompare(a.created)).map(s => s.photoId));
+    // Search: a photo with no rows is found by its ID and by its announcement date (America/Chicago).
+    const failed = shapes.find((s, i) => s.shape === 8 && new Date(s.created).getUTCHours() >= 7);
+    assert.deepEqual((await summary(DB, { filter: 'issues', q: failed.photoId })).photos.map(p => p.photoId), [failed.photoId]);
+    const announced = failed.created.slice(0, 10);
+    const byDate = await summary(DB, { filter: 'issues', q: announced, pageSize: '50' });
+    assert.ok(byDate.photos.some(p => p.photoId === failed.photoId), announced);
+    assert.ok(byDate.photos.every(p => p.createdAt.startsWith(announced) || p.createdAt.startsWith(new Date(Date.parse(announced) + 86400000).toISOString().slice(0, 10))));
+    // Context for deciding: post queue state and the winners already stored for the dates the announcement could cover.
+    await DB.prepare(`INSERT INTO raffle_photo_auto_posts (post_id, source, status, attempts, last_error_code, last_error_at) VALUES (?,?,?,?,?,?)`)
+        .bind(failed.postId, 'poll', 'retry', 3, 'ai-unavailable', failed.created).run();
+    const window = (await get(DB, { view: 'photo', photoId: failed.photoId })).body.issue.window;
+    await DB.prepare(`INSERT INTO raffle_winners (id, raffle_key, draw_date, ticket_number, winner_name, town, prize, ticket_number_text) VALUES (?,?,?,?,?,?,?,?)`)
+        .bind(`w-${window[2]}`, window[2].slice(0, 7), window[2], 5, 'Manual Entry', 'Blair, WI', '1st place — Prize', '5').run();
+    const detail = (await get(DB, { view: 'photo', photoId: failed.photoId })).body;
+    assert.equal(detail.issue.window.length, 3);
+    assert.deepEqual(detail.issue.storedWinners.map(w => w.name), ['Manual Entry']);
+    assert.deepEqual([detail.post.status, detail.post.attempts, detail.post.lastErrorCode], ['retry', 3, 'ai-unavailable']);
+    assert.equal((await summary(DB, { filter: 'issues', q: failed.photoId })).photos[0].postStatus, 'retry');
+    assert.deepEqual([detail.issue.handled, detail.rows.length, detail.photo.status], [false, 0, 'failed']);
+    // Mark handled: a note is required, stale pages and photos with winner rows are refused.
+    const handle = body => post(DB, { action: 'resolve-photo', photoId: failed.photoId, version: detail.photo.version, ...body });
+    assert.equal((await handle({ note: '' })).status, 400);
+    assert.equal((await handle({ note: 'checked', version: 'a'.repeat(64) })).status, 409);
+    assert.equal((await handle({ note: 'checked', photoId: '1' })).status, 404);
+    const withRows = (await get(DB, { view: 'photo', photoId: shapes.find(s => s.shape === 3).photoId })).body;
+    assert.equal((await post(DB, { action: 'resolve-photo', photoId: withRows.photo.photoId, version: withRows.photo.version, note: 'checked' })).status, 409);
+    const published = (await get(DB, { view: 'photo', photoId: shapes.find(s => s.shape === 0).photoId })).body;
+    assert.equal((await post(DB, { action: 'resolve-photo', photoId: published.photo.photoId, version: published.photo.version, note: 'checked' })).status, 409);
+    // Concurrent handling records exactly once.
+    const before = await summary(DB, { filter: 'issues' });
+    const results = await Promise.all([1, 2, 3].map(() => handle({ note: 'Winners entered manually in raffle admin' })));
+    assert.deepEqual(results.map(r => r.status).sort(), [200, 409, 409]);
+    const audit = (await DB.prepare(`SELECT row_number AS n, action, final_status AS status, original_outcome AS outcome, original_reasons_json AS reasons, note, actor
+        FROM raffle_photo_row_resolutions WHERE photo_id=?`).bind(failed.photoId).all()).results;
+    assert.deepEqual(audit, [{ n: 0, action: 'resolve', status: 'resolved', outcome: 'failed', reasons: '["ai-unavailable"]', note: 'Winners entered manually in raffle admin', actor: audit[0].actor }]);
+    assert.match(audit[0].actor, /^admin:[0-9a-f]{12}$/);
+    // The photo keeps its importer record and moves from Issues to Completed as a handled issue; counts follow.
+    const photo = await DB.prepare('SELECT status, reasons_json AS reasons FROM raffle_photo_auto_imports WHERE photo_id=?').bind(failed.photoId).first();
+    assert.deepEqual(photo, { status: 'failed', reasons: '["ai-unavailable"]' });
+    const after = await summary(DB, { filter: 'issues' });
+    assert.equal(after.counts.issues, before.counts.issues - 1);
+    assert.equal(after.counts.completed, before.counts.completed + 1);
+    assert.equal(after.handledIssues, before.handledIssues + 1);
+    const done = (await summary(DB, { filter: 'completed', q: failed.photoId })).photos[0];
+    assert.deepEqual([done.category, done.issue, done.handled], ['completed', 1, 1]);
+    assert.equal((await handle({ note: 'again' })).status, 409);
+    // A later failure (the importer rewrites the photo) reopens the issue; handling it again keeps both records.
+    await DB.prepare(`UPDATE raffle_photo_auto_imports SET reasons_json='["download-failed"]', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 second') WHERE photo_id=?`).bind(failed.photoId).run();
+    const reopened = (await get(DB, { view: 'photo', photoId: failed.photoId })).body;
+    assert.deepEqual([reopened.issue.handled, reopened.issue.handlings.length], [false, 1]);
+    assert.equal((await summary(DB, { filter: 'issues', q: failed.photoId })).photos[0].category, 'issues');
+    assert.equal((await post(DB, { action: 'resolve-photo', photoId: failed.photoId, version: reopened.photo.version, note: 'Second failure checked' })).status, 200);
+    assert.deepEqual((await DB.prepare('SELECT row_number AS n FROM raffle_photo_row_resolutions WHERE photo_id=? ORDER BY n DESC').bind(failed.photoId).all()).results.map(r => r.n), [0, -1]);
+    // Row review never touches photo-level records (row numbers start at 1).
+    assert.equal((await post(DB, { action: 'resolve', photoId: failed.photoId, rowNumber: 0, version: reopened.photo.version, note: 'x' })).status, 400);
 });
 
 test('posts view is bounded and the full log keeps its existing shape', async t => {

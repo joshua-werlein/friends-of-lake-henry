@@ -7,7 +7,7 @@ export const prerender=false;
     <section class="card">
         <a class="pill" href="/admin/raffle">Back to raffle admin</a>
         <h1>Facebook winner-photo imports</h1>
-        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published. They wait under <strong>Needs review</strong>, where you can <strong>approve</strong> a row, <strong>edit</strong> and publish it, or <strong>mark it resolved</strong> if the website already has the winner. Every photo, row and review is kept under <strong>Completed</strong> and <strong>All</strong>.</p>
+        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published. They wait under <strong>Needs review</strong>, where you can <strong>approve</strong> a row, <strong>edit</strong> and publish it, or <strong>mark it resolved</strong> if the website already has the winner. Photos rejected or failed as a whole, with no winner rows to review, are listed under <strong>Issues</strong> until you requeue them or mark them handled. Every photo, row and review is kept under <strong>Completed</strong> and <strong>All</strong>.</p>
         <form id="queueForm" class="panel">
             <label>Queue a Facebook post link<input class="input" id="queueSource" placeholder="https://www.facebook.com/61552199315213/posts/…" maxlength="2000" /></label>
             <button class="btn" type="submit">Queue post</button>
@@ -18,6 +18,7 @@ export const prerender=false;
         <div class="historyTools">
             <div class="filterBar" role="group" aria-labelledby="photosHeading" id="filterBar">
                 <button type="button" class="pill" data-filter="needs-review" aria-pressed="true">Needs review <span data-count="needs-review"></span></button>
+                <button type="button" class="pill" data-filter="issues" aria-pressed="false">Issues <span data-count="issues"></span></button>
                 <button type="button" class="pill" data-filter="completed" aria-pressed="false">Completed <span data-count="completed"></span></button>
                 <button type="button" class="pill" data-filter="all" aria-pressed="false">All <span data-count="all"></span></button>
             </div>
@@ -62,6 +63,11 @@ export const prerender=false;
     .photoImports .cardSummary strong{font-weight:700}
     .photoImports .chip{display:inline-block;border-radius:999px;padding:0 .55rem;font-size:.85rem;border:1px solid var(--border-strong)}
     .photoImports .chip-needs{border-color:#ffd479;color:#ffd479}.photoImports .chip-done{border-color:#7ee2a8;color:#7ee2a8}
+    .photoImports .chip-issue{border-color:#ffb4a8;color:#ffb4a8}.photoImports .chip-handled{border-color:#9fd3ff;color:#9fd3ff}
+    .photoImports .issuePanel{border:1px solid #ffb4a8;border-radius:12px;padding:.8rem;margin:.75rem 0 0;min-width:0;overflow-wrap:anywhere}
+    .photoImports .issuePanel.handled{border-color:#9fd3ff}
+    .photoImports .issuePanel h4{font-size:1.05rem;margin:0 0 .4rem}
+    .photoImports .issuePanel ul{margin:.25rem 0 .5rem;padding-left:1.2rem}
     .photoImports .cardBody{padding:0 .9rem .9rem;min-width:0}
     .photoImports .cardBody > p{overflow-wrap:anywhere}
     .photoImports .historyTools{display:grid;gap:.6rem;margin:.5rem 0}
@@ -103,14 +109,16 @@ export const prerender=false;
         version?: string; resolution?: any; matches?: any[] };
     type Slot = { id: string; description: string; place: string | null; prize: string | null };
     type Summary = { photoId: string; postId: string; status: string; createdAt: string; reasons: string[]; firstDrawDate: string | null; lastDrawDate: string | null;
-        rows: number; published: number; unresolved: number; resolved: number };
-    type Filter = 'needs-review' | 'completed' | 'all';
+        rows: number; published: number; unresolved: number; resolved: number; issue: number; handled: number; handledAt: string | null; postStatus: string | null;
+        category: 'needs-review' | 'issues' | 'completed' };
+    type Filter = 'needs-review' | 'issues' | 'completed' | 'all';
     const API = '/api/admin/raffle/photo-imports';
     const list = document.getElementById('importList')!, posts = document.getElementById('postRows')!, status = document.getElementById('importStatus')!;
     const listSummary = document.getElementById('listSummary')!, pageLabel = document.getElementById('pageLabel')!;
     const prevPage = document.getElementById('prevPage') as HTMLButtonElement, nextPage = document.getElementById('nextPage') as HTMLButtonElement;
     const searchInput = document.getElementById('photoSearch') as HTMLInputElement;
-    const FILTERS: Filter[] = ['needs-review', 'completed', 'all'];
+    const FILTERS: Filter[] = ['needs-review', 'issues', 'completed', 'all'];
+    const RETRYING = ['queued', 'retry', 'processing'];
     // Filter, search and page live in the address bar so a reload or the Back button returns to the same view.
     const initial = new URLSearchParams(location.search);
     const state = { filter: (FILTERS.includes(initial.get('filter') as Filter) ? initial.get('filter') : 'needs-review') as Filter,
@@ -252,12 +260,57 @@ export const prerender=false;
         return panel;
     }
 
+    /** A whole-photo rejection or failure: why, the post's queue state, stored winners for the dates it could cover, and how it was handled. */
+    function issuePanel(detail: any) {
+        const imp = detail.photo, issue = detail.issue, postInfo = detail.post;
+        const panel = el('section', { className: 'issuePanel' + (issue.handled ? ' handled' : ''), id: `issue-${imp.photoId}` });
+        const retrying = postInfo && RETRYING.includes(postInfo.status);
+        panel.append(el('h4', { textContent: issue.handled ? `Whole-photo ${imp.status}: handled` : `Whole-photo ${imp.status}: not handled yet` }),
+            el('p', { textContent: `The importer ${imp.status === 'failed' ? 'could not process' : imp.status === 'held' ? 'held' : 'rejected'} this photo as a whole, so no winner rows were stored. Reasons: ${imp.reasons.join('; ') || 'none recorded'}.` }),
+            el('p', { className: 'muted', textContent: postInfo ? `Post ${imp.postId}: queue ${postInfo.status}, ${postInfo.attempts} attempt${postInfo.attempts === 1 ? '' : 's'}${postInfo.lastErrorCode ? `, last error ${postInfo.lastErrorCode} (${local(postInfo.lastErrorAt)})` : ''}${retrying ? ' · the importer will retry automatically' : ''}.` : `Post ${imp.postId} is not in the queue.` }));
+        const stored = issue.storedWinners as any[];
+        panel.append(el('p', { className: 'muted', textContent: `Winners already stored for ${issue.window.join(', ')} (the drawings this announcement could cover): ${stored.length}` }));
+        if (stored.length) panel.append(el('ul', {}, ...stored.map(w => el('li', { textContent: `${w.drawDate} · ${w.name} · ticket ${ticketText(w.ticketNumber)} · ${w.prize ?? 'no prize'}` }))));
+        for (const h of issue.handlings) panel.append(el('p', { className: 'muted', textContent: `Marked handled ${local(h.createdAt)} by ${h.actor} (photo was ${h.originalOutcome}): ${h.note ?? ''}` }));
+        if (issue.handled) return panel;
+        if (issue.handlings.length) panel.append(el('p', { textContent: 'The photo changed after it was last marked handled, so it is open again.' }));
+        const message = attrs(el('div', { className: 'reviewError' }), { role: 'alert' });
+        const area = el('div');
+        const actions = el('div', { className: 'reviewActions' });
+        const button = (text: string, onClick: () => void, cls = 'btn') => { const b = el('button', { type: 'button', className: cls, textContent: text }); b.addEventListener('click', onClick); return b; };
+        let busy = false;
+        async function run(work: () => Promise<{ res: Response; data: any }>, done: string) {
+            if (busy) return;
+            busy = true; message.replaceChildren(); panel.querySelectorAll('button').forEach(b => b.disabled = true);
+            try {
+                const { res, data } = await work();
+                if (res.ok && data.ok) { await afterReview(imp.photoId, done); return; }
+                message.append(data.error ?? 'Unable to save.');
+            } catch { message.append('Network error. Reload the page to check whether it was saved.'); }
+            busy = false; panel.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
+        const markHandled = button('Mark handled', () => {
+            const note = el('textarea', { rows: 2, maxLength: 500, placeholder: 'How was it handled? For example: winners entered manually in raffle admin.' });
+            area.replaceChildren(el('div', { className: 'reviewForm' },
+                el('label', { className: 'span' }, 'Note (required)', note),
+                el('p', { className: 'span muted', textContent: 'Nothing is published or changed on the website. The photo keeps its importer record and moves to Completed as a handled issue; a later failure reopens it.' }),
+                el('div', { className: 'reviewActions span' },
+                    button('Confirm handled', () => void run(() => post({ action: 'resolve-photo', photoId: imp.photoId, version: imp.version, note: note.value }), 'Marked handled.')),
+                    button('Cancel', () => area.replaceChildren(), 'pill'))));
+        });
+        actions.append(markHandled, button('Requeue post', () => void run(() => post({ action: 'requeue', postId: imp.postId }), 'Requeued. The importer will try this post again within two minutes.'), 'pill'));
+        if (!reviewAvailable) { markHandled.disabled = true; actions.append(el('p', { className: 'muted reviewHint', textContent: 'Marking handled needs migration 010.' })); }
+        panel.append(actions, area, message);
+        return panel;
+    }
+
     /** The expanded body of one photo: its rows, why any were held, and the review history. Loaded on first expansion. */
     function renderDetail(body: HTMLElement, detail: any) {
         const imp = detail.photo, rows = detail.rows as Row[], slots = detail.review?.slots ?? {};
         const link = el('a', { href: `https://www.facebook.com/photo/?fbid=${imp.photoId}`, target: '_blank', rel: 'noopener', textContent: `Open photo ${imp.photoId} on Facebook` });
         body.replaceChildren(el('p', {}, link, ` · post ${imp.postId} · processed ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : [])));
-        if (!rows.length) { body.append(el('p', { className: 'muted', textContent: 'No winner rows were stored for this photo. If its post needs another attempt, requeue it from Posts.' })); return; }
+        if (detail.issue) body.append(issuePanel(detail));
+        if (!rows.length) { if (!detail.issue) body.append(el('p', { className: 'muted', textContent: 'No winner rows were stored for this photo.' })); return; }
         const table = el('table', { className: 'importTable' });
         table.innerHTML = '<thead><tr><th>#</th><th>Outcome</th><th>Date</th><th>Place</th><th>Ticket</th><th>Name</th><th>Town</th><th>Prize</th><th>Reason</th></tr></thead>';
         const tbody = el('tbody');
@@ -287,7 +340,9 @@ export const prerender=false;
     function photoCard(p: Summary) {
         const card = el('article', { className: 'importCard shade' });
         const bodyId = `photo-body-${p.photoId}`;
-        const needs = p.unresolved > 0;
+        const needs = p.category === 'needs-review', issue = p.category === 'issues', handledIssue = p.category === 'completed' && p.issue === 1;
+        const retrying = issue && RETRYING.includes(p.postStatus ?? '');
+        const chip = needs ? ['chip-needs', 'Needs review'] : issue ? ['chip-issue', retrying ? 'Issue · retrying' : 'Issue'] : handledIssue ? ['chip-handled', 'Handled issue'] : ['chip-done', 'Completed'];
         const dates = p.firstDrawDate ? (p.firstDrawDate === p.lastDrawDate ? `drawing ${p.firstDrawDate}` : `drawings ${p.firstDrawDate} – ${p.lastDrawDate}`) : 'no rows read';
         const counts = [`${p.published} published`, ...(p.unresolved ? [`${p.unresolved} unresolved`] : []), ...(p.resolved ? [`${p.resolved} resolved`] : []), `${p.rows} row${p.rows === 1 ? '' : 's'}`];
         const toggle = attrs(el('button', { type: 'button', className: 'cardToggle' },
@@ -296,7 +351,7 @@ export const prerender=false;
                 el('strong', { textContent: localDate(p.createdAt) }),
                 el('span', { textContent: dates }),
                 el('span', { textContent: `Photo ${p.photoId}` }),
-                el('span', { className: 'chip ' + (needs ? 'chip-needs' : 'chip-done'), textContent: needs ? 'Needs review' : 'Completed' }),
+                el('span', { className: 'chip ' + chip[0], textContent: chip[1] }),
                 el('span', { className: 'muted', textContent: `${p.status} · ${counts.join(' · ')}` }))), { 'aria-controls': bodyId });
         const body = el('div', { className: 'cardBody', id: bodyId });
         const setOpen = (open: boolean, load: boolean) => {
@@ -304,7 +359,7 @@ export const prerender=false;
             if (open && load) void loadDetail(p.photoId, body);
         };
         toggle.addEventListener('click', () => { const open = toggle.getAttribute('aria-expanded') !== 'true'; opened.set(p.photoId, open); setOpen(open, true); });
-        setOpen(opened.get(p.photoId) ?? needs, true);
+        setOpen(opened.get(p.photoId) ?? (needs || issue), true);
         card.append(el('h3', {}, toggle), body);
         return card;
     }
@@ -330,11 +385,12 @@ export const prerender=false;
             const count = button.querySelector<HTMLElement>('[data-count]'); if (count) count.textContent = `(${data.counts[button.dataset.filter!] ?? 0})`;
         }
         list.replaceChildren(...(data.photos as Summary[]).map(photoCard));
-        const label = state.filter === 'needs-review' ? 'needing review' : state.filter === 'completed' ? 'completed' : 'in total';
+        const label = state.filter === 'needs-review' ? 'needing review' : state.filter === 'issues' ? 'with an open issue' : state.filter === 'completed' ? 'completed' : 'in total';
         const from = data.total ? (data.page - 1) * data.pageSize + 1 : 0, to = Math.min(data.total, data.page * data.pageSize);
         listSummary.textContent = data.total
             ? `Showing ${from}–${to} of ${data.total} photo${data.total === 1 ? '' : 's'} ${label}${state.q ? ` matching “${state.q}”` : ''}.`
-            : state.filter === 'needs-review' && !state.q ? 'Nothing needs review.' : `No photos ${label}${state.q ? ` match “${state.q}”` : ''}.`;
+            : state.filter === 'needs-review' && !state.q ? 'Nothing needs review.' : state.filter === 'issues' && !state.q ? 'No open issues.' : `No photos ${label}${state.q ? ` match “${state.q}”` : ''}.`;
+        if (state.filter === 'issues' && data.handledIssues) listSummary.textContent += ` ${data.handledIssues} handled issue${data.handledIssues === 1 ? ' is' : 's are'} kept under Completed.`;
         pageLabel.textContent = `Page ${data.page} of ${data.pages}`;
         prevPage.disabled = data.page <= 1; nextPage.disabled = data.page >= data.pages;
     }
@@ -343,7 +399,7 @@ export const prerender=false;
         details.delete(photoId);
         await loadList();
         const stillListed = document.getElementById(`photo-body-${photoId}`);
-        status.textContent = done + (stillListed || state.filter !== 'needs-review' ? '' : ' Nothing left to review on that photo; it is under Completed.');
+        status.textContent = done + (stillListed || state.filter === 'all' || state.filter === 'completed' ? '' : state.filter === 'issues' ? ' That photo is under Completed as a handled issue.' : ' Nothing left to review on that photo; it is under Completed.');
     }
     async function loadPosts() {
         const { res, data } = await getJson({ view: 'posts' });

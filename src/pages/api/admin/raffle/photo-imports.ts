@@ -4,14 +4,14 @@ import { json } from '../../../../lib/http';
 import { parsePhotoSource } from '../../../../lib/raffle-photo-import';
 import { requeuePost, validPostId } from '../../../../lib/server/raffle-photo-autopublish';
 import { reviewActor, reviewContext, reviewRow } from '../../../../lib/server/raffle-photo-review';
-import { photoDetail, photoSummaries, recentPosts } from '../../../../lib/server/raffle-photo-history';
+import { handlePhotoIssue, photoDetail, photoSummaries, recentPosts } from '../../../../lib/server/raffle-photo-history';
 
 // Log of the unattended importer, requeue, and administrator review of held or rejected rows. Automatic publication happens only in
 // the photo Worker; a requeued post is picked up by its next cron tick (every two minutes). Review actions publish through the same
 // winner validation as manual entry. The middleware requires an authenticated admin session and same-origin CSRF for every POST.
 //
 // GET views used by the admin page (all read-only and paged; no history is deleted or hidden):
-//   ?view=summary&filter=needs-review|completed|all&q=…&page=N  one page of photo summaries and the count per filter
+//   ?view=summary&filter=needs-review|issues|completed|all&q=…&page=N  one page of photo summaries and the count per filter
 //   ?view=photo&photoId=…                                        one photo's rows with review context
 //   ?view=posts                                                  the latest 40 posts (requeue)
 // Without view, the full recent log (latest 40 photos with rows, posts and sanitized attempts) is returned as before.
@@ -57,6 +57,12 @@ export const POST: APIRoute = async ({ locals, request }) => {
     let body: any;
     try { const text = await request.text(); if (text.length > 4000) throw Error(); body = JSON.parse(text); }
     catch { return json({ ok: false, error: 'Invalid request.' }, 400); }
+    if (body?.action === 'resolve-photo') {
+        try {
+            const result = await handlePhotoIssue(db, body, await reviewActor(request));
+            return json(result.body, result.status);
+        } catch { return json({ ok: false, error: 'Unable to mark this photo handled.' }, 503); }
+    }
     if (body?.action === 'approve' || body?.action === 'edit' || body?.action === 'resolve') {
         try {
             const result = await reviewRow(db, body, await reviewActor(request));
