@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createHmac } from 'node:crypto';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
-import { decidePhoto, matchPrize, chicagoDate, composePrize, writeDecision } from '../src/lib/server/raffle-photo-autopublish.ts';
+import { decidePhoto, matchPrize, chicagoDate, composePrize, writeDecision, printedName } from '../src/lib/server/raffle-photo-autopublish.ts';
 import { prizeSchedule } from '../src/lib/server/raffle-prizes.ts';
 import { webhookPostIds, qualifies, pollDue, alertsDue, validSignature } from '../workers/facebook-photos/webhook.ts';
 import { checkPhotoWorker } from '../workers/facebook-photos/check-deployment.mjs';
@@ -816,4 +816,73 @@ test('AI quota: completed reads are checkpointed and reused, refusals give the a
     assert.equal(await claimPost(DB, postId, new Date('2026-11-14T12:05:00Z'), 600), true);
     await failPost(DB, postId, '4006:-you-have-used-up-your-daily-free-allocation', 2, new Date('2026-11-14T12:05:00Z'), 0, false, true);
     assert.equal((await state()).status, 'failed');
+});
+
+// Nov 16, 2026 (photo 122336394524073310): both passes read "797 -JJ Demaske, Melrose, WI" and agreed, but the printed-name check only
+// recognised a dash spaced on both sides and held the row. Uneven spacing is accepted only after the extracted ticket's own digits.
+test('printed-name parsing accepts uneven spacing after the ticket and keeps rejecting wrong names', () => {
+    const fold = v => v.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9$]+/g, ' ').trim();
+    const agrees = (cell, ticket, name) => { const p = printedName(cell, ticket); return p === undefined || fold(p) === fold(name); };
+    const cases = [
+        ['797 -JJ Demaske, Melrose, WI', '797', 'JJ Demaske', true],
+        ['797-JJ Demaske, Melrose, WI', '797', 'JJ Demaske', true],
+        ['797- JJ Demaske, Melrose, WI', '797', 'JJ Demaske', true],
+        ['797 - JJ Demaske, Melrose, WI', '797', 'JJ Demaske', true],
+        ['797 — JJ Demaske, Melrose, WI', '797', 'JJ Demaske', true],
+        ['#797-JJ Demaske, Melrose, WI', '797', 'JJ Demaske', true],
+        ['047 -Ann Lee, Blair, WI', '047', 'Ann Lee', true],
+        ['797 -JJ Demaske, Melrose, WI', '797', 'JJ', false],
+        ['797 -JJ Demaske, Melrose, WI', '797', 'Demaske', false],
+        ['797 -JJ Demaske, Melrose, WI', '797', 'JJ Demaske Melrose', false],
+        ['797 - Mary Smith-Jones, Blair, WI', '797', 'Mary Smith-Jones', true],
+        ['797-Mary Smith-Jones, Blair, WI', '797', 'Mary Smith-Jones', true],
+        ['797 -Smith-Jones, Blair, WI', '797', 'Smith-Jones', true],
+        ['797 - Mary Smith-Jones, Blair, WI', '797', 'Jones', false],
+        ['797-Smith-Jones, Blair, WI', '797', 'Jones', false],
+        ['797 - Mary Smith-Jones, Blair, WI', '797', 'Mary Smith', false],
+        ['442 - Winner 28G, Taylor, WI', '442', 'Winner', false],
+        ['Life Jacket - JJ Demaske, Melrose, WI', '', 'JJ Demaske', true],
+        ['Paddle board - New Person, Blair, WI', '', 'New Person', true],
+        ['Life Jacket -JJ Demaske, Melrose, WI', '', 'JJ Demaske', false],
+        ['798 -JJ Demaske, Melrose, WI', '797', 'JJ Demaske', false],
+        ['1797-JJ Demaske, Melrose, WI', '797', 'JJ Demaske', false],
+        // Edge cases: a colon is not a separator, and a ticket the model returned without its printed leading zero is not stripped.
+        ['797: JJ Demaske, Melrose, WI', '797', 'JJ Demaske', false],
+        ['047 -Ann Lee, Blair, WI', '47', 'Ann Lee', false],
+    ];
+    for (const [cell, ticket, name, want] of cases) assert.equal(agrees(cell, ticket, name), want, `${cell} / ${ticket} / ${name}`);
+});
+
+test('November 16 "797 -JJ Demaske" publishes; mismatches, neighbour contamination and stored winners do not', async t => {
+    const DB = await database(t), schedule = await prizeSchedule(DB, '2026-11');
+    const jj = row({ drawDate: '2026-11-16', position: null, ticketNumber: '797', ticketStatus: 'readable', name: 'JJ Demaske', town: 'Melrose, WI',
+        townStatus: 'readable', prize: 'Firearm', cellText: '797 -JJ Demaske, Melrose, WI' });
+    const decide = (r, existing = []) => decidePhoto([pass([r]), pass([structuredClone(r)])], existing, schedule, '2026-11-16').rows.find(d => d.row.ticketNumber === r.ticketNumber);
+    const ok = decide(jj);
+    assert.equal(ok.outcome, 'insert', ok.reasons.join('; '));
+    assert.equal(ok.winnerId, '2026-11-2026-11-16-797');
+    assert.match(ok.prize, /Colt Python/);
+    for (const cellText of ['797-JJ Demaske, Melrose, WI', '797- JJ Demaske, Melrose, WI', '797 - JJ Demaske, Melrose, WI'])
+        assert.equal(decide({ ...jj, cellText }).outcome, 'insert', cellText);
+    // Hyphenated names with either spacing.
+    assert.equal(decide({ ...jj, name: 'Mary Smith-Jones', cellText: '797-Mary Smith-Jones, Melrose, WI' }).outcome, 'insert');
+    // A shortened, extended or different name is still held.
+    for (const name of ['JJ', 'Demaske', 'JJ Demaske Melrose', 'Jj Demask'])
+        assert.equal(decide({ ...jj, name }).outcome, 'held', name);
+    assert.ok(decide({ ...jj, name: 'Demaske' }).reasons.includes('name differs from the name printed in the cell'));
+    // The name or hometown of a neighbouring cell is not accepted.
+    assert.equal(decide({ ...jj, cellText: '797 -JJ Demaske, Melrose, WI 798 - Other Person, Blair, WI', name: 'Other Person' }).outcome, 'held');
+    assert.equal(decide({ ...jj, town: 'Blair, WI' }).outcome, 'held');
+    // A ticket that is not the cell's own leading number is not stripped and the row is held.
+    assert.equal(decide({ ...jj, cellText: '1797-JJ Demaske, Melrose, WI' }).outcome, 'held');
+    // A label with uneven spacing stays in manual review, as before.
+    assert.equal(decide({ ...jj, ticketNumber: '', ticketStatus: 'blank', prize: 'Gift Card', cellText: 'Gift Card -JJ Demaske, Melrose, WI' }).outcome !== 'insert', true);
+    // Prize labels: the day's gift card read beside the firearm, both with uneven dash spacing, map to their own approved slots.
+    const gift = { ...jj, ticketNumber: '798', name: 'Pat Doe', town: 'Blair, WI', prize: 'Gift Card', cellText: '798-Pat Doe, Blair, WI' };
+    const both = decidePhoto([pass([jj, gift]), pass(structuredClone([jj, gift]))], [], schedule, '2026-11-16').rows;
+    assert.deepEqual(both.filter(d => d.row.ticketNumber).map(d => [d.outcome, d.row.ticketNumber, /Colt Python/.test(d.prize) ? 'main' : /gift certificate/.test(d.prize) ? 'gift' : d.prize]),
+        [['insert', '797', 'main'], ['insert', '798', 'gift']]);
+    // A winner already entered manually (Nov 16 was corrected by hand) is a duplicate, never a second insert.
+    const stored = { id: '2026-11-2026-11-16-797', drawDate: '2026-11-16', ticketNumber: 797, name: 'JJ Demaske', town: 'Melrose, WI', prize: ok.prize };
+    assert.equal(decide(jj, [stored]).outcome, 'duplicate');
 });
