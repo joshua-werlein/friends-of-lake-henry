@@ -7,17 +7,38 @@ export const prerender=false;
     <section class="card">
         <a class="pill" href="/admin/raffle">Back to raffle admin</a>
         <h1>Facebook winner-photo imports</h1>
-        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published. Each one is listed under its photo with the reason, and you can <strong>approve</strong> it, <strong>edit</strong> and publish it, or <strong>mark it resolved</strong> if the website already has the winner. A post's <em>queue</em> status only means processing finished. Its <em>winners</em> column shows what the importer did.</p>
+        <p>Winner announcement photos posted to the Facebook Page are read automatically and verified winners are published immediately. Rows that are uncertain, disagree between AI reads or conflict with an existing winner are <strong>not</strong> published. They wait under <strong>Needs review</strong>, where you can <strong>approve</strong> a row, <strong>edit</strong> and publish it, or <strong>mark it resolved</strong> if the website already has the winner. Every photo, row and review is kept under <strong>Completed</strong> and <strong>All</strong>.</p>
         <form id="queueForm" class="panel">
             <label>Queue a Facebook post link<input class="input" id="queueSource" placeholder="https://www.facebook.com/61552199315213/posts/…" maxlength="2000" /></label>
             <button class="btn" type="submit">Queue post</button>
             <p class="muted">Queued posts are processed on the importer's next two-minute run.</p>
         </form>
         <p id="importStatus" role="status" aria-live="polite"></p>
-        <h2>Photos</h2>
+        <h2 id="photosHeading">Photos</h2>
+        <div class="historyTools">
+            <div class="filterBar" role="group" aria-labelledby="photosHeading" id="filterBar">
+                <button type="button" class="pill" data-filter="needs-review" aria-pressed="true">Needs review <span data-count="needs-review"></span></button>
+                <button type="button" class="pill" data-filter="completed" aria-pressed="false">Completed <span data-count="completed"></span></button>
+                <button type="button" class="pill" data-filter="all" aria-pressed="false">All <span data-count="all"></span></button>
+            </div>
+            <form id="searchForm" class="searchForm" role="search">
+                <label class="srOnly" for="photoSearch">Search photos by date, winner name or photo ID</label>
+                <input id="photoSearch" type="search" maxlength="48" placeholder="Date (2026-11-16 or 11/16), winner name or photo ID" autocomplete="off" />
+                <button class="btn" type="submit">Search</button>
+                <button class="pill" type="button" id="clearSearch">Clear</button>
+            </form>
+        </div>
+        <p id="listSummary" class="muted" aria-live="polite"></p>
         <div id="importList"></div>
-        <h2>Posts</h2>
-        <div class="tableWrap shade" tabindex="0" aria-label="Posts table, scrolls sideways"><table class="importTable postsTable"><thead><tr><th>Post</th><th>Source</th><th>Queue</th><th>Winners</th><th>Attempts</th><th>Current error</th><th>Last failure</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
+        <nav class="pager" aria-label="Photo pages">
+            <button type="button" class="pill" id="prevPage">Newer</button>
+            <span id="pageLabel"></span>
+            <button type="button" class="pill" id="nextPage">Older</button>
+        </nav>
+        <h2><button type="button" class="sectionToggle" id="postsToggle" aria-expanded="false" aria-controls="postsSection"><span class="chevron" aria-hidden="true"></span>Posts (latest 40)</button></h2>
+        <div id="postsSection" hidden>
+            <div class="tableWrap shade" tabindex="0" aria-label="Posts table, scrolls sideways"><table class="importTable postsTable"><thead><tr><th>Post</th><th>Source</th><th>Queue</th><th>Winners</th><th>Attempts</th><th>Current error</th><th>Last failure</th><th>Updated</th><th></th></tr></thead><tbody id="postRows"></tbody></table></div>
+        </div>
     </section>
 </div>
 <!-- Global, but limited to .photoImports: the tables, cards and review panels are created by the script below, so Astro's
@@ -30,11 +51,31 @@ export const prerender=false;
     .photoImports .importTable th{white-space:nowrap}
     .photoImports .importTable td.reason{min-width:16rem}
     .photoImports .importTable td.wrapAny{overflow-wrap:anywhere;min-width:8rem}
-    .photoImports .importCard{border:1px solid var(--border);border-radius:12px;padding:.8rem 1rem;margin:.75rem 0;min-width:0}
-    .photoImports .importCard > p{overflow-wrap:anywhere}
+    .photoImports .importCard{border:1px solid var(--border);border-radius:12px;padding:0;margin:.75rem 0;min-width:0}
+    .photoImports .importCard > h3{margin:0;font-size:1rem}
+    .photoImports .cardToggle,.photoImports .sectionToggle{display:flex;gap:.6rem;align-items:flex-start;width:100%;min-height:44px;padding:.7rem .9rem;border:0;border-radius:12px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+    .photoImports .sectionToggle{padding:.4rem 0;font-weight:inherit;font-size:inherit}
+    .photoImports .cardToggle:focus-visible,.photoImports .sectionToggle:focus-visible{outline:3px solid var(--focus-outline);outline-offset:2px}
+    .photoImports .chevron{flex:none;width:.6rem;height:.6rem;margin-top:.45rem;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform 150ms ease}
+    .photoImports [aria-expanded="true"] > .chevron{transform:rotate(45deg)}
+    .photoImports .cardSummary{display:flex;flex-wrap:wrap;gap:.25rem .9rem;min-width:0;overflow-wrap:anywhere}
+    .photoImports .cardSummary strong{font-weight:700}
+    .photoImports .chip{display:inline-block;border-radius:999px;padding:0 .55rem;font-size:.85rem;border:1px solid var(--border-strong)}
+    .photoImports .chip-needs{border-color:#ffd479;color:#ffd479}.photoImports .chip-done{border-color:#7ee2a8;color:#7ee2a8}
+    .photoImports .cardBody{padding:0 .9rem .9rem;min-width:0}
+    .photoImports .cardBody > p{overflow-wrap:anywhere}
+    .photoImports .historyTools{display:grid;gap:.6rem;margin:.5rem 0}
+    .photoImports .filterBar{display:flex;flex-wrap:wrap;gap:.5rem}
+    .photoImports .filterBar button{min-height:44px}
+    .photoImports .filterBar button[aria-pressed="true"]{background:var(--brand-tint-strong);border-color:var(--border-bright)}
+    .photoImports .searchForm{display:flex;flex-wrap:wrap;gap:.5rem;align-items:stretch}
+    .photoImports .searchForm input{flex:1 1 16rem;min-width:0}
+    .photoImports .searchForm button{min-height:44px}
+    .photoImports .pager{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:center;margin:.75rem 0}
+    .photoImports .pager button{min-height:44px}
     .photoImports .outcome-inserted{color:#7ee2a8}.photoImports .outcome-rejected{color:#ffb4a8}.photoImports .outcome-held{color:#ffd479}.photoImports .outcome-resolved{color:#9fd3ff}
     .photoImports .reviewPanel{border:1px solid var(--border-strong);border-radius:12px;padding:.8rem;margin:.75rem 0 0;min-width:0}
-    .photoImports .reviewPanel h3{font-size:1.05rem;margin:0 0 .4rem}
+    .photoImports .reviewPanel h4{font-size:1.05rem;margin:0 0 .4rem}
     .photoImports .reviewPanel ul{margin:.25rem 0 .5rem;padding-left:1.2rem}
     .photoImports .reviewPanel code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;padding:.4rem .5rem;border-radius:8px;background:rgba(0,0,0,.25)}
     .photoImports .reviewValues{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.35rem .9rem;margin:.5rem 0}
@@ -49,51 +90,78 @@ export const prerender=false;
     .photoImports .reviewForm .span{grid-column:1/-1}
     .photoImports .reviewForm small{display:block;color:var(--text-soft);overflow-wrap:anywhere}
     .photoImports .reviewError{color:#ffb4a8;overflow-wrap:anywhere}
+    .photoImports .historyNote{margin:.5rem 0 0}
     @media (max-width:520px){
-        .photoImports .importCard{padding:.6rem}
-        .photoImports .reviewActions button{flex:1 1 100%}
+        .photoImports .cardToggle{padding:.6rem}
+        .photoImports .cardBody{padding:0 .6rem .6rem}
+        .photoImports .reviewActions button,.photoImports .searchForm button{flex:1 1 100%}
+        .photoImports .filterBar button{flex:1 1 auto}
     }
 </style>
 <script>
     type Row = { photoId: string; rowNumber: number; outcome: string; winnerId: string | null; prize: string | null; reasons: string[]; row: any;
         version?: string; resolution?: any; matches?: any[] };
     type Slot = { id: string; description: string; place: string | null; prize: string | null };
+    type Summary = { photoId: string; postId: string; status: string; createdAt: string; reasons: string[]; firstDrawDate: string | null; lastDrawDate: string | null;
+        rows: number; published: number; unresolved: number; resolved: number };
+    type Filter = 'needs-review' | 'completed' | 'all';
+    const API = '/api/admin/raffle/photo-imports';
     const list = document.getElementById('importList')!, posts = document.getElementById('postRows')!, status = document.getElementById('importStatus')!;
-    let slots: Record<string, Slot[]> = {}, reviewAvailable = false;
+    const listSummary = document.getElementById('listSummary')!, pageLabel = document.getElementById('pageLabel')!;
+    const prevPage = document.getElementById('prevPage') as HTMLButtonElement, nextPage = document.getElementById('nextPage') as HTMLButtonElement;
+    const searchInput = document.getElementById('photoSearch') as HTMLInputElement;
+    const FILTERS: Filter[] = ['needs-review', 'completed', 'all'];
+    // Filter, search and page live in the address bar so a reload or the Back button returns to the same view.
+    const initial = new URLSearchParams(location.search);
+    const state = { filter: (FILTERS.includes(initial.get('filter') as Filter) ? initial.get('filter') : 'needs-review') as Filter,
+        q: (initial.get('q') ?? '').slice(0, 48), page: Math.max(1, Number.parseInt(initial.get('page') ?? '1', 10) || 1), pages: 1 };
+    searchInput.value = state.q;
+    let reviewAvailable = false, listRequest = 0;
+    // Expansion the administrator chose, kept across refreshes. Unlisted photos follow the default: open while they need review.
+    const opened = new Map<string, boolean>();
+    const details = new Map<string, any>();
+
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...children: (Node | string)[]) => {
         const node = Object.assign(document.createElement(tag), props); node.append(...children); return node;
     };
     const attrs = <T extends HTMLElement>(node: T, values: Record<string, string>) => { for (const [k, v] of Object.entries(values)) node.setAttribute(k, v); return node; };
     const cell = (text: string, cls = '') => el('td', { textContent: text, className: cls });
     const local = (iso: string) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago' }) : '';
+    const localDate = (iso: string) => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric' }) : '';
     const ticketText = (t: unknown) => String(t ?? '') || 'None published';
     async function post(body: unknown) {
-        const res = await fetch('/api/admin/raffle/photo-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { res, data: await res.json().catch(() => ({})) };
+    }
+    async function getJson(params: Record<string, string>) {
+        const res = await fetch(`${API}?${new URLSearchParams(params)}`, { cache: 'no-store' });
         return { res, data: await res.json().catch(() => ({})) };
     }
     async function requeue(postId: string) {
         status.textContent = 'Queuing…';
         const { res, data } = await post({ action: 'requeue', postId });
         status.textContent = res.ok && data.ok ? (data.queued ? 'Queued. It will run within two minutes.' : 'Already queued or processing.') : (data.error ?? 'Unable to queue.');
-        await load();
+        await loadPosts();
     }
     const winnerLine = (w: any) => `${w.name} · ticket ${ticketText(w.ticketNumber)} · ${w.town || 'no hometown'} · ${w.drawDate} · ${w.prize ?? 'no prize'}`;
     const values = (pairs: [string, string][]) => el('dl', { className: 'reviewValues' }, ...pairs.map(([k, v]) => el('div', {}, el('dt', { textContent: k }), el('dd', { textContent: v }))));
 
     /** One full-width panel per held or rejected row, outside the scrolling table, so every control is reachable on a phone. */
-    function reviewPanel(r: Row) {
+    function reviewPanel(r: Row, slots: Record<string, Slot[]>) {
         const panel = el('section', { className: 'reviewPanel shade', id: `review-${r.photoId}-${r.rowNumber}` });
         const ai = r.row ?? {};
         if (r.resolution) {
             const res = r.resolution;
-            panel.append(el('h3', { textContent: `Row ${r.rowNumber} · ${res.finalStatus === 'published' ? 'published after review' : 'resolved'} (${res.action})`, className: 'outcome-resolved' }),
-                el('p', { className: 'muted', textContent: `${res.actor} · ${local(res.createdAt)}${res.winnerId ? ' · winner ' + res.winnerId : ''}${res.note ? ' · ' + res.note : ''}` }));
+            panel.append(el('h4', { textContent: `Row ${r.rowNumber} · ${res.finalStatus === 'published' ? 'published after review' : 'resolved'} (${res.action})`, className: 'outcome-resolved' }),
+                el('p', { className: 'muted', textContent: `Originally ${res.originalOutcome}. ${res.actor} · ${local(res.createdAt)}${res.winnerId ? ' · winner ' + res.winnerId : ''}${res.note ? ' · ' + res.note : ''}` }));
             const corrections = (() => { try { return Object.entries(JSON.parse(res.corrections || '{}')) as [string, any][]; } catch { return []; } })();
             if (corrections.length) panel.append(el('p', { className: 'muted', textContent: 'Corrected: ' + corrections.map(([k, v]) => `${k} “${v.from ?? ''}” → “${v.to ?? ''}”`).join('; ') }));
+            panel.append(el('p', { className: 'muted', textContent: 'Original cell text' }), el('code', { textContent: ai.cellText || 'Not recorded' }),
+                el('p', { className: 'muted', textContent: `Why it was ${res.originalOutcome}: ${r.reasons.filter(t => !t.startsWith('published by an administrator')).join('; ') || '—'}` }));
             return panel;
         }
         const message = attrs(el('div', { className: 'reviewError' }), { role: 'alert' });
-        panel.append(el('h3', { textContent: `Row ${r.rowNumber} · ${r.outcome}${ai.name ? ' · ' + ai.name : ''}` }),
+        panel.append(el('h4', { textContent: `Row ${r.rowNumber} · ${r.outcome}${ai.name ? ' · ' + ai.name : ''}` }),
             el('p', { textContent: `Why it was ${r.outcome}:` }), el('ul', {}, ...r.reasons.map(t => el('li', { textContent: t }))),
             el('p', { className: 'muted', textContent: 'Original cell text' }), el('code', { textContent: ai.cellText || 'Not recorded' }),
             el('p', { className: 'muted', textContent: 'Extracted by the AI' }),
@@ -113,7 +181,7 @@ export const prerender=false;
             busy = true; message.replaceChildren(); panel.querySelectorAll('button').forEach(b => b.disabled = true);
             try {
                 const { res, data } = await post({ ...body, photoId: r.photoId, rowNumber: r.rowNumber, version: r.version });
-                if (res.ok && data.ok) { status.textContent = done; await load(); return; }
+                if (res.ok && data.ok) { await afterReview(r.photoId, done); return; }
                 message.append(data.error ?? 'Unable to save this review.');
                 if (Array.isArray(data.conflicts) && data.conflicts.length) message.append(el('ul', {}, ...data.conflicts.map((w: any) => el('li', { textContent: winnerLine(w) }))));
             } catch { message.append('Network error. Reload the page to check whether it was saved.'); }
@@ -184,32 +252,102 @@ export const prerender=false;
         return panel;
     }
 
-    async function load() {
-        const res = await fetch('/api/admin/raffle/photo-imports', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.ok) { status.textContent = data.error ?? 'Unable to load imports.'; return; }
-        slots = data.review?.slots ?? {}; reviewAvailable = !!data.review?.available;
-        list.replaceChildren();
-        if (!data.imports.length) list.textContent = 'No photos processed yet.';
-        for (const imp of data.imports) {
-            const card = el('div', { className: 'importCard shade' });
-            const link = el('a', { href: `https://www.facebook.com/photo/?fbid=${imp.photoId}`, target: '_blank', rel: 'noopener', textContent: `Photo ${imp.photoId}` });
-            card.append(el('p', {}, link, ` · ${imp.status} · ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : [])));
-            if (imp.rows.length) {
-                const table = el('table', { className: 'importTable' });
-                table.innerHTML = '<thead><tr><th>#</th><th>Outcome</th><th>Date</th><th>Place</th><th>Ticket</th><th>Name</th><th>Town</th><th>Prize</th><th>Reason</th></tr></thead>';
-                const body = el('tbody');
-                for (const r of imp.rows as Row[]) {
-                    const outcome = r.resolution ? `${r.outcome} → ${r.resolution.finalStatus}` : r.outcome;
-                    body.append(el('tr', {}, cell(String(r.rowNumber)), cell(outcome, 'outcome-' + (r.resolution ? 'resolved' : r.outcome)), cell(r.row.drawDate), cell(r.row.position ?? '—'),
-                        cell(ticketText(r.row.ticketNumber)), cell(r.row.name, 'wrapAny'), cell(r.row.town, 'wrapAny'), cell(r.prize ?? r.row.prize ?? '', 'wrapAny'), cell(r.reasons.join('; '), 'reason')));
-                }
-                table.append(body);
-                card.append(attrs(el('div', { className: 'tableWrap shade', tabIndex: 0 }, table), { 'aria-label': `Rows of photo ${imp.photoId}, scrolls sideways` }));
-                for (const r of (imp.rows as Row[]).filter(r => r.resolution || ['held', 'rejected'].includes(r.outcome))) card.append(reviewPanel(r));
-            }
-            list.append(card);
+    /** The expanded body of one photo: its rows, why any were held, and the review history. Loaded on first expansion. */
+    function renderDetail(body: HTMLElement, detail: any) {
+        const imp = detail.photo, rows = detail.rows as Row[], slots = detail.review?.slots ?? {};
+        const link = el('a', { href: `https://www.facebook.com/photo/?fbid=${imp.photoId}`, target: '_blank', rel: 'noopener', textContent: `Open photo ${imp.photoId} on Facebook` });
+        body.replaceChildren(el('p', {}, link, ` · post ${imp.postId} · processed ${local(imp.createdAt)}`, ...(imp.reasons.length ? [` · ${imp.reasons.join('; ')}`] : [])));
+        if (!rows.length) { body.append(el('p', { className: 'muted', textContent: 'No winner rows were stored for this photo. If its post needs another attempt, requeue it from Posts.' })); return; }
+        const table = el('table', { className: 'importTable' });
+        table.innerHTML = '<thead><tr><th>#</th><th>Outcome</th><th>Date</th><th>Place</th><th>Ticket</th><th>Name</th><th>Town</th><th>Prize</th><th>Reason</th></tr></thead>';
+        const tbody = el('tbody');
+        for (const r of rows) {
+            const outcome = r.resolution ? `${r.outcome} → ${r.resolution.finalStatus}` : r.outcome;
+            tbody.append(el('tr', {}, cell(String(r.rowNumber)), cell(outcome, 'outcome-' + (r.resolution ? 'resolved' : r.outcome)), cell(r.row.drawDate ?? ''), cell(r.row.position ?? '—'),
+                cell(ticketText(r.row.ticketNumber)), cell(r.row.name ?? '', 'wrapAny'), cell(r.row.town ?? '', 'wrapAny'), cell(r.prize ?? r.row.prize ?? '', 'wrapAny'), cell(r.reasons.join('; '), 'reason')));
         }
+        table.append(tbody);
+        body.append(attrs(el('div', { className: 'tableWrap shade', tabIndex: 0 }, table), { 'aria-label': `Rows of photo ${imp.photoId}, scrolls sideways` }));
+        const open = rows.filter(r => !r.resolution && ['held', 'rejected'].includes(r.outcome));
+        const history = rows.filter(r => r.resolution);
+        for (const r of open) body.append(reviewPanel(r, slots));
+        if (history.length) {
+            body.append(el('p', { className: 'muted historyNote', textContent: `Review history (${history.length} row${history.length === 1 ? '' : 's'})` }));
+            for (const r of history) body.append(reviewPanel(r, slots));
+        }
+    }
+    async function loadDetail(photoId: string, body: HTMLElement, force = false) {
+        if (!force && details.has(photoId)) { renderDetail(body, details.get(photoId)); return; }
+        body.replaceChildren(el('p', { className: 'muted', textContent: 'Loading rows…' }));
+        const { res, data } = await getJson({ view: 'photo', photoId });
+        if (!res.ok || !data.ok) { body.replaceChildren(el('p', { className: 'reviewError', textContent: data.error ?? 'Unable to load this photo.' })); return; }
+        details.set(photoId, data);
+        renderDetail(body, data);
+    }
+    function photoCard(p: Summary) {
+        const card = el('article', { className: 'importCard shade' });
+        const bodyId = `photo-body-${p.photoId}`;
+        const needs = p.unresolved > 0;
+        const dates = p.firstDrawDate ? (p.firstDrawDate === p.lastDrawDate ? `drawing ${p.firstDrawDate}` : `drawings ${p.firstDrawDate} – ${p.lastDrawDate}`) : 'no rows read';
+        const counts = [`${p.published} published`, ...(p.unresolved ? [`${p.unresolved} unresolved`] : []), ...(p.resolved ? [`${p.resolved} resolved`] : []), `${p.rows} row${p.rows === 1 ? '' : 's'}`];
+        const toggle = attrs(el('button', { type: 'button', className: 'cardToggle' },
+            attrs(el('span', { className: 'chevron' }), { 'aria-hidden': 'true' }),
+            el('span', { className: 'cardSummary' },
+                el('strong', { textContent: localDate(p.createdAt) }),
+                el('span', { textContent: dates }),
+                el('span', { textContent: `Photo ${p.photoId}` }),
+                el('span', { className: 'chip ' + (needs ? 'chip-needs' : 'chip-done'), textContent: needs ? 'Needs review' : 'Completed' }),
+                el('span', { className: 'muted', textContent: `${p.status} · ${counts.join(' · ')}` }))), { 'aria-controls': bodyId });
+        const body = el('div', { className: 'cardBody', id: bodyId });
+        const setOpen = (open: boolean, load: boolean) => {
+            toggle.setAttribute('aria-expanded', String(open)); body.hidden = !open;
+            if (open && load) void loadDetail(p.photoId, body);
+        };
+        toggle.addEventListener('click', () => { const open = toggle.getAttribute('aria-expanded') !== 'true'; opened.set(p.photoId, open); setOpen(open, true); });
+        setOpen(opened.get(p.photoId) ?? needs, true);
+        card.append(el('h3', {}, toggle), body);
+        return card;
+    }
+    function syncUrl() {
+        const params = new URLSearchParams();
+        if (state.filter !== 'needs-review') params.set('filter', state.filter);
+        if (state.q) params.set('q', state.q);
+        if (state.page > 1) params.set('page', String(state.page));
+        const query = params.toString();
+        history.replaceState(null, '', location.pathname + (query ? '?' + query : ''));
+    }
+    async function loadList() {
+        const request = ++listRequest;
+        listSummary.textContent = 'Loading…';
+        const { res, data } = await getJson({ view: 'summary', filter: state.filter, q: state.q, page: String(state.page) });
+        if (request !== listRequest) return; // A newer filter, search or page replaced this request.
+        if (!res.ok || !data.ok) { listSummary.textContent = data.error ?? 'Unable to load imports.'; return; }
+        reviewAvailable = !!data.reviewAvailable;
+        state.page = data.page; state.pages = data.pages;
+        syncUrl();
+        for (const button of document.querySelectorAll<HTMLButtonElement>('#filterBar button')) {
+            button.setAttribute('aria-pressed', String(button.dataset.filter === state.filter));
+            const count = button.querySelector<HTMLElement>('[data-count]'); if (count) count.textContent = `(${data.counts[button.dataset.filter!] ?? 0})`;
+        }
+        list.replaceChildren(...(data.photos as Summary[]).map(photoCard));
+        const label = state.filter === 'needs-review' ? 'needing review' : state.filter === 'completed' ? 'completed' : 'in total';
+        const from = data.total ? (data.page - 1) * data.pageSize + 1 : 0, to = Math.min(data.total, data.page * data.pageSize);
+        listSummary.textContent = data.total
+            ? `Showing ${from}–${to} of ${data.total} photo${data.total === 1 ? '' : 's'} ${label}${state.q ? ` matching “${state.q}”` : ''}.`
+            : state.filter === 'needs-review' && !state.q ? 'Nothing needs review.' : `No photos ${label}${state.q ? ` match “${state.q}”` : ''}.`;
+        pageLabel.textContent = `Page ${data.page} of ${data.pages}`;
+        prevPage.disabled = data.page <= 1; nextPage.disabled = data.page >= data.pages;
+    }
+    /** After a review: reload that photo's rows and the counts. A photo with nothing left to review moves out of Needs review. */
+    async function afterReview(photoId: string, done: string) {
+        details.delete(photoId);
+        await loadList();
+        const stillListed = document.getElementById(`photo-body-${photoId}`);
+        status.textContent = done + (stillListed || state.filter !== 'needs-review' ? '' : ' Nothing left to review on that photo; it is under Completed.');
+    }
+    async function loadPosts() {
+        const { res, data } = await getJson({ view: 'posts' });
+        if (!res.ok || !data.ok) { status.textContent = data.error ?? 'Unable to load posts.'; return; }
         posts.replaceChildren();
         for (const p of data.posts) {
             const action = el('td');
@@ -222,13 +360,28 @@ export const prerender=false;
                 cell(p.lastErrorCode ? `${p.lastErrorCode} (${local(p.lastErrorAt)})` : ''), cell(local(p.updatedAt)), action));
         }
     }
+
+    for (const button of document.querySelectorAll<HTMLButtonElement>('#filterBar button')) button.addEventListener('click', () => {
+        state.filter = button.dataset.filter as Filter; state.page = 1; void loadList();
+    });
+    document.getElementById('searchForm')!.addEventListener('submit', e => { e.preventDefault(); state.q = searchInput.value.trim().slice(0, 48); state.page = 1; void loadList(); });
+    document.getElementById('clearSearch')!.addEventListener('click', () => { searchInput.value = ''; state.q = ''; state.page = 1; void loadList(); });
+    prevPage.addEventListener('click', () => { if (state.page > 1) { state.page--; void loadList().then(() => document.getElementById('photosHeading')!.scrollIntoView()); } });
+    nextPage.addEventListener('click', () => { if (state.page < state.pages) { state.page++; void loadList().then(() => document.getElementById('photosHeading')!.scrollIntoView()); } });
+    const postsToggle = document.getElementById('postsToggle')!, postsSection = document.getElementById('postsSection')!;
+    let postsLoaded = false;
+    postsToggle.addEventListener('click', () => {
+        const open = postsToggle.getAttribute('aria-expanded') !== 'true';
+        postsToggle.setAttribute('aria-expanded', String(open)); postsSection.hidden = !open;
+        if (open && !postsLoaded) { postsLoaded = true; void loadPosts(); }
+    });
     document.getElementById('queueForm')!.addEventListener('submit', async e => {
         e.preventDefault();
         const source = (document.getElementById('queueSource') as HTMLInputElement).value;
         const { res, data } = await post({ action: 'queue', source });
         status.textContent = res.ok && data.ok ? 'Queued. It will run within two minutes.' : (data.error ?? 'Unable to queue.');
-        await load();
+        if (postsLoaded) await loadPosts();
     });
-    void load();
+    void loadList();
 </script>
 </BaseLayout>

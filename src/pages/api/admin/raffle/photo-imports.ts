@@ -4,14 +4,34 @@ import { json } from '../../../../lib/http';
 import { parsePhotoSource } from '../../../../lib/raffle-photo-import';
 import { requeuePost, validPostId } from '../../../../lib/server/raffle-photo-autopublish';
 import { reviewActor, reviewContext, reviewRow } from '../../../../lib/server/raffle-photo-review';
+import { photoDetail, photoSummaries, recentPosts } from '../../../../lib/server/raffle-photo-history';
 
 // Log of the unattended importer, requeue, and administrator review of held or rejected rows. Automatic publication happens only in
 // the photo Worker; a requeued post is picked up by its next cron tick (every two minutes). Review actions publish through the same
 // winner validation as manual entry. The middleware requires an authenticated admin session and same-origin CSRF for every POST.
+//
+// GET views used by the admin page (all read-only and paged; no history is deleted or hidden):
+//   ?view=summary&filter=needs-review|completed|all&q=…&page=N  one page of photo summaries and the count per filter
+//   ?view=photo&photoId=…                                        one photo's rows with review context
+//   ?view=posts                                                  the latest 40 posts (requeue)
+// Without view, the full recent log (latest 40 photos with rows, posts and sanitized attempts) is returned as before.
 const parse = (v: string | null) => { try { return JSON.parse(v ?? '[]'); } catch { return []; } };
-export const GET: APIRoute = async ({ locals }) => {
+export const GET: APIRoute = async ({ locals, url, request }) => {
     const db = (locals.runtime?.env as { DB?: D1Database } | undefined)?.DB;
     if (!db) return json({ ok: false, error: 'DB binding missing' }, 500);
+    const params = url?.searchParams ?? (request ? new URL(request.url).searchParams : new URLSearchParams());
+    const view = params.get('view');
+    if (view === 'summary' || view === 'photo' || view === 'posts') {
+        try {
+            if (view === 'summary') return json({ ok: true, ...await photoSummaries(db, { filter: params.get('filter'), q: params.get('q') ?? '', page: params.get('page'), pageSize: params.get('pageSize') }) });
+            if (view === 'posts') return json({ ok: true, posts: await recentPosts(db) });
+            const photoId = params.get('photoId') ?? '';
+            if (!/^\d{1,40}$/.test(photoId)) return json({ ok: false, error: 'Invalid photo.' }, 400);
+            const detail = await photoDetail(db, photoId);
+            return detail ? json({ ok: true, ...detail }) : json({ ok: false, error: 'Photo not found.' }, 404);
+        } catch { return json({ ok: false, error: 'Apply migrations 004 and 007 before using photo imports.' }, 503); }
+    }
+    if (view !== null) return json({ ok: false, error: 'Unknown view.' }, 400);
     try {
         const posts = await db.prepare(`SELECT post_id AS postId, source, status, attempts, error_code AS errorCode, last_error_code AS lastErrorCode, last_error_at AS lastErrorAt,
             publication_status AS publicationStatus, publication_json AS publication, next_attempt_at AS nextAttemptAt,
