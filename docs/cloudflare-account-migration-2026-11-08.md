@@ -14,6 +14,72 @@ done between nightly drawings.
 Production and staging Pages, Worker and D1 evidence is from the November 18–19 releases (read-only checks after each). DNS and
 the R2 inventory below reflect the November 14 checkpoint. **Migration 009 is not applied to either database.**
 
+## Next-session cutover action tracker (updated 2026-11-19)
+
+**Current disposition: NO-GO for cutover.** SOURCE production `93fe0d3b` and DESTINATION staging
+`1c163014` both use the tested `da5333c` Astro 5 security release; `/_image` returns 404 in both.
+DESTINATION staging is **not feature-complete** because R2 and secrets are missing. Do not treat a
+successful Pages upload as proof that account migration is ready. No further FOHL operations are
+authorized by this checklist; each production-impacting stage requires a fresh preflight and explicit
+owner approval. **Resume this tracker after the November 30 raffle-season cutoff**, not during
+nightly drawings. Update the checkboxes only after recording evidence, IDs and UTC times in this runbook.
+
+**Owner prerequisites (block staging readiness):**
+
+- [ ] **Enable DESTINATION R2 / payment method.** Confirm the correct nonprofit account and create
+  private `folh-photos` in ENAM. Do not enable public `r2.dev` access.
+- [ ] **Transfer and verify R2 objects.** Copy all SOURCE `folh-photos` objects (baseline: 28,
+  16,606,134 bytes); verify each object/checksum or ETag, the total, and every D1 photo/poster
+  reference. Bind `PHOTOS_BUCKET` to DESTINATION Pages and redeploy the **patched** build.
+- [ ] **Provision all 15 DESTINATION secrets and Turnstile.** Record only secret names, presence and
+  verification results; decide which Facebook and Resend credentials require rotation. Configure a
+  DESTINATION Turnstile widget for the public domain and staging hostname. Do not place secret
+  values in Git, logs, chat or CLI arguments.
+- [ ] **Export SOURCE DNS and zone settings; plan DESTINATION parity.** Include HSTS
+  (`max-age=15552000; includeSubDomains`), SSL/TLS, redirect/cache/WAF configuration and required
+  Resend DNS records. Confirm registration/transfer prerequisites without initiating the move.
+
+**Engineer prerequisites (validate while automation remains OFF):**
+
+- [ ] **Photo Worker parity.** Add the missing DESTINATION `IMAGES` binding, check the exact source
+  commit and staged bindings; keep cron, public Worker URL, auto-import and alert flags off.
+- [ ] **Live Worker provenance.** Identify the source commit corresponding to SOURCE `ced68381`,
+  rebuild and stage that exact version in DESTINATION; verify Durable Object/service bindings with
+  schedules and alert/automation flags off.
+- [ ] **Full DESTINATION staging regression.** After R2, secrets and Turnstile exist, verify public
+  photos/posters, raffle/prizes/Live, admin login and one read including Photo imports, review-photo
+  privacy, contact/photo submit and correct email behavior using safe isolated checks. Confirm
+  `/_image` remains 404; record the exact Pages deployment SHA and bindings. Do not exercise
+  production mutations from staging.
+- [ ] **Reconcile final November operations.** Confirm all drawings/winners, photo imports,
+  unresolved whole-photo Issues and failed/retry jobs have been reviewed. Document any deferred
+  webhook or delivery events before allowing a freeze.
+- [ ] **Cutover dry-run and sign-off.** Recheck SOURCE and DESTINATION version parity; list pending
+  migrations (001–008 and 010 applied, **009 absent**); verify a safe write/ingress freeze covers
+  custom domains, Pages aliases/previews, admin, public forms, webhook POSTs, crons and in-flight
+  jobs. Prove rollback and keep DESTINATION automation disabled until domain and data are verified.
+
+**Only after all prerequisites pass and the owner authorizes cutover (after November 30):**
+
+- [ ] Execute the supervised final SOURCE D1/CONFIG KV/R2 sync under a proven write freeze.
+  Compare schema, table/row fingerprints, raffle/photo records and object manifests. Do not copy
+  SESSION KV. Resolve drift before the Registrar move.
+- [ ] Obtain separate approval for and execute the Cloudflare Registrar inter-account move;
+  restore DNS/HSTS/SSL and confirm the public domain, patched `/_image` behavior and read-only
+  parity in DESTINATION before enabling any writer. Treat the move as operationally one-way.
+- [ ] Activate verified DESTINATION Live/Photo Workers and webhook delivery in the documented
+  sequence only after SOURCE ingestion and cron processing are off; reconcile queued events,
+  then reopen forms/admin writes. Preserve SOURCE backups and rollback evidence.
+- [ ] **Post-cutover only:** after stability, separately approve migration 009 on DESTINATION,
+  verify calendar approval, port/supersede `da5333c` on Git `main` before any main-based Pages
+  deployment, and schedule Astro 7/Workers modernization as an independent project.
+
+**Hard stop / NO-GO:** R2 or secrets absent; wrong binding/account; a staging 500 for a required
+photo/poster; failed authenticated admin, privacy or Turnstile checks; exposed `/_image`; unknown
+Live Worker source; unreconciled winners; unproven write/webhook freeze; unverified data parity;
+missing registrar/DNS/HSTS recovery plan; or a proposed migration 009 before stability.
+Do not compensate by using unpatched `d92eb2c` / `7cdc9851` builds.
+
 **Security release (Nov 19, 21:54 UTC SOURCE, 22:04 UTC DESTINATION).** Both accounts run
 `da5333c782ad9a401c4877e36b9d515874daaa85` (`security/astro5-pages-d92eb2c`, pushed, not merged; parent `d92eb2c`): Astro
 `5.18.2`, `@astrojs/cloudflare` `12.6.13`, `@astrojs/sitemap` `3.7.1`, passthrough image service, and `/_image` excluded from
