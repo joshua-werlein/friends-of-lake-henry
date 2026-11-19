@@ -20,15 +20,15 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.6.0",
+    "@astrojs/sitemap": "3.7.1",
     "scripts": "^0.1.0"
   },
   "devDependencies": {
+    "@astrojs/cloudflare": "12.6.13",
+    "@cloudflare/workers-types": "^4.20251213.0",
+    "astro": "5.18.2",
     "esbuild": "0.25.12",
     "miniflare": "4.20251118.1",
-    "typescript": "5.9.3",
-    "@astrojs/cloudflare": "^12.6.12",
-    "@cloudflare/workers-types": "^4.20251213.0",
-    "astro": "^5.16.6"
+    "typescript": "5.9.3"
   }
 }

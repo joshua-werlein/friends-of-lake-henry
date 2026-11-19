@@ -13,8 +13,12 @@ export default defineConfig({
         }),
     ],
     output: "server",
-    adapter: cloudflare(),
+    adapter: cloudflare({
+        imageService: "passthrough",
+        routes: { extend: { exclude: [{ pattern: "/_image" }, { pattern: "/_image/*" }] } },
+    }),
+    // Astro 5 registers an image route for server output even in passthrough mode.
     image: {
-        service: { entrypoint: "astro/assets/services/noop" },
+        endpoint: { route: "/_image", entrypoint: "./src/lib/server/disabled-image-endpoint.ts" },
     },
 });
