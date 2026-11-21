@@ -31,7 +31,7 @@ export const LABELS = { 13: 'Panfish Rod', 14: 'Walleye Rod', 15: 'Griddle', 20:
     26: 'Gun Safe', 27: 'Chain Saw', 28: 'Life Jacket', 29: 'Gun Vise' };
 export const cell = (date, column, ticket, name, town, label) => ({ drawDate: date, position: null, ticketNumber: ticket, ticketStatus: ticket ? 'readable' : 'blank',
     name, town, townStatus: town ? 'readable' : 'blank', prize: label ?? column, notes: '',
-    cellText: (label ? `${label} - ` : ticket ? `${ticket} - ` : '') + name + (town ? `, ${town}` : '') });
+    cellText: (label ? `${label} - ` : '') + (ticket ? `${ticket} - ` : '') + name + (town ? `, ${town}` : '') });
 
 // The truth for Nov 12–30: one winner per approved slot, with repeat winners mixed in (a gift card and a bonus won again by stored
 // winners, a stored ticket drawn again for a firearm).
@@ -39,7 +39,8 @@ export const cell = (date, column, ticket, name, town, label) => ({ drawDate: da
 const FIRST = ['Sam', 'Lena', 'Mark', 'Ruth', 'Dale', 'Erin', 'Gus', 'Ida', 'Owen', 'Faye', 'Neil', 'Jo', 'Carl', 'Bea', 'Hank', 'Vera', 'Lyle', 'Nora', 'Wes'];
 const LAST = ['Olson', 'Hagen', 'Brekke', 'Lund', 'Moe', 'Sather', 'Thorson', 'Ekern', 'Kvam', 'Rude', 'Gilbertson', 'Nyhus', 'Skaar', 'Haugen', 'Tollefson', 'Vold', 'Berge', 'Dahl', 'Ness'];
 const realName = (n, column) => `${FIRST[(n * 3 + (column === 'Firearm' ? 0 : column ? 1 : 2)) % FIRST.length]} ${LAST[(n * 7 + (column === 'Firearm' ? 0 : column ? 5 : 11)) % LAST.length]}`;
-export function futureTruth(schedule, { realistic = false } = {}) {
+// bonusTickets: bonus cells print the winner's ticket after the label ("Bubba Filet Knife - 628 - John Wickum, Wilson, WI"), as from Nov 20.
+export function futureTruth(schedule, { realistic = false, bonusTickets = false } = {}) {
     const truth = [];
     let ticket = 400;
     for (let n = 12; n <= 30; n++) for (const p of schedule.filter(p => p.drawDate === day(n))) {
@@ -48,7 +49,7 @@ export function futureTruth(schedule, { realistic = false } = {}) {
         if (n === 16 && column === 'Gift Card') who = { name: 'Gary Gran', town: 'Osseo, WI', ticket: '105' };
         if (n === 20 && !column) who = { name: 'John Kraemer', town: 'Neillsville, WI', ticket: '' };
         if (n === 25 && column === 'Firearm') who = { name: 'Dennis McHenry', town: 'LaCrosse, WI', ticket: '698' };
-        if (!column) who.ticket = '';
+        if (!column && !bonusTickets) who.ticket = '';
         truth.push({ slot: p.id, ...cell(day(n), column, who.ticket, who.name, who.town, column ? undefined : LABELS[n]) });
     }
     return truth;
