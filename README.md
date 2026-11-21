@@ -1,227 +1,118 @@
-# Friends of Lake Henry
-Community-driven nonprofit website and content platform built with **Astro**, **Cloudflare Pages**, **Workers**, **D1**, and **R2**.
+<div align="center">
 
-🔗 **Live site:** https://friendsoflakehenry.com
+# 🌊 Friends of Lake Henry
 
-<p>
-  <img src="https://img.shields.io/badge/Cloudflare-Pages-F38020?logo=cloudflare&logoColor=white" />
-  <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" />
-  <img src="https://img.shields.io/badge/Cloudflare-D1-0F1E2E?logo=cloudflare&logoColor=white" />
-  <img src="https://img.shields.io/badge/Cloudflare-R2-0F1E2E?logo=cloudflare&logoColor=white" />
-  <img src="https://img.shields.io/badge/Astro-BC52EE?logo=astro&logoColor=white" />
-  <img src="https://img.shields.io/badge/License-MIT-success" />
-</p>
+### Community nonprofit platform · Events · Raffles · Facebook automation
 
----
+[![Live Website](https://img.shields.io/badge/Live_Site-friendsoflakehenry.com-111827?style=for-the-badge)](https://friendsoflakehenry.com)
+[![Astro](https://img.shields.io/badge/Astro-5-BC52EE?style=flat-square&logo=astro&logoColor=white)](https://astro.build/)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages_·_Workers_·_D1_·_R2-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://www.cloudflare.com/)
+![Status](https://img.shields.io/badge/Status-Production-2EA44F?style=flat-square)
+[![License](https://img.shields.io/badge/License-Proprietary-5B5B5B?style=flat-square)](LICENSE)
 
-<details>
-  <summary><strong>Table of Contents</strong></summary>
+**[🌐 Live Site](https://friendsoflakehenry.com)** · **[🎟️ Raffle](https://friendsoflakehenry.com/raffle)** · **[👨‍💻 Developer Portfolio](https://joshuawerlein.com)**
 
-- [Live Site](#overview)
-- [Overview](#overview)
-- [Tech Stack](#tech-stack)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Screenshots](#screenshots)
-- [Development Setup](#development-setup)
-- [Status](#status)
-- [License](#license)
-
-</details>
+</div>
 
 ---
 
-## Overview
+## ✨ Overview
 
-**Friends of Lake Henry** is a nonprofit organization dedicated to lake restoration, conservation, and community engagement.
+A production website and operational platform for a nonprofit focused on lake restoration and community events. It pairs simple administration for volunteers with **time-sensitive fundraising workflows**: raffle results, prizes, Live video, community photos, and donor recognition.
 
-This platform provides a fast, accessible public website paired with secure administrative tools for managing:
+The key engineering requirement is **reliable updates when outside services, timing, or photo evidence are imperfect**—not merely rendering a public website.
 
-- Information about the lake and restoration efforts
-- Events and community calendars  
-- Raffle and fundraising information
-- Donor listings  
-- Community photo submissions and moderation
-- Donation and contact details
+## 🚀 Features
 
-The site is built with **Astro** and deployed on **Cloudflare Pages**, with backend functionality powered by **Cloudflare Workers**, **D1**, and **R2**.
+| Area | What the system supports |
+| :--- | :--- |
+| 📅 **Events** | Public events, date and poster management, and authenticated editing |
+| 💝 **Donors** | Donor recognition and managed public listings |
+| 🎟️ **Raffles** | Prize calendar, winner entry/correction, results, history, and season configuration |
+| 📺 **Facebook Live** | Dedicated Worker-based discovery, stream/replay presentation, and fallback behavior |
+| 📸 **Winner photos** | Automated intake, AI-assisted extraction, evidence checks, and an explicit review path for uncertain rows |
+| 🖼️ **Photo gallery** | Upload, categorization, approval, and moderation of community photos |
+| 🔐 **Administration** | Protected sessions, server-side mutations, and audit/operational diagnostics |
+| 🛟 **Recovery** | Tests, incident records, guarded updates, and staged deployment/rollback documentation |
 
----
+## 🧩 Architecture
 
-## Tech Stack
+```mermaid
+flowchart TB
+    A[Astro site + /admin] --> B[(Cloudflare D1)]
+    A --> C[(Cloudflare KV)]
+    A --> D[(Cloudflare R2)]
+    E[Facebook Live Worker] --> A
+    F[Facebook Photo Worker] --> A
+    G[Meta Page / webhook events] --> E
+    G --> F
+```
 
-### Frontend
-<p>
-  <img height="30" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/astro/astro-original.svg" />
-  <img height="30" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/typescript/typescript-original.svg" />
-  <img height="30" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/javascript/javascript-original.svg" />
-  <img height="30" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/html5/html5-original.svg" />
-  <img height="30" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/css3/css3-original.svg" />
-</p>
+The Astro application provides public pages, server routes, and administration. Dedicated Workers cover event-driven and scheduled Facebook activities. **D1 stores structured records, KV stores configured/session state, and R2 stores image assets.**
 
-### Backend / Platform
-<p>
-  <img height="30" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/cloudflare/cloudflare-original.svg" />
-  <img height="30" src="https://img.icons8.com/ios-filled/50/000000/server.png" />
-</p>
+## 🔎 Engineering highlights
 
-### Data & Storage
-📦 Cloudflare D1 (SQLite)  
-📦 Cloudflare R2 Object Storage  
+### ⚡ Time-sensitive Live and raffle behavior
 
----
+The public raffle view needs to display correct winners and video state around scheduled drawing windows. Worker integrations, cache/fallback behavior, and diagnostic records help distinguish a delayed outside service from a confirmed update.
 
-## Features
+### 🤖 Human-reviewed photo automation
 
-- ⚡ **Astro + Cloudflare Pages** static-first architecture
-- 🔐 Secure admin authentication via Workers
-- 🗓️ Event management (draft / publish, TBD dates, posters)
-- 🎟️ Monthly raffle system with winners and live stream integration
-- 💝 Donor management with public donor listings
-- 📸 Community photo uploads with admin approval workflow
-- 🧭 Public photo gallery with categories
-- 🌎 Global CDN delivery with zero-downtime deployments
-- ♿ Accessibility-first UI patterns and keyboard navigation
+Winner images are processed through structured extraction and evidence validation. Ambiguous rows can be **held for review rather than automatically published as facts**. Source records and correction workflows support later reconciliation.
 
----
+### 🛡️ Controlled change and recovery
 
-## Architecture
+The system uses versioned database changes, tests, operational records, and rollback planning. Production changes and hosting cutover are deliberately separated from routine raffle operation.
 
-<details>
-<summary><strong>Click to expand architecture details</strong></summary>
+### 📌 Hosting and upgrade status
 
-### Frontend (Astro)
+The public service remains on **Astro 5 / Cloudflare Pages**. A separate Cloudflare nonprofit-account migration and Astro 7 transition are **not completed production cutovers**. As documented in the migration runbook, the destination still requires storage, secrets/binding parity, and full regression verification. The account move is deferred until after the November 2026 drawing season.
 
-- Hybrid static + dynamic rendering  
-- Responsive layouts optimized for mobile and desktop  
-- Public pages:
-  - Home
-  - Events
-  - Raffle
-  - Donors
-  - Photos
-  - Contact
+## 📷 Screenshots
 
-- Admin pages:
-  - Dashboard
-  - Events CRUD
-  - Raffle configuration and winners
-  - Donor management
-  - Photo approval and moderation
+| Homepage | Events |
+| :---: | :---: |
+| <img src="docs/screenshots/homepage.jpg" alt="Friends of Lake Henry homepage" width="420"> | <img src="docs/screenshots/events-public.jpg" alt="Events page" width="420"> |
 
-### Backend (Cloudflare Workers)
+| Raffle | Admin dashboard |
+| :---: | :---: |
+| <img src="docs/screenshots/raffle-public.jpg" alt="Public raffle page" width="420"> | <img src="docs/screenshots/admin-dashboard.png" alt="Administrative dashboard" width="420"> |
 
-Workers handle all server-side functionality:
+## 🛠️ Tech stack
 
-- Admin authentication and session handling
-- D1 database queries (events, donors, raffle winners, photos)
-- R2 object storage for images and posters
-- Secure API routes under `/api/*`
+**Frontend:** Astro 5 · TypeScript · responsive HTML/CSS  
+**Serverless:** Cloudflare Pages + Workers · D1 (SQLite) · KV · R2  
+**Integrations:** Meta/Facebook Graph API · webhook intake · AI-assisted photo parsing  
+**Quality:** isolated integration tests · TypeScript checks · guarded releases
 
-### Database (Cloudflare D1)
+## 💻 Local development
 
-- `events`
-- `donors`
-- `raffle_winners`
-- `photos`
-
-All timestamps are normalized and displayed in **America/Chicago** time.
-
-### Storage (R2)
-
-- Event poster images
-- Community photo submissions
-- Public gallery assets
-
-### Security
-
-- Cookie-based admin authentication
-- Short-lived sessions
-- No secrets committed to the repository
-- All sensitive configuration stored in Cloudflare environment variables
-
-</details>
-
----
-
-## Screenshots 📸
-
-<table>
-  <tr>
-    <td align="center">
-      <strong>Homepage</strong><br/>
-      <img src="docs/screenshots/homepage.jpg" width="380" alt="Friends of Lake Henry homepage" />
-    </td>
-    <td align="center">
-      <strong>Events Page</strong><br/>
-      <img src="docs/screenshots/events-public.jpg" width="380" alt="Friends of Lake Henry event page" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <strong>Raffle Page</strong><br/>
-      <img src="docs/screenshots/raffle-public.jpg" width="380" alt="Friends of Lake Henry raffle page" />
-    </td>
-    <td align="center">
-      <strong>Admin Dashboard</strong><br/>
-      <img src="docs/screenshots/admin-dashboard.png" width="380" alt="Friends of Lake Henry admin dashboard" />
-    </td>
-  </tr>
-    <tr>
-    <td align="center">
-      <strong>Admin Events</strong><br/>
-      <img src="docs/screenshots/admin-events.png" width="380" alt="Friends of Lake Henry admin event page" />
-    </td>
-    <td align="center">
-      <strong>Admin Approve Photos</strong><br/>
-      <img src="docs/screenshots/admin-approved-photos.png" width="380" alt="Friends of Lake Henry approved photos page" />
-    </td>
-  </tr>
-</table>
-
----
-
-## Development Setup
-
-### Prerequisites
-
-- Node.js 22.23.5 or a newer Node 22 patch (see `.nvmrc` and `package.json` engines)
-- Cloudflare account
-- Wrangler CLI (for local Workers / D1 development)
-
-### Install & Run
+Use the Node version and engine requirements defined in `.nvmrc` and `package.json`.
 
 ```bash
 npm install
 npm run dev
+npm test
+npm run typecheck
+npm run build
 ```
 
-Local verification: `npm test`, `npm run typecheck`, and `npm run build`.
-Tests use isolated in-memory D1/R2 via Miniflare and require local loopback access.
-See [Facebook Live preparation](docs/facebook-live-automation.md) for the disabled
-automation foundation, API research blockers and setup checklist, and the separate
-[Astro upgrade assessment](docs/astro-7-upgrade-assessment.md).
+Worker-specific builds/typechecks have separate scripts in `package.json`. Tests can use isolated Cloudflare emulation; never substitute test data for production records.
 
----
+<details>
+<summary><strong>📚 Technical documentation and rollout notes</strong></summary>
 
-## Status
+- [Facebook production automation](docs/facebook-automation-production-2026-11-03.md)
+- [Live timing and diagnostics](docs/facebook-live-timing-diagnostics.md)
+- [Photo automation and review](docs/raffle-photo-autopublish.md)
+- [Two-stage winner-photo extraction](docs/raffle-photo-two-stage-2026-11-12.md)
+- [Account migration / cutover safeguards](docs/cloudflare-account-migration-2026-11-08.md)
+- [Astro 7 upgrade assessment](docs/astro-7-upgrade-assessment.md)
 
-This project is actively developed and deployed for the Friends of Lake Henry nonprofit.
+</details>
 
-The platform is production-backed, maintained, and evolving based on stakeholder,
-community, and fundraising needs.
+## 📜 License and authorship
 
----
+The project's [LICENSE](LICENSE) is **proprietary**, not MIT. Code and organizational materials are available for portfolio/technical inspection; reuse or redistribution requires permission.
 
-## License
-
-> **Proprietary Software — Friends of Lake Henry**  
-> Unauthorized use, reproduction, or distribution of this code is prohibited. [![License](https://img.shields.io/badge/License-©%20Friends-of%20Lake-Henry-blue)](LICENSE)
-
----
-
-<sub>
-<strong>Legal Notice:</strong> All code and assets within this repository are the confidential and proprietary
-property of Friends of Lake Henry. No part of this project may be copied, modified, published, or distributed
-without prior written consent. Access is provided solely for portfolio review and technical evaluation.
-</sub>
+**Developed and maintained by Joshua Werlein** · [Portfolio](https://joshuawerlein.com) · [GitHub](https://github.com/joshua-werlein)
