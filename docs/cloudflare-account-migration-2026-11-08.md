@@ -104,12 +104,23 @@ removes the reachable image-processing path, it does not resolve them.
 | D1 data | 70 winners (verified unchanged through every Nov 19 release); 20 photo-review resolutions (Nov 19); 2 open whole-photo Issues (the Nov 12 quota failure and a Nov 5 rejection) to mark handled after checking their winners | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
 | R2 `folh-photos` | 28 objects, 16.6 MB, ENAM (unchanged since Nov 8) | **R2 not enabled** (API code 10042) |
 | Live Worker | `ced68381-190a-42dd-b426-511e14d88ea3` at 100% (unchanged) | `a134d4df`, no cron, flags off |
-| Photo Worker | `077637f8-f77a-4773-a0cc-289a7313defa` at 100% (Nov 19 02:18 UTC), built from `49b3fd3` (`fix/photo-name-separator`): `7a9d4c4` plus the Nov 16 name-separator fix. Previous: `dc1ad438` (`7a9d4c4`), `3d4928c9` (`893d371`) | `82b7d603-6bcb-4fff-ba1b-c427b80c9f11` (Nov 19), built from `49b3fd3` with `wrangler.nonprofit.staged.json`: no cron, workers.dev off, all automation and alert flags off, **no `IMAGES` binding yet**. Previous: `1ca3d573` (Nov 8) |
+| Photo Worker | `9a14b7c3-2a25-4309-bd85-999c550fd2c4` at 100% (Nov 21 01:53 UTC), built from `e2f9aa4` (`fix/photo-cell-parser`): `49b3fd3` plus the Nov 20 cell-parser fix (labelled cells with a ticket; a cell's label must name its prize). Previous: `077637f8` (`49b3fd3`), `dc1ad438` (`7a9d4c4`), `3d4928c9` (`893d371`) | `af328d6d-7cad-4a04-99ed-837a9e4be67b` (Nov 21 01:58 UTC), built from `e2f9aa4` with `wrangler.nonprofit.staged.json`: no cron, workers.dev off, all automation and alert flags off, no secrets, **no `IMAGES` binding yet**. Previous: `82b7d603` (`49b3fd3`), `1ca3d573` (Nov 8) |
 | Secrets | Pages 7, Live 3, Photo 5 (names below) | **none** |
 | `FOHL_SYNC_*` credentials | not set (legacy credentials in use) | not set |
 | Domain | Cloudflare Registrar, `clientTransferProhibited`, DNSSEC off, expires 2027-12-12, NS `angelina`/`sam` | not added |
 
-SOURCE Pages rollback order: `2f96df08-e195-4a5f-8e14-36070fb6d74c` (`d92eb2c`, same features as `93fe0d3b` but with the unpatched `/_image` endpoint; verified listed and serving on its alias Nov 19; use only for an application regression and re-release a patched build promptly), then `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `dc1ad438-bb57-4705-a9f6-0d8e3945ee80`. DESTINATION rollbacks: Pages `7cdc9851` (`d92eb2c`, unpatched), then `df1fc387`, Photo `1ca3d573` (all outdated; only for a failed staging upload, never for cutover). The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
+SOURCE Pages rollback order: `2f96df08-e195-4a5f-8e14-36070fb6d74c` (`d92eb2c`, same features as `93fe0d3b` but with the unpatched `/_image` endpoint; verified listed and serving on its alias Nov 19; use only for an application regression and re-release a patched build promptly), then `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `077637f8-f77a-4773-a0cc-289a7313defa` (`49b3fd3`, keeps the Nov 16 fix; `wrangler versions deploy 077637f8-f77a-4773-a0cc-289a7313defa@100% --name folh-facebook-winner-photos` with `CLOUDFLARE_ACCOUNT_ID=aa86268490e681cccb3a41a62093e2aa`), then `dc1ad438-bb57-4705-a9f6-0d8e3945ee80` (`7a9d4c4`). A rollback to either brings back the Nov 20 hold: bonus cells printed as `Label - Ticket - Name, Town` are held and must be entered manually. DESTINATION rollbacks: Pages `7cdc9851` (`d92eb2c`, unpatched), then `df1fc387`, Photo `82b7d603` (`49b3fd3`), then `1ca3d573` (only for a failed staging upload, never for cutover). The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
+
+**Photo Worker release, 2026-11-21 01:53 UTC (Nov 20, 7:53 PM Central; owner-approved; Photo Worker only).** Fixes the Nov 20
+hold (`photo:review:122336881070073310`): both reads of `Bubba Filet Knife - 628 - John Wickum, Wilson, WI` were correct, but the
+printed-name check could not parse a labelled cell with a ticket. Source `e2f9aa4` (206/206; `main` port `4c34d8f`, 227/227),
+Wrangler 4.156.1. Preflight: clean worktree at `e2f9aa4`, SOURCE account, `077637f8` at 100%, rollback versions listed, no
+queued/processing/retry posts, cron `*/2` healthy on `077637f8`. After: `9a14b7c3` at 100%; handlers, compatibility date, 5 secrets,
+bindings and flags identical to `077637f8` (`wrangler versions view` compared); triggers `*/2 * * * *` and workers.dev as before;
+scheduled runs at 01:54:48 and 01:56:48 UTC `ok` with no exceptions; all 77 `raffle_winners` rows byte-identical (fingerprint
+`a7f19ac0e3973a89` before and after); queue unchanged; no AI calls. DESTINATION staged `af328d6d` from the same commit: configuration
+identical to `82b7d603` (no cron, workers.dev off, flags off, no secrets, no `IMAGES`). No Pages, Live Worker, D1 schema or
+migration 009 change; no cutover step.
 
 **Remaining before the account cutover (none started):** enable R2 in DESTINATION and copy `folh-photos` (staging step 1;
 billing/payment method needed); enter the 15 DESTINATION secrets, and decide whether to rotate the Facebook Page token, app secret,
@@ -139,8 +150,9 @@ objects needs the dashboard object list or an R2 S3 API token (the wrangler OAut
   default image endpoint). Port `da5333c` (config, pins, lockfile, `src/lib/server/disabled-image-endpoint.ts`,
   `tests/pages-security-smoke.mjs`) to `main`, or supersede it with the Astro 7 upgrade, and confirm `/_image` returns 404 before
   any Pages release from `main`.
-- **Photo Worker production source:** `49b3fd3` on `fix/photo-name-separator` (pushed; tag `photo-worker-077637f8` on origin), a
-  child of `7a9d4c4` (`fix/photo-prize-spacing`, tag `photo-worker-dc1ad438`), which extends `893d371` (tag `photo-worker-3d4928c9`).
+- **Photo Worker production source:** `e2f9aa4` on `fix/photo-cell-parser` (pushed; tag `photo-worker-9a14b7c3` on origin), a
+  child of `49b3fd3` (`fix/photo-name-separator`, tag `photo-worker-077637f8`), which extends `7a9d4c4` (`fix/photo-prize-spacing`,
+  tag `photo-worker-dc1ad438`) and `893d371` (tag `photo-worker-3d4928c9`). Ported to `main` as `4c34d8f`.
   Deploy Photo Worker changes from this pre-009 lineage, never from `main`, until 009 is applied.
 - **`main`** (fast-forwarded and pushed Nov 19 from `integrate/photo-review-main`): `da838bb` plus the Node pin, the Nov 15 and Nov 16
   Photo fixes, inline review, the history view and Issues filter, migration 010, the ported tests (run with 009) and these notes.
@@ -178,7 +190,7 @@ Migration 009 is additive (old code ignores the new columns). It also records No
 `approved` with heading `Firearm`, which is the approval the integrated Photo Worker checks before any AI read.
 
 1. Cut over first with the code that runs in production at the time of the cutover. As of November 19 that is Pages
-   `da5333c` built with Node 22.23.5 (SOURCE `93fe0d3b`, staged as `1c163014`; not `d92eb2c`/`7cdc9851`, which expose `/_image`), Photo Worker `49b3fd3` (staged as `82b7d603`), and Live Worker
+   `da5333c` built with Node 22.23.5 (SOURCE `93fe0d3b`, staged as `1c163014`; not `d92eb2c`/`7cdc9851`, which expose `/_image`), Photo Worker `e2f9aa4` (SOURCE `9a14b7c3`, staged as `af328d6d`, Nov 21), and Live Worker
    from the `ced68381` source commit. If a later Pages or Photo release reaches SOURCE production before the cutover, stage
    and use that release instead; never an older build. No schema change during the move.
 2. After cutover is stable: apply 009 to DESTINATION D1 (the only production database by then), verify
@@ -214,7 +226,7 @@ Wrangler matches by name). Pre-change exports: `C:\Users\Jwerl\dev\folh-backups-
 | R2 `folh-photos` (binding `PHOTOS_BUCKET`) | 28 objects, 16,606,134 bytes, private, ENAM | **not created: R2 not enabled on the account** |
 | Worker `folh-facebook-live-discovery` | UTC crons `50-59 23 * 11 *` and `0-30 0 * 11,12 *`; `FB_AUTOMATION_ENABLED=true`, `FB_VIDEO_PROBE_ENABLED=true`, `ALERTS_ENABLED=true`, `ALERTS_MODE=live`; workers.dev off | version `a134d4df-1133-436a-af28-47615b481d69`, no cron, no workers.dev, flags off, no secrets |
 | Durable Object `DiscoveryScheduler` (SQLite) | namespace `2e316a104a5843c4a3a914090c174ff9` | namespace `9435462e26fc43658e15bfb550db2150`, empty |
-| Worker `folh-facebook-winner-photos` | UTC cron `*/2 * * * *`; workers.dev on; `FB_PHOTO_AUTOMATION_ENABLED=true`, `FB_PHOTO_AUTOPUBLISH=true`, `FB_PHOTO_POLL_ENABLED=true`, `ALERTS_ENABLED=true`, `ALERTS_MODE=live`, `ALERT_WEBHOOK_DELIVERY_ENABLED=false` | version `82b7d603-6bcb-4fff-ba1b-c427b80c9f11` (`49b3fd3`, Nov 19; previously `1ca3d573`), no cron, no workers.dev, flags off, no secrets, no `IMAGES` yet |
+| Worker `folh-facebook-winner-photos` | UTC cron `*/2 * * * *`; workers.dev on; `FB_PHOTO_AUTOMATION_ENABLED=true`, `FB_PHOTO_AUTOPUBLISH=true`, `FB_PHOTO_POLL_ENABLED=true`, `ALERTS_ENABLED=true`, `ALERTS_MODE=live`, `ALERT_WEBHOOK_DELIVERY_ENABLED=false` | version `af328d6d-7cad-4a04-99ed-837a9e4be67b` (`e2f9aa4`, Nov 21; previously `82b7d603`, `1ca3d573`), no cron, no workers.dev, flags off, no secrets, no `IMAGES` yet |
 | Zone `friendsoflakehenry.com` | `521cd66466d2270d975476d8d08b967f`, active, full setup | not added |
 
 `workers/fohl-sync` (`folh-sync-webhook-test`) is a probe and is not deployed in either account.
@@ -306,7 +318,7 @@ Live **selection** is in CONFIG KV (copied). Photo alert incidents are in D1 (co
    --branch main --commit-hash <full SHA>` with the patched Wrangler. The committed `wrangler.json` names SOURCE resources and
    must never be uploaded to DESTINATION unchanged. Once R2 exists, add `PHOTOS_BUCKET` → `folh-photos` and redeploy. Keep both
    accounts on schema 001–008 plus 010 until cutover is stable.
-4. **Staged Photo Worker** — done Nov 19: `82b7d603` from `49b3fd3` with `workers/facebook-photos/wrangler.nonprofit.staged.json`
+4. **Staged Photo Worker** — redone Nov 21 01:58 UTC: `af328d6d` from `e2f9aa4` (previously `82b7d603` from `49b3fd3`, Nov 19) with `workers/facebook-photos/wrangler.nonprofit.staged.json`
    (no cron, workers.dev off, all `FB_PHOTO_*` and alert flags off). **Before activation**, add the `IMAGES` binding to that
    staged config (production has it; the importer enlarges photos with it) and confirm Images is available on the DESTINATION
    account, then redeploy and validate. Do not activate it before the cutover runbook.
@@ -388,7 +400,7 @@ until the final sync and domain switch. DESTINATION becomes the sole writer afte
    routing, Pages deployment ID, and read-only parity on the actual domain. Treat the waiting period as maintenance
    if the apex or its certificate is unavailable.
 5. **Activate DESTINATION against the same data the public site reads.** Confirm the old SOURCE Pages aliases and
-   previews remain write-gated. Activate Live first from the verified `ced68381` source, then Photo from the SOURCE production Photo source (today `49b3fd3`),
+   previews remain write-gated. Activate Live first from the verified `ced68381` source, then Photo from the SOURCE production Photo source (today `e2f9aa4`),
    using the DESTINATION resource IDs, the exact UTC schedules and flags in the inventory, and the Photo
    `IMAGES` binding. The copied season ends at midnight Central on December 1. Expect no November backup polling
    after its eligible window, and verify the next eligible natural executions without extending the season.
@@ -414,7 +426,7 @@ SOURCE data before restoring its webhook at
 `https://folh-facebook-winner-photos.jjwerlein.workers.dev/facebook/webhook`, Worker versions, schedules, and public
 write paths. If the SOURCE Pages release itself fails, roll SOURCE back to `93fe0d3b` (the security release) if it is not
 already live; use `2f96df08` (unpatched `/_image`) only if `93fe0d3b` itself is at fault, then `3a16b88e` (or the emergency
-`995a1755`), and verify its production alias. If the SOURCE Photo Worker fails, roll back to `dc1ad438`.
+`995a1755`), and verify its production alias. If the SOURCE Photo Worker fails, roll back to `077637f8` (then `dc1ad438`).
 
 **After DESTINATION accepts:** keep the public site and any active writers in DESTINATION during recovery.
 - **Application fault:** use the verified DESTINATION Pages artifact built from the cutover commit (staging step 3) or a
