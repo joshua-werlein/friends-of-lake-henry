@@ -26,7 +26,7 @@ The key engineering requirement is **reliable updates when outside services, tim
 
 | Area | What the system supports |
 | :--- | :--- |
-| 📅 **Events** | Public events, date and poster management, and authenticated editing |
+| 📅 **Events** | Authenticated event editing, scheduling, and poster management. The public Events page is under construction. |
 | 💝 **Donors** | Donor recognition and managed public listings |
 | 🎟️ **Raffles** | Prize calendar, winner entry/correction, results, history, and season configuration |
 | 📺 **Facebook Live** | Dedicated Worker-based discovery, stream/replay presentation, and fallback behavior |
@@ -70,13 +70,25 @@ The public service remains on **Astro 5 / Cloudflare Pages**. A separate Cloudfl
 
 ## 📷 Screenshots
 
-| Homepage | Events |
-| :---: | :---: |
-| <img src="docs/screenshots/homepage.jpg" alt="Friends of Lake Henry homepage" width="420"> | <img src="docs/screenshots/events-public.jpg" alt="Events page" width="420"> |
+### Public site
 
-| Raffle | Admin dashboard |
+| Homepage | Raffle on desktop |
 | :---: | :---: |
-| <img src="docs/screenshots/raffle-public.jpg" alt="Public raffle page" width="420"> | <img src="docs/screenshots/admin-dashboard.png" alt="Administrative dashboard" width="420"> |
+| [<img src="docs/screenshots/homepage.webp" alt="Homepage introducing the lake restoration mission" width="420">](docs/screenshots/homepage.webp) | [<img src="docs/screenshots/raffle-public.webp" alt="Public raffle page with drawing information and the latest replay" width="420">](docs/screenshots/raffle-public.webp) |
+
+**Raffle on mobile**
+
+[<img src="docs/screenshots/raffle-launch-mobile.webp" alt="Mobile raffle page with the drawing announcement and raffle information" width="280">](docs/screenshots/raffle-launch-mobile.webp)
+
+### Administration
+
+| Dashboard | Event management |
+| :---: | :---: |
+| [<img src="docs/screenshots/admin-dashboard.webp" alt="Admin dashboard with tools for donors, raffles, events, and photo moderation" width="420">](docs/screenshots/admin-dashboard.webp) | [<img src="docs/screenshots/admin-events.webp" alt="Admin event list with create, edit, and publishing controls" width="420">](docs/screenshots/admin-events.webp) |
+
+**Raffle administration**
+
+[<img src="docs/screenshots/admin-raffle.webp" alt="Raffle admin screen with the automatic Facebook Live update control" width="540">](docs/screenshots/admin-raffle.webp)
 
 ## 🛠️ Tech stack
 
