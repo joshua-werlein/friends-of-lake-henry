@@ -73,6 +73,12 @@ nightly drawings. Update the checkboxes only after recording evidence, IDs and U
 - [ ] **Post-cutover only:** after stability, separately approve migration 009 on DESTINATION,
   verify calendar approval, port/supersede `da5333c` on Git `main` before any main-based Pages
   deployment, and schedule Astro 7/Workers modernization as an independent project.
+- [ ] **Post-cutover: 2027 raffle prize places.** The deployed pre-009 Photo Worker lineage (`49b3fd3`, `e2f9aa4`)
+  derives 1st/2nd/Bonus from the calendar only for `2026-11-*` dates (`calendarPosition` in
+  `src/lib/server/raffle-prizes.ts`); any other month's winners would all be held for review. `main` already replaces this
+  with the migration 009 season calendar (recurring-prize `place`, approved month). Before the 2027 season: apply 009,
+  deploy the Photo Worker from `main`, approve the 2027 calendar, and add a test that replays a 2027 night (main, gift card,
+  bonus) to `published`. Recorded 2026-11-20 from the Nov 20 investigation; not changed in the Nov 21 Photo release.
 
 **Hard stop / NO-GO:** R2 or secrets absent; wrong binding/account; a staging 500 for a required
 photo/poster; failed authenticated admin, privacy or Turnstile checks; exposed `/_image`; unknown
