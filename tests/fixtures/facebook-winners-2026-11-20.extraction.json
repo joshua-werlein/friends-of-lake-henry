@@ -1,0 +1,469 @@
+{
+  "source": "production raffle_photo_auto_imports, decided 2026-11-21T00:10:24.858Z (held row published by an administrator at 00:21:06Z)",
+  "photoId": "122336881070073310",
+  "postId": "144051422124740_122336881106073310",
+  "sha256": "946f0300d650dc4b928be806372067605beaadc9fe819aa5a4150ce7c998003c",
+  "model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "extractionPasses": [
+    {
+      "containsWinners": true,
+      "rows": [
+        {
+          "drawDate": "2026-11-14",
+          "position": null,
+          "ticketNumber": "300",
+          "name": "Dennis Bishop",
+          "town": "Ettrick, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "300 - Dennis Bishop, Ettrick, WI"
+        },
+        {
+          "drawDate": "2026-11-14",
+          "position": null,
+          "ticketNumber": "449",
+          "name": "Chad Cliburn",
+          "town": "Boerne, TX",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "449 - Chad Cliburn, Boerne, TX"
+        },
+        {
+          "drawDate": "2026-11-14",
+          "position": null,
+          "ticketNumber": "",
+          "name": "Troy Lindberg",
+          "town": "Hixton, WI",
+          "notes": "",
+          "prize": "St Croix Rod",
+          "townStatus": "readable",
+          "ticketStatus": "blank",
+          "cellText": "St Croix Rod - Troy Lindberg, Hixton, WI"
+        },
+        {
+          "drawDate": "2026-11-15",
+          "position": null,
+          "ticketNumber": "885",
+          "name": "Fran Manka",
+          "town": "Blair, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "885 - Fran Manka, Blair, WI"
+        },
+        {
+          "drawDate": "2026-11-15",
+          "position": null,
+          "ticketNumber": "006",
+          "name": "Tom Kupietz",
+          "town": "Arcadia, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "006 - Tom Kupietz, Arcadia, WI"
+        },
+        {
+          "drawDate": "2026-11-15",
+          "position": null,
+          "ticketNumber": "",
+          "name": "Mike Loeser",
+          "town": "Osseo, WI",
+          "notes": "",
+          "prize": "Blackstone",
+          "townStatus": "readable",
+          "ticketStatus": "blank",
+          "cellText": "Blackstone - Mike Loeser, Osseo, WI"
+        },
+        {
+          "drawDate": "2026-11-16",
+          "position": null,
+          "ticketNumber": "797",
+          "name": "JJ Demaske",
+          "town": "Melrose, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "797 -JJ Demaske, Melrose, WI"
+        },
+        {
+          "drawDate": "2026-11-16",
+          "position": null,
+          "ticketNumber": "223",
+          "name": "Gary Giessel",
+          "town": "Rhinelander, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "223 - Gary Giessel, Rhinelander, WI"
+        },
+        {
+          "drawDate": "2026-11-17",
+          "position": null,
+          "ticketNumber": "900",
+          "name": "Tony Sprain",
+          "town": "Melrose, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "900 - Tony Sprain, Melrose, WI"
+        },
+        {
+          "drawDate": "2026-11-17",
+          "position": null,
+          "ticketNumber": "412",
+          "name": "BAMS",
+          "town": "",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "blank",
+          "ticketStatus": "readable",
+          "cellText": "412 - BAMS"
+        },
+        {
+          "drawDate": "2026-11-18",
+          "position": null,
+          "ticketNumber": "197",
+          "name": "Porter Pampuch",
+          "town": "Whitehall, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "197 - Porter Pampuch, Whitehall, WI"
+        },
+        {
+          "drawDate": "2026-11-18",
+          "position": null,
+          "ticketNumber": "230",
+          "name": "Lloyd Schultz",
+          "town": "Ettrick, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "230 - Lloyd Schultz, Ettrick, WI"
+        },
+        {
+          "drawDate": "2026-11-19",
+          "position": null,
+          "ticketNumber": "050",
+          "name": "Brent Janzen",
+          "town": "Blair, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "050 - Brent Janzen, Blair, WI"
+        },
+        {
+          "drawDate": "2026-11-19",
+          "position": null,
+          "ticketNumber": "305",
+          "name": "Nick Cribbs",
+          "town": "DeQueen, AZ",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "305 - Nick Cribbs, DeQueen, AZ"
+        },
+        {
+          "drawDate": "2026-11-20",
+          "position": null,
+          "ticketNumber": "025",
+          "name": "Jason Haen",
+          "town": "LaCrosse, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "025 - Jason Haen, LaCrosse, WI"
+        },
+        {
+          "drawDate": "2026-11-20",
+          "position": null,
+          "ticketNumber": "540",
+          "name": "Tallie Everson",
+          "town": "Brodhead, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "540 - Tallie Everson, Brodhead, WI"
+        },
+        {
+          "drawDate": "2026-11-20",
+          "position": null,
+          "ticketNumber": "628",
+          "name": "John Wickum",
+          "town": "Wilson, WI",
+          "notes": "",
+          "prize": "Bubba Filet Knife",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "Bubba Filet Knife - 628 - John Wickum, Wilson, WI"
+        }
+      ],
+      "warnings": [],
+      "read": {
+        "version": "b4ad565393a4e539",
+        "kind": "window",
+        "pass": 0,
+        "dates": [
+          "2026-11-14",
+          "2026-11-15",
+          "2026-11-16",
+          "2026-11-17",
+          "2026-11-18",
+          "2026-11-19",
+          "2026-11-20"
+        ],
+        "enlarged": true,
+        "usage": {
+          "promptTokens": 2486,
+          "completionTokens": 1874,
+          "estNeurons": 173.9
+        }
+      }
+    },
+    {
+      "containsWinners": true,
+      "rows": [
+        {
+          "drawDate": "2026-11-14",
+          "position": null,
+          "ticketNumber": "300",
+          "name": "Dennis Bishop",
+          "town": "Ettrick, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "300 - Dennis Bishop, Ettrick, WI"
+        },
+        {
+          "drawDate": "2026-11-14",
+          "position": null,
+          "ticketNumber": "449",
+          "name": "Chad Cliburn",
+          "town": "Boerne, TX",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "449 - Chad Cliburn, Boerne, TX"
+        },
+        {
+          "drawDate": "2026-11-14",
+          "position": null,
+          "ticketNumber": "",
+          "name": "Troy Lindberg",
+          "town": "Hixton, WI",
+          "notes": "",
+          "prize": "St Croix Rod",
+          "townStatus": "readable",
+          "ticketStatus": "blank",
+          "cellText": "St Croix Rod - Troy Lindberg, Hixton, WI"
+        },
+        {
+          "drawDate": "2026-11-15",
+          "position": null,
+          "ticketNumber": "885",
+          "name": "Fran Manka",
+          "town": "Blair, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "885 - Fran Manka, Blair, WI"
+        },
+        {
+          "drawDate": "2026-11-15",
+          "position": null,
+          "ticketNumber": "006",
+          "name": "Tom Kupietz",
+          "town": "Arcadia, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "006 - Tom Kupietz, Arcadia, WI"
+        },
+        {
+          "drawDate": "2026-11-15",
+          "position": null,
+          "ticketNumber": "",
+          "name": "Mike Loeser",
+          "town": "Osseo, WI",
+          "notes": "",
+          "prize": "Blackstone",
+          "townStatus": "readable",
+          "ticketStatus": "blank",
+          "cellText": "Blackstone - Mike Loeser, Osseo, WI"
+        },
+        {
+          "drawDate": "2026-11-16",
+          "position": null,
+          "ticketNumber": "797",
+          "name": "JJ Demaske",
+          "town": "Melrose, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "797 -JJ Demaske, Melrose, WI"
+        },
+        {
+          "drawDate": "2026-11-16",
+          "position": null,
+          "ticketNumber": "223",
+          "name": "Gary Giessel",
+          "town": "Rhinelander, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "223 - Gary Giessel, Rhinelander, WI"
+        },
+        {
+          "drawDate": "2026-11-17",
+          "position": null,
+          "ticketNumber": "900",
+          "name": "Tony Sprain",
+          "town": "Melrose, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "900 - Tony Sprain, Melrose, WI"
+        },
+        {
+          "drawDate": "2026-11-17",
+          "position": null,
+          "ticketNumber": "412",
+          "name": "BAMS",
+          "town": "",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "blank",
+          "ticketStatus": "readable",
+          "cellText": "412 - BAMS"
+        },
+        {
+          "drawDate": "2026-11-18",
+          "position": null,
+          "ticketNumber": "197",
+          "name": "Porter Pampuch",
+          "town": "Whitehall, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "197 - Porter Pampuch, Whitehall, WI"
+        },
+        {
+          "drawDate": "2026-11-18",
+          "position": null,
+          "ticketNumber": "230",
+          "name": "Lloyd Schultz",
+          "town": "Ettrick, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "230 - Lloyd Schultz, Ettrick, WI"
+        },
+        {
+          "drawDate": "2026-11-19",
+          "position": null,
+          "ticketNumber": "050",
+          "name": "Brent Janzen",
+          "town": "Blair, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "050 - Brent Janzen, Blair, WI"
+        },
+        {
+          "drawDate": "2026-11-19",
+          "position": null,
+          "ticketNumber": "305",
+          "name": "Nick Cribbs",
+          "town": "DeQueen, AZ",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "305 - Nick Cribbs, DeQueen, AZ"
+        },
+        {
+          "drawDate": "2026-11-20",
+          "position": null,
+          "ticketNumber": "025",
+          "name": "Jason Haen",
+          "town": "LaCrosse, WI",
+          "notes": "",
+          "prize": "Firearm",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "025 - Jason Haen, LaCrosse, WI"
+        },
+        {
+          "drawDate": "2026-11-20",
+          "position": null,
+          "ticketNumber": "540",
+          "name": "Tallie Everson",
+          "town": "Brodhead, WI",
+          "notes": "",
+          "prize": "Gift Card",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "540 - Tallie Everson, Brodhead, WI"
+        },
+        {
+          "drawDate": "2026-11-20",
+          "position": null,
+          "ticketNumber": "628",
+          "name": "John Wickum",
+          "town": "Wilson, WI",
+          "notes": "",
+          "prize": "Bubba Filet Knife",
+          "townStatus": "readable",
+          "ticketStatus": "readable",
+          "cellText": "Bubba Filet Knife - 628 - John Wickum, Wilson, WI"
+        }
+      ],
+      "warnings": [],
+      "read": {
+        "version": "b4ad565393a4e539",
+        "kind": "window",
+        "pass": 1,
+        "dates": [
+          "2026-11-14",
+          "2026-11-15",
+          "2026-11-16",
+          "2026-11-17",
+          "2026-11-18",
+          "2026-11-19",
+          "2026-11-20"
+        ],
+        "enlarged": true,
+        "usage": {
+          "promptTokens": 2484,
+          "completionTokens": 1874,
+          "estNeurons": 173.8
+        }
+      }
+    }
+  ]
+}

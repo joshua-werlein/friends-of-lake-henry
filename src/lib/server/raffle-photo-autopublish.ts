@@ -224,7 +224,7 @@ export const calendarDate = (row: Pick<DraftWinner, 'prize'>, schedule: Schedule
 // beside it (Nov 10 "Cutting Board" on Lyle Schlomer's gift cell; a 30-row table put "Life Jacket" on "429 - Name, Town"). A bonus label
 // on a cell whose own text carries no label ("ticket - name, town" or "name, town") belongs to a neighbour: it is dropped (kept as
 // strayLabel), never used to date or price the cell. A cell with its own label keeps the read prize and the usual prize checks.
-const ownLabel = (cellText: string) => { const m = /^\s*([^,\d][^,]*?)\s+[-–—]\s+\S/.exec(cellText); return m ? m[1] : null; };
+const ownLabel = (cellText: string) => parseCell(cellText).label;
 function calendarDated(pass: Extraction, schedule: ScheduledPrize[]): Extraction {
     return { ...pass, rows: pass.rows.map(r => {
         const bonus = calendarBonus(r, schedule) ?? (identifyPrize(r.prize, r.drawDate, schedule)?.category === 'Bonus drawing' && !Object.hasOwn(CATEGORY_HEADINGS, fold(r.prize ?? '')) ? true : null);
@@ -290,15 +290,54 @@ export function reconcileRows(passes: Extraction[]): RowGroup[] {
 }
 
 /**
- * The name printed in a cell: the text before the first comma, after the extracted ticket's own dash (any spacing: "797 -JJ Demaske",
- * Nov 16) or after a ticket or label dash spaced on both sides ("Life Jacket - Name"). Only the extracted ticket's exact digits at the
- * start of the cell are stripped with uneven spacing, so a hyphen inside a name ("Smith-Jones"), another number ("1797-", "798 -") or a
- * label with uneven spacing ("Life Jacket -Name") is never treated as the separator. Colons are not separators here.
+ * A winner cell, in one grammar: `[label - ][ticket - ]name, town`. Real cells: "025 - Jason Haen, LaCrosse, WI", "797 -JJ Demaske, …"
+ * (Nov 16), "Blackstone - Mike Loeser, Osseo, WI" (Nov 15) and "Bubba Filet Knife - 628 - John Wickum, Wilson, WI" (Nov 20, the first
+ * labelled cell with a ticket). A label is any text that is not itself a ticket, followed by a dash spaced on both sides, so a hyphen
+ * inside a name ("Smith-Jones") or a label with uneven spacing ("Life Jacket -Name") is never a separator. A ticket is up to 9 digits,
+ * optionally after "#", followed by a dash with any spacing. Colons are not separators. The name is the text before the first comma;
+ * a cell without a comma has no recognisable name (`name` undefined).
+ */
+const CELL = /^\s*(?:((?!#?\d{1,9}\s*[-–—])[^,]*?\S)\s+[-–—]\s+(?=\S))?((?:#?(\d{1,9})\s*[-–—]\s*(?=\S))?([\s\S]*))$/;
+export type CellParts = { label: string | null; ticket: string | null; name: string | undefined; afterLabel: string };
+export function parseCell(cell: string): CellParts {
+    const [, label, afterLabel, ticket, rest] = CELL.exec(cell) ?? [];
+    const name = (text: string | undefined) => /^([^,]+?)\s*,/.exec(text ?? '')?.[1];
+    return { label: label ?? null, ticket: ticket ?? null, name: name(rest), afterLabel: afterLabel ?? cell };
+}
+/**
+ * The name printed in a cell. Only the extracted ticket's own digits are stripped, so a cell whose number differs ("1797-", "798 -",
+ * "047" for an extracted "47") keeps that number in front of the name and never matches.
  */
 export function printedName(cell: string, ticketNumber: string): string | undefined {
-    const digits = /^\d{1,9}$/.test(ticketNumber) ? ticketNumber : '';
-    const lead = digits ? new RegExp(String.raw`^\s*#?${digits}\s*[-–—]\s*(?=\S)([^,]+?)\s*,`).exec(cell) : null;
-    return (lead ?? /^\s*(?:[^,]*?\s+[-–—]\s+)?([^,]+?)\s*,/.exec(cell))?.[1];
+    const c = parseCell(cell);
+    return c.ticket === null || c.ticket === ticketNumber ? c.name : /^([^,]+?)\s*,/.exec(c.afterLabel)?.[1];
+}
+
+// A printed label names the read prize when it identifies the same single approved prize and every word of it is that prize's own:
+// a word of the description, a joined pair of its words ("Blackstone", Nov 15) or a one-letter spelling variant of a word of at least
+// 5 letters with the same first letter ("Filet" for Fillet, Nov 20). Missing words are fine ("Fillet Knife"); added words are not
+// ("Bubba Knife Sharpener"). Column headings ("Gift Card", "Bonus") need only identify the same prize.
+function oneEdit(a: string, b: string) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 5 || a[0] !== b[0]) return false;
+    let i = 0; while (i < a.length && a[i] === b[i]) i++;
+    if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
+    return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+}
+function labelWordsOf(label: string, description: string) {
+    const own = fold(description).split(' ');
+    const joined = own.slice(0, -1).map((w, i) => w + own[i + 1]);
+    return fold(label).split(' ').filter(w => w.length > 1 || /\d/.test(w))
+        .every(w => own.includes(w) || joined.includes(w) || (!/\d/.test(w) && own.some(o => !/\d/.test(o) && oneEdit(w, o))));
+}
+/** A cell's own printed label must name the prize the extraction read for it; a label from another prize holds the row. */
+function labelProblems(row: DraftWinner, schedule: ScheduledPrize[]) {
+    const label = parseCell(row.cellText ?? '').label;
+    const read = identifyPrize(row.prize, row.drawDate, schedule);
+    if (!label || !read) return []; // No label of its own, or an unidentified prize, which holds the row anyway.
+    const named = identifyPrize(label, row.drawDate, schedule);
+    if (named === read && (Object.hasOwn(CATEGORY_HEADINGS, fold(label)) || labelWordsOf(label, read.description))) return [];
+    return ['the prize label printed in the cell does not name the extracted prize'];
 }
 
 /**
@@ -308,16 +347,22 @@ export function printedName(cell: string, ticketNumber: string): string | undefi
 function cellTextProblems(row: DraftWinner) {
     const cell = (row.cellText ?? '').trim(), words = ` ${fold(cell)} `;
     if (!cell) return row.ticketNumber === '' ? ['a winner without a ticket needs the raw cell text to confirm it'] : [];
-    const problems: string[] = [];
-    // A leading number is a ticket; a label such as "2nd Drawing" is not.
-    if (row.ticketNumber === '' && /^\W{0,3}\d+(?:\s*[-–—:#]|\s+[A-Za-z])/.test(cell)) problems.push('cell text shows a ticket number that was not extracted');
+    const problems: string[] = [], parts = parseCell(cell);
+    // A leading number, after the cell's own label if it has one, is a ticket; a label such as "2nd Drawing" is not.
+    if (row.ticketNumber === '' && (parts.ticket !== null || /^\W{0,3}\d+(?:\s*[-–—:#]|\s+[A-Za-z])/.test(parts.afterLabel))) problems.push('cell text shows a ticket number that was not extracted');
     if (row.ticketNumber !== '' && !new RegExp(`(?:^|\\D)${row.ticketNumber.replace(/\D/g, '') || 'x'}(?:\\D|$)`).test(cell)) problems.push('ticket number is not in the cell text');
+    // The ticket must be the cell's own: the number in the ticket position, digit for digit (Nov 20: "Bubba Filet Knife - 628 - …").
+    // Reasons below say whether the extraction disagrees with the cell or the cell has a layout this check does not know.
+    else if (row.ticketNumber !== '' && parts.ticket !== null && parts.ticket !== row.ticketNumber) problems.push('ticket number differs from the ticket printed in the cell');
+    else if (row.ticketNumber !== '' && parts.ticket === null) problems.push('cell layout not recognised: the extracted ticket is not in the ticket position of the cell; review required');
     if (fold(row.name) && !words.includes(` ${fold(row.name)} `)) problems.push('name is not in the cell text');
     // The name is the whole text between the ticket or label dash and the first comma ("442 - Winner 28G, Taylor, WI"); a real window
     // read copied that cell exactly but returned name "Winner". A shortened or extended name is held, never repaired from the cell.
-    else if (fold(row.name)) {
-        const printed = printedName(cell, row.ticketNumber);
-        if (printed !== undefined && fold(printed) !== fold(row.name)) problems.push('name differs from the name printed in the cell');
+    // Names are never put in reasons (they reach alert emails and incident records); the admin review shows the cell beside the read.
+    else if (fold(row.name) && parts.name !== undefined && fold(parts.name) !== fold(row.name)) {
+        problems.push(/^\W{0,3}\d|\s[-–—]\s/.test(parts.name)
+            ? 'cell layout not recognised: the text before the name is neither the ticket nor a prize label in a known form; review required'
+            : 'name differs from the name printed in the cell');
     }
     // Spacing around commas differs between reads (Auburn,WA), so hometowns compare without separators.
     if (row.town && !fold(cell).replace(/ /g, '').includes(fold(row.town).replace(/ /g, ''))) problems.push('hometown is not in the cell text');
@@ -380,6 +425,9 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         const row = anchor(group);
         const { reasons, outside } = rowProblems(row, announcementDate);
         reasons.push(...group.issues);
+        // Every pass's own copy of the cell must support what that pass read, and its printed label must name the prize it read.
+        for (const m of group.members) if (m) for (const p of [...(m === row ? [] : cellTextProblems(m)), ...labelProblems(m, schedule)])
+            if (!reasons.includes(p)) reasons.push(p);
         const seen = group.members.filter(Boolean).length;
         if (seen < passes.length) reasons.push(`row was read by only ${seen} of ${passes.length} extraction passes`);
         for (const o of group.members) {
