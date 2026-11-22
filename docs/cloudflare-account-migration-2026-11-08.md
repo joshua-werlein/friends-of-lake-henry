@@ -101,7 +101,7 @@ removes the reachable image-processing path, it does not resolve them.
 |---|---|---|
 | Pages | `93fe0d3b-8991-41c1-bad2-3d9594ca2a0c` (Nov 19, 21:54 UTC), **Direct Upload** of `da5333c` (the security release above on `d92eb2c`: inline photo review, history with Needs review / Issues / Completed / All, mobile scrolling) built from a clean `git archive` export with Node **22.23.5**. Production branch `main`; automatic production deployments paused; preview builds off. Previous: `2f96df08` (`d92eb2c`, unpatched `/_image`), `ba1bc408` (`f789234`), `3a16b88e` (hosted build of `482d851`) | `1c163014-f387-4bdc-8ee9-ce6a831680da` (Nov 19, 22:04 UTC), Direct Upload of the **same `da5333c` `dist`** with DESTINATION bindings, on `friends-of-lake-henry-d16.pages.dev` only. Previous: `7cdc9851` (`d92eb2c`, unpatched), `df1fc387` (Nov 8, `97c81a0`). `/api/photos/file` and both poster routes **500** until R2 exists |
 | D1 schema | migrations 001–008 **and 010** (010 adds only `raffle_photo_row_resolutions`); **009 not applied** | same: 001–008 and 010; **009 not applied** |
-| D1 data | 70 winners (verified unchanged through every Nov 19 release); 20 photo-review resolutions (Nov 19); 2 open whole-photo Issues (the Nov 12 quota failure and a Nov 5 rejection) to mark handled after checking their winners | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
+| D1 data | 80 winners through Nov 21 (Nov 22 15:36 UTC: no duplicate IDs, tickets or prize slots per day); 24 photo-review resolutions; both whole-photo Issues (the Nov 12 quota failure and a Nov 5 rejection) marked handled Nov 21; 6 hometowns corrected and the Nov 12 alert closed Nov 22 (see the November 12 reconciliation below); all 14 photo-automation alert incidents resolved | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
 | R2 `folh-photos` | 28 objects, 16.6 MB, ENAM (unchanged since Nov 8) | **R2 not enabled** (API code 10042) |
 | Live Worker | `ced68381-190a-42dd-b426-511e14d88ea3` at 100% (unchanged) | `a134d4df`, no cron, flags off |
 | Photo Worker | `165eb38c-c2b5-48ab-8bf8-ce40394ef670` at 100% (Nov 22 15:03 UTC), built from `def561f` (`task/photo-prize-variants`): `e2f9aa4` plus the Nov 21 prize-spelling fix (a shortened label with a one-letter spelling variant, "Ice Auger" for Strike Master Ice Augur). Previous: `9a14b7c3` (`e2f9aa4`), `077637f8` (`49b3fd3`), `dc1ad438` (`7a9d4c4`), `3d4928c9` (`893d371`) | `8ebd67eb-cfc9-47ed-934f-9f59b74d7c66` (Nov 22 15:08 UTC), built from `def561f` with `wrangler.nonprofit.staged.json`: no cron, workers.dev off, all automation and alert flags off, no secrets, **no `IMAGES` binding yet**. Previous: `af328d6d` (`e2f9aa4`), `82b7d603` (`49b3fd3`), `1ca3d573` (Nov 8) |
@@ -110,6 +110,31 @@ removes the reachable image-processing path, it does not resolve them.
 | Domain | Cloudflare Registrar, `clientTransferProhibited`, DNSSEC off, expires 2027-12-12, NS `angelina`/`sam` | not added |
 
 SOURCE Pages rollback order: `2f96df08-e195-4a5f-8e14-36070fb6d74c` (`d92eb2c`, same features as `93fe0d3b` but with the unpatched `/_image` endpoint; verified listed and serving on its alias Nov 19; use only for an application regression and re-release a patched build promptly), then `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `9a14b7c3-2a25-4309-bd85-999c550fd2c4` (`e2f9aa4`; `wrangler versions deploy 9a14b7c3-2a25-4309-bd85-999c550fd2c4@100% --name folh-facebook-winner-photos` with `CLOUDFLARE_ACCOUNT_ID=aa86268490e681cccb3a41a62093e2aa`; brings back the Nov 21 hold: a bonus label spelled one letter differently from the calendar, such as "Ice Auger", is held and entered manually), then `077637f8-f77a-4773-a0cc-289a7313defa` (`49b3fd3`, keeps the Nov 16 fix), then `dc1ad438-bb57-4705-a9f6-0d8e3945ee80` (`7a9d4c4`). A rollback to `077637f8` or `dc1ad438` also brings back the Nov 20 hold: bonus cells printed as `Label - Ticket - Name, Town` are held and must be entered manually. DESTINATION rollbacks: Pages `7cdc9851` (`d92eb2c`, unpatched), then `df1fc387`, Photo `af328d6d` (`e2f9aa4`), then `82b7d603` (`49b3fd3`), then `1ca3d573` (only for a failed staging upload, never for cutover). The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
+
+**November 12 reconciliation and hometown corrections, 2026-11-22 (owner-approved; SOURCE D1 data only).** The Nov 12 post
+`144051422124740_122335449590073310` (photo `122335449560073310`) failed on Nov 12 after 6 attempts on the Workers AI daily quota
+(code 4006). No image or reads were stored, and its winners were entered manually. Day 12 had two approved prizes (Henry Side Gate 410,
+the daily gift certificate) and no bonus. Both stored winners, 377 Kurt Kuehl and 103 Carmen Peters, match the ticket, name and slot in
+all 8 later reads (4 cumulative photos, Nov 14–18, 2 passes each). The photo was marked handled on Nov 21 (resolution #22, "entered
+manually").
+
+- **Hometowns** (town only, via the admin edit's compare-and-set update and a `raffle_winner_corrections` row each, ids 3–8):
+  `Tomah, W` to `Tomah, WI` (#377) and `Coon Valley, W` to `Coon Valley, WI` (#103), from 8 verbatim cell reads each; `LaCrosse` to
+  `LaCrosse, WI` (Nov 1 #360), `Cashton` to `Cashton, WI` (Nov 1 #894) and `Hixton` to `Hixton, WI` (Nov 2 #709), from the printed
+  table in `tests/fixtures/facebook-winners-2026-11-03.jpg` and 18 later reads each; `Auburn,WA` to `Auburn, WA` (Nov 2 #323, printed
+  without the space). Prize text, IDs, tickets and slots were not changed.
+- **Alert** `photo:post:144051422124740_122335449590073310`: the Photo Worker re-raises a `photo:post:` alert for every post whose
+  status is `failed` (a new alert email if the incident were only marked resolved; a recovery email if only the post changed). One
+  request at about 15:33 UTC, right after a cron tick, set the post `failed` to `done` (attempts, error codes, the 18 attempt rows, the
+  `failed` import row and resolution #22 kept) and the incident `open` to `resolved` (`resolvedAt` 15:31:05Z, the time the change
+  was prepared; first-seen and notified times kept). The 15:34:48 tick ran clean: no new incident and no email. Requeue eligibility
+  is unchanged (`done` and `failed` requeue alike).
+- **Backup and reversal:** `C:\Users\Jwerl\dev\folh-backups-2026-11-22-nov12-cleanup\` (`before.json` with every affected row and
+  all 80 winners, `after.json`, `change.sql`, `restore.sql`, rehearsed locally: applies once, reruns as a no-op, restores
+  byte-for-byte). The D1 Time Travel bookmark before the change is `000037c4-00000000-0000512b-b45daf1eaeea5b598ffef0c144801864`
+  (whole database; last resort). Running `restore.sql` re-opens the alert: the next tick would email it again.
+- **After:** 80 winners, 80 distinct IDs, no duplicate tickets or slots; only the 6 towns differ from the backup; the public
+  `/api/raffle/month` serves the corrected towns. DESTINATION D1 is stale by design and receives these rows in the final sync.
 
 **Photo Worker release, 2026-11-22 15:03 UTC (Nov 22, 9:03 AM Central; owner-approved; Photo Worker only).** Fixes the Nov 21
 hold (`photo:review:122337048518073310`): both reads of `Ice Auger - 029 - Pat Keating, LaCrosse, WI` were correct, but the calendar
