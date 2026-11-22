@@ -45,14 +45,43 @@ function identifyPrize(text: string | undefined, drawDate: string, schedule: Sch
 }
 // The prize's own opening words with different spacing: "Blackstone" for Black Stone 28" Griddle (Nov 15, both passes). The label with its
 // spaces removed must equal the description's first whole words joined, at least 6 characters, and the spacing must actually differ.
-// Words from the middle of a description ("Chainsaw" for Stihl Chain Saw MS 170), a brand next to other words, a misspelling or part of a
-// word stay unmatched and are held for review.
+// Words from the middle of a description ("Chainsaw" for Stihl Chain Saw MS 170), a brand next to other words or part of a word stay
+// unmatched and are held for review. One-letter spelling variants are handled only by spelledRun and the one-word rule below.
 function respaced(visible: string, description: string) {
     const want = visible.replace(/ /g, ''), words = fold(description).split(' ');
     if (want.length < 6) return false;
     for (let j = 0, run = ''; j < words.length && run.length < want.length; j++) {
         run += words[j];
         if (run === want) return j > 0 || visible.includes(' ');
+    }
+    return false;
+}
+// The Page's spelling of a word and the calendar's can differ by one letter, in either direction: Nov 20 "Filet" for the calendar's
+// Fillet, Nov 21 "Auger" for the calendar's Augur. A spelling variant is exactly one inserted, deleted or replaced letter in a word of at
+// least 5 letters with the same first letter and no digits ("28", "30-06", "5.7x28" must match exactly; "Rod", "Vise" never vary).
+function oneEdit(a: string, b: string) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 5 || a[0] !== b[0]) return false;
+    let i = 0; while (i < a.length && a[i] === b[i]) i++;
+    if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
+    return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+}
+const spelledAs = (w: string, own: string) => w === own || (!/\d/.test(w) && !/\d/.test(own) && oneEdit(w, own));
+// A shortened label with one word spelled differently is a run of the description's consecutive words: "Ice Auger" for Strike Master
+// Ice Augur (Nov 21), "Filet Knife" for Bubba Fillet Knife. Every label word is the next description word, at most one is a spelling
+// variant and at least one is exact. Only the description's first two words may be joined ("Strikemaster Ice Auger"), as in the spacing
+// rule above; words joined from the middle ("Chainsaw MS 170" for Stihl Chain Saw MS 170) and added or reordered words never match here.
+function spelledRun(visible: string, description: string) {
+    const label = visible.split(' '), own = fold(description).split(' ');
+    for (let start = 0; start < own.length; start++) {
+        let j = start, exact = 0, varied = 0, ok = true;
+        for (const w of label) {
+            if (j === 0 && own.length > 2 && w === own[0] + own[1]) { j += 2; exact++; continue; }
+            if (j >= own.length || !spelledAs(w, own[j])) { ok = false; break; }
+            if (w === own[j]) exact++; else varied++;
+            j++;
+        }
+        if (ok && exact >= 1 && varied <= 1) return true;
     }
     return false;
 }
@@ -79,18 +108,25 @@ function findPrize(text: string | undefined, drawDate: string, schedule: Schedul
     // A shortened label ("Cutting Board") is a whole-word phrase of one approved description. Display keeps the full description.
     if (visible.split(' ').length >= 2) {
         const phrase = eligible.filter(p => ` ${fold(p.description)} `.includes(` ${visible} `));
-        if (phrase.length) return phrase.length === 1 ? phrase[0] : null;
+        // Another of the date's prizes with the same words spelled one letter differently ("Ice Auger" and "Ice Augur") makes it ambiguous.
+        if (phrase.length) return phrase.length === 1 && !eligible.some(p => p !== phrase[0] && spelledRun(visible, p.description)) ? phrase[0] : null;
     }
     // A differently spaced label names a prize only when exactly one of the date's approved prizes contains it, in either spacing.
     const spaced = eligible.filter(p => respaced(visible, p.description));
     if (spaced.length) return spaced.length === 1 && !eligible.some(p => p !== spaced[0] && ` ${fold(p.description)} `.includes(` ${visible} `)) ? spaced[0] : null;
-    // A one-word label names a bonus prize only as that prize's final noun: "Griddle" for Black Stone 28" Griddle, the day's only
-    // bonus ending in it. Any other single word stays unmatched, including a word of a multi-item prize ("Cutting", "Board" of the
-    // Nov 6 cutting board set), a brand ("Vexilar") or a joined spelling ("Chainsaw"), and the winner is held for review.
+    // A shortened label with one spelling variant ("Ice Auger"), when exactly one of the date's approved prizes has that run of words.
+    if (visible.includes(' ')) {
+        const runs = eligible.filter(p => spelledRun(visible, p.description));
+        if (runs.length) return runs.length === 1 ? runs[0] : null;
+    }
+    // A one-word label names a bonus prize only as that prize's final noun, spelled as printed or with one letter different: "Griddle"
+    // for Black Stone 28" Griddle, "Auger" for Strike Master Ice Augur, the day's only bonus ending in it. Any other single word stays
+    // unmatched, including a word of a multi-item prize ("Cutting", "Board" of the Nov 6 cutting board set), a brand ("Vexilar") or a
+    // joined spelling ("Chainsaw"), and the winner is held for review.
     if (!visible.includes(' ') && visible.length >= 5 && !/\d/.test(visible)) {
-        const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && fold(p.description).split(' ').at(-1) === visible);
+        const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && spelledAs(visible, fold(p.description).split(' ').at(-1)!));
         if (holders.length === 1 && holders[0].category === 'Bonus drawing'
-            && !eligible.some(p => p !== holders[0] && fold(p.description).split(' ').includes(visible))) return holders[0];
+            && !eligible.some(p => p !== holders[0] && fold(p.description).split(' ').some(o => spelledAs(visible, o)))) return holders[0];
     }
     // Strong token overlap ("Savage 110 30-06" vs "Savage 110 High Country 30-06"), unique to one scheduled prize.
     const strong = scored.filter(v => v.score >= 0.6).sort((a, b) => b.score - a.score);
@@ -214,9 +250,10 @@ function findCalendarBonus(row: Pick<DraftWinner, 'prize'>, schedule: ScheduledP
     const dates = [...new Set(schedule.filter(p => p.status === 'approved').map(p => p.drawDate))];
     const hits = dates.map(d => identifyPrize(row.prize, d, schedule)).filter((p): p is ScheduledPrize => !!p);
     if (hits.length !== 1 || hits[0].category !== 'Bonus drawing') return null;
-    // A one-word label dates a cell only if no other approved prize of the month uses that word ("Board": paddle board and cutting board).
+    // A one-word label dates a cell only if no other approved prize of the month uses that word or a one-letter variant of it
+    // ("Board": paddle board and cutting board).
     if (!visible.includes(' ') && schedule.some(p => p !== hits[0] && p.status === 'approved'
-        && (fold(p.description).split(' ').includes(visible) || respaced(visible, p.description)))) return null;
+        && (fold(p.description).split(' ').some(o => spelledAs(visible, o)) || respaced(visible, p.description)))) return null;
     return hits[0];
 }
 export const calendarDate = (row: Pick<DraftWinner, 'prize'>, schedule: ScheduledPrize[]) => calendarBonus(row, schedule)?.drawDate ?? null;
@@ -315,20 +352,13 @@ export function printedName(cell: string, ticketNumber: string): string | undefi
 
 // A printed label names the read prize when it identifies the same single approved prize and every word of it is that prize's own:
 // a word of the description, a joined pair of its words ("Blackstone", Nov 15) or a one-letter spelling variant of a word of at least
-// 5 letters with the same first letter ("Filet" for Fillet, Nov 20). Missing words are fine ("Fillet Knife"); added words are not
-// ("Bubba Knife Sharpener"). Column headings ("Gift Card", "Bonus") need only identify the same prize.
-function oneEdit(a: string, b: string) {
-    if (a === b) return true;
-    if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 5 || a[0] !== b[0]) return false;
-    let i = 0; while (i < a.length && a[i] === b[i]) i++;
-    if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
-    return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
-}
+// 5 letters with the same first letter (spelledAs: "Filet" for Fillet, Nov 20; "Auger" for Augur, Nov 21). Missing words are fine
+// ("Fillet Knife"); added words are not ("Bubba Knife Sharpener"). Column headings ("Gift Card", "Bonus") need only identify the same prize.
 function labelWordsOf(label: string, description: string) {
     const own = fold(description).split(' ');
     const joined = own.slice(0, -1).map((w, i) => w + own[i + 1]);
     return fold(label).split(' ').filter(w => w.length > 1 || /\d/.test(w))
-        .every(w => own.includes(w) || joined.includes(w) || (!/\d/.test(w) && own.some(o => !/\d/.test(o) && oneEdit(w, o))));
+        .every(w => joined.includes(w) || own.some(o => spelledAs(w, o)));
 }
 /** A cell's own printed label must name the prize the extraction read for it; a label from another prize holds the row. */
 function labelProblems(row: DraftWinner, schedule: ScheduledPrize[]) {

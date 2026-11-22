@@ -29,6 +29,10 @@ export const day = n => `2026-11-${String(n).padStart(2, '0')}`;
 // Short labels as the Page writes bonus cells ("Cutting Board", "Paddle board"), including one-word and joined forms.
 export const LABELS = { 13: 'Panfish Rod', 14: 'Walleye Rod', 15: 'Griddle', 20: 'Fillet Knife', 21: 'Ice Augur', 22: 'Fish Finder',
     26: 'Gun Safe', 27: 'Chain Saw', 28: 'Life Jacket', 29: 'Gun Vise' };
+// The labels as the Page actually printed them where they differ from the calendar's spelling (Nov 15 "Blackstone", Nov 20 "Bubba Filet
+// Knife", Nov 21 "Ice Auger"). LABELS copy the calendar's words, so a simulation using only them could never catch a spelling hold.
+// Nov 27 keeps "Chain Saw": the joined "Chainsaw" stays in manual review by the owner's decision of 2026-11-15.
+export const PAGE_LABELS = { ...LABELS, 15: 'Blackstone', 20: 'Bubba Filet Knife', 21: 'Ice Auger', 22: 'Vexilar Fish Finder' };
 export const cell = (date, column, ticket, name, town, label) => ({ drawDate: date, position: null, ticketNumber: ticket, ticketStatus: ticket ? 'readable' : 'blank',
     name, town, townStatus: town ? 'readable' : 'blank', prize: label ?? column, notes: '',
     cellText: (label ? `${label} - ` : '') + (ticket ? `${ticket} - ` : '') + name + (town ? `, ${town}` : '') });
@@ -40,7 +44,7 @@ const FIRST = ['Sam', 'Lena', 'Mark', 'Ruth', 'Dale', 'Erin', 'Gus', 'Ida', 'Owe
 const LAST = ['Olson', 'Hagen', 'Brekke', 'Lund', 'Moe', 'Sather', 'Thorson', 'Ekern', 'Kvam', 'Rude', 'Gilbertson', 'Nyhus', 'Skaar', 'Haugen', 'Tollefson', 'Vold', 'Berge', 'Dahl', 'Ness'];
 const realName = (n, column) => `${FIRST[(n * 3 + (column === 'Firearm' ? 0 : column ? 1 : 2)) % FIRST.length]} ${LAST[(n * 7 + (column === 'Firearm' ? 0 : column ? 5 : 11)) % LAST.length]}`;
 // bonusTickets: bonus cells print the winner's ticket after the label ("Bubba Filet Knife - 628 - John Wickum, Wilson, WI"), as from Nov 20.
-export function futureTruth(schedule, { realistic = false, bonusTickets = false } = {}) {
+export function futureTruth(schedule, { realistic = false, bonusTickets = false, labels = LABELS } = {}) {
     const truth = [];
     let ticket = 400;
     for (let n = 12; n <= 30; n++) for (const p of schedule.filter(p => p.drawDate === day(n))) {
@@ -50,7 +54,7 @@ export function futureTruth(schedule, { realistic = false, bonusTickets = false 
         if (n === 20 && !column) who = { name: 'John Kraemer', town: 'Neillsville, WI', ticket: '' };
         if (n === 25 && column === 'Firearm') who = { name: 'Dennis McHenry', town: 'LaCrosse, WI', ticket: '698' };
         if (!column && !bonusTickets) who.ticket = '';
-        truth.push({ slot: p.id, ...cell(day(n), column, who.ticket, who.name, who.town, column ? undefined : LABELS[n]) });
+        truth.push({ slot: p.id, ...cell(day(n), column, who.ticket, who.name, who.town, column ? undefined : labels[n]) });
     }
     return truth;
 }

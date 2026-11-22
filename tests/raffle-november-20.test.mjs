@@ -95,7 +95,8 @@ test('November 20 duplicates: a requeue or redelivery never writes a winner twic
 
 test('November 20 label spellings: verified variants of the approved prize publish, other prizes and added words do not', async t => {
     const schedule = await calendar(t);
-    for (const label of ['Bubba Filet Knife', 'Bubba Fillet Knife', 'BUBBA FILET KNIFE', 'Fillet Knife', 'Bubba Filet knife']) {
+    // "Filet Knife" is the shortened label in the Page's spelling: until the Nov 21 fix it identified nothing and was held.
+    for (const label of ['Bubba Filet Knife', 'Bubba Fillet Knife', 'BUBBA FILET KNIFE', 'Fillet Knife', 'Filet Knife', 'Bubba Filet knife']) {
         const d = decidePhoto(bonus({ prize: label, cellText: CELL.replace('Bubba Filet Knife', label) }), before(DATE), schedule, DATE);
         assert.deepEqual([knifeRow(d).outcome, knifeRow(d).prizeSlotId], ['insert', KNIFE], label);
     }
@@ -115,10 +116,12 @@ test('November 20 label spellings: verified variants of the approved prize publi
     // Added words, a different word that shares a letter pattern, and a near-miss spelling below 5 letters.
     for (const label of ['Bubba Knife Sharpener', 'Bubba Fillet Knives Set', 'Bubba Flat Knife'])
         assert.ok(held({ prize: label, cellText: CELL.replace('Bubba Filet Knife', label) }).reasons.some(r => r === LABEL || /must identify exactly one/.test(r)), label);
-    // Prize matching itself is unchanged: "Filet Knife" shares only one of the three words of Bubba Fillet Knife, so it stays held.
-    held({ prize: 'Filet Knife', cellText: CELL.replace('Bubba Filet Knife', 'Filet Knife') });
-    // The label names another night's prize: it is never published as tonight's knife.
+    // Two spelling variants in one label, or a variant plus an added word, stay held.
+    for (const label of ['Bubba Filett Knive', 'Filet Knife Set'])
+        assert.ok(held({ prize: label, cellText: CELL.replace('Bubba Filet Knife', label) }).reasons.some(r => r === LABEL || /must identify exactly one/.test(r)), label);
+    // The label names another night's prize, in the calendar's or the Page's spelling: it is never published as tonight's knife.
     held({ prize: 'Ice Augur', cellText: CELL.replace('Bubba Filet Knife', 'Ice Augur') });
+    held({ prize: 'Ice Auger', cellText: CELL.replace('Bubba Filet Knife', 'Ice Auger') });
 });
 
 test('November 20 wrong or ambiguous cells are held with a reason that says what is wrong, and never name the winner', async t => {
