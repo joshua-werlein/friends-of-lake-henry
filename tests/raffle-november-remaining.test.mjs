@@ -14,8 +14,14 @@ test('every remaining bonus label dates itself from the approved calendar; share
     for (const [n, label] of Object.entries(LABELS)) assert.equal(calendarDate({ prize: label }, schedule), day(n), label);
     for (const label of ['Cutting Board', 'Meat Bundle', 'Paddle board']) assert.ok(calendarDate({ prize: label }, schedule));
     for (const label of ['Rod', 'Bonus', 'Gift Card', 'Firearm', 'Safe', 'Henry Side Gate', '$100 gift certificate']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
-    // One-word labels match only as a single-item prize's final noun; a brand, a joined spelling or a misspelling is held for review.
-    for (const label of ['Vexilar', 'Chainsaw', 'Ice Auger', 'Blackstone Griddle', 'Cutting', 'Board']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
+    // One-word labels match only as a single-item prize's final noun; a brand, a joined spelling or a word shared by two prizes is held.
+    for (const label of ['Vexilar', 'Chainsaw', 'Blackstone Griddle', 'Cutting', 'Board']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
+    // The Page spells words as written English where the calendar has a one-letter variant (Nov 21 "Ice Auger" for Strike Master Ice
+    // Augur, Nov 20 "Filet" for Fillet). Such a label names its prize when no other approved prize of the month has that word.
+    for (const [label, n] of [['Ice Auger', 21], ['Auger', 21], ['Strike Master Ice Auger', 21], ['Strikemaster Ice Auger', 21], ['Filet Knife', 20], ['Bubba Filet Knife', 20]])
+        assert.equal(calendarDate({ prize: label }, schedule), day(n), label);
+    // Two letters off, a short word, or a variant in a word with digits never names a prize.
+    for (const label of ['Ice Augerr', 'Ice Augers', 'Augers', 'Ice Agur', 'Gun Vice', 'Ice Fishing Auger', 'Auger Ice', 'Strike Ice Auger', 'Chain Sawe Stihl']) assert.equal(calendarDate({ prize: label }, schedule), null, label);
     // The one exception (Nov 15): the prize's own opening words joined.
     assert.equal(calendarDate({ prize: 'Blackstone' }, schedule), day(15));
 });
