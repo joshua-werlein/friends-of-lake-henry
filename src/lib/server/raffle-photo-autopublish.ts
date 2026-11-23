@@ -57,16 +57,21 @@ function respaced(visible: string, description: string) {
     return false;
 }
 // The Page's spelling of a word and the calendar's can differ by one letter, in either direction: Nov 20 "Filet" for the calendar's
-// Fillet, Nov 21 "Auger" for the calendar's Augur. A spelling variant is exactly one inserted, deleted or replaced letter in a word of at
-// least 5 letters with the same first letter and no digits ("28", "30-06", "5.7x28" must match exactly; "Rod", "Vise" never vary).
+// Fillet, Nov 21 "Auger" for the calendar's Augur, Nov 22 "Vexliar" for Vexilar. A spelling variant is exactly one inserted, deleted or
+// replaced letter, or two neighbouring letters swapped, in a word of at least 5 letters with the same first letter and no digits
+// ("28", "30-06", "5.7x28" must match exactly; "Rod", "Vise" never vary).
 function oneEdit(a: string, b: string) {
     if (a === b) return true;
     if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 5 || a[0] !== b[0]) return false;
     let i = 0; while (i < a.length && a[i] === b[i]) i++;
-    if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
+    if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1)
+        || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
     return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
 }
 const spelledAs = (w: string, own: string) => w === own || (!/\d/.test(w) && !/\d/.test(own) && oneEdit(w, own));
+// An abbreviated word is the opening 3+ letters of a description word of at least 6 letters ("Jack" for Jacket, "Cert" for Certificate).
+// It is accepted only inside a run of the description's words with at least one exact word, never as a label on its own.
+const abbreviates = (w: string, own: string) => w.length >= 3 && own.length >= 6 && w !== own && own.startsWith(w) && !/\d/.test(own);
 // A shortened label with one word spelled differently is a run of the description's consecutive words: "Ice Auger" for Strike Master
 // Ice Augur (Nov 21), "Filet Knife" for Bubba Fillet Knife. Every label word is the next description word, at most one is a spelling
 // variant and at least one is exact. Only the description's first two words may be joined ("Strikemaster Ice Auger"), as in the spacing
@@ -77,13 +82,54 @@ function spelledRun(visible: string, description: string) {
         let j = start, exact = 0, varied = 0, ok = true;
         for (const w of label) {
             if (j === 0 && own.length > 2 && w === own[0] + own[1]) { j += 2; exact++; continue; }
-            if (j >= own.length || !spelledAs(w, own[j])) { ok = false; break; }
+            if (j >= own.length || !(spelledAs(w, own[j]) || abbreviates(w, own[j]))) { ok = false; break; }
             if (w === own[j]) exact++; else varied++;
             j++;
         }
         if (ok && exact >= 1 && varied <= 1) return true;
     }
     return false;
+}
+/**
+ * A one-word label that is a description's final word or, for a description of at least two words, its opening brand word of at least
+ * 6 letters ("Vexilar"). Shorter opening words are often a common word or half of a two-word brand ("Black" of Black Stone) and stay held.
+ */
+function endWord(visible: string, description: string) {
+    const own = fold(description).split(' ');
+    return spelledAs(visible, own.at(-1)!) || (own.length >= 2 && own[0].length >= 6 && visible.length >= 6 && spelledAs(visible, own[0]));
+}
+// Used only to place a winner by elimination (decidePhoto), never to identify a prize: a label word loosely belongs to a description word
+// when it is a spelling variant, a prefix abbreviation, a consonant abbreviation (the word's letters in order, same first letter, 3+
+// letters: "Vxlr" for Vexilar, "Fndr" for Finder) or at most two letters off in a word of 5+ letters with the same first letter.
+// Words with digits must match exactly.
+function editDistance(a: string, b: string) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+    return d[a.length][b.length];
+}
+const inOrder = (w: string, own: string) => { let i = 0; for (const c of own) if (c === w[i]) i++; return i === w.length; };
+function loosely(w: string, own: string) {
+    if (spelledAs(w, own) || abbreviates(w, own)) return true;
+    if (/\d/.test(w) || /\d/.test(own) || w[0] !== own[0] || w.length < 3) return false;
+    return inOrder(w, own) || (Math.min(w.length, own.length) >= 5 && editDistance(w, own) <= 2);
+}
+/**
+ * Every word of a printed label loosely belongs to the description: no added word names something else ("Ice Shelter", "Auger Set").
+ * A one-word label must be at least 5 letters and loosely the prize's final noun or its 6+ letter opening brand word: a generic fragment
+ * from the middle ("Ice", "Master" of Strike Master Ice Augur) or a very short word is no evidence and stays held.
+ */
+function compatibleLabel(label: string, description: string) {
+    const own = fold(description).split(' '), joined = own.slice(0, -1).map((w, i) => w + own[i + 1]);
+    const words = fold(label).split(' ').filter(w => w.length > 1 || /\d/.test(w));
+    if (words.length === 1) {
+        const [w] = words;
+        return w.length >= 5 && (loosely(w, own.at(-1)!) || (own.length >= 2 && own[0].length >= 6 && loosely(w, own[0])) || (joined[0] === w));
+    }
+    return words.length > 0 && words.every(w => joined.includes(w) || own.some(o => loosely(w, o)));
 }
 function findPrize(text: string | undefined, drawDate: string, schedule: ScheduledPrize[]) {
     const visible = fold(text ?? '');
@@ -119,16 +165,19 @@ function findPrize(text: string | undefined, drawDate: string, schedule: Schedul
         const runs = eligible.filter(p => spelledRun(visible, p.description));
         if (runs.length) return runs.length === 1 ? runs[0] : null;
     }
-    // A one-word label names a bonus prize only as that prize's final noun, spelled as printed or with one letter different: "Griddle"
-    // for Black Stone 28" Griddle, "Auger" for Strike Master Ice Augur, the day's only bonus ending in it. Any other single word stays
-    // unmatched, including a word of a multi-item prize ("Cutting", "Board" of the Nov 6 cutting board set), a brand ("Vexilar") or a
-    // joined spelling ("Chainsaw"), and the winner is held for review.
+    // A one-word label names a bonus prize only as that prize's final noun or its opening brand word, spelled as printed or with one
+    // letter different: "Griddle" for Black Stone 28" Griddle, "Auger" for Strike Master Ice Augur, "Vexliar" for Vexilar Fish Finder
+    // (Nov 22), the day's only bonus with that word. Any other single word stays unmatched, including a word of a multi-item prize
+    // ("Cutting", "Board" of the Nov 6 cutting board set), a word another of the day's prizes also uses, or a joined spelling
+    // ("Chainsaw"), and the winner is held for review.
     if (!visible.includes(' ') && visible.length >= 5 && !/\d/.test(visible)) {
-        const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && spelledAs(visible, fold(p.description).split(' ').at(-1)!));
+        const holders = eligible.filter(p => !/[,&]| and /i.test(p.description) && endWord(visible, p.description));
         if (holders.length === 1 && holders[0].category === 'Bonus drawing'
             && !eligible.some(p => p !== holders[0] && fold(p.description).split(' ').some(o => spelledAs(visible, o)))) return holders[0];
     }
     // Strong token overlap ("Savage 110 30-06" vs "Savage 110 High Country 30-06"), unique to one scheduled prize.
+    // A single word never identifies a prize by overlap alone; one-word labels have only the stricter rules above.
+    if (seen.size < 2) return null;
     const strong = scored.filter(v => v.score >= 0.6).sort((a, b) => b.score - a.score);
     return strong.length === 1 || (strong.length > 1 && strong[0].score - strong[1].score >= 0.3) ? strong[0].p : null;
 }
@@ -251,7 +300,8 @@ function findCalendarBonus(row: Pick<DraftWinner, 'prize'>, schedule: ScheduledP
     const hits = dates.map(d => identifyPrize(row.prize, d, schedule)).filter((p): p is ScheduledPrize => !!p);
     if (hits.length !== 1 || hits[0].category !== 'Bonus drawing') return null;
     // A one-word label dates a cell only if no other approved prize of the month uses that word or a one-letter variant of it
-    // ("Board": paddle board and cutting board).
+    // ("Board": paddle board and cutting board). A lone brand word ("Vexilar") names its own row's prize but never moves a cell to another date.
+    if (!visible.includes(' ') && !spelledAs(visible, fold(hits[0].description).split(' ').at(-1)!) && !respaced(visible, hits[0].description)) return null;
     if (!visible.includes(' ') && schedule.some(p => p !== hits[0] && p.status === 'approved'
         && (fold(p.description).split(' ').some(o => spelledAs(visible, o)) || respaced(visible, p.description)))) return null;
     return hits[0];
@@ -358,7 +408,7 @@ function labelWordsOf(label: string, description: string) {
     const own = fold(description).split(' ');
     const joined = own.slice(0, -1).map((w, i) => w + own[i + 1]);
     return fold(label).split(' ').filter(w => w.length > 1 || /\d/.test(w))
-        .every(w => joined.includes(w) || own.some(o => spelledAs(w, o)));
+        .every(w => joined.includes(w) || own.some(o => spelledAs(w, o) || abbreviates(w, o)));
 }
 /** A cell's own printed label must name the prize the extraction read for it; a label from another prize holds the row. */
 function labelProblems(row: DraftWinner, schedule: ScheduledPrize[]) {
@@ -517,6 +567,40 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         d.outcome = 'held'; d.reasons.push(k.startsWith('t:') ? 'ticket appears twice for this date in the image' : 'place appears twice for this date in the image');
     }
 
+    // Places a row in an identified approved slot: place, blank-ticket, slot-holder and removed-winner checks, then the publish reasons.
+    const settle = (d: RowDecision, prize: ScheduledPrize, scheduledPosition: WinnerPosition, how = 'prize matches approved calendar entry') => {
+        d.prizeMatch = 'scheduled';
+        const position = d.row.position ?? scheduledPosition;
+        if (position === null || (scheduledPosition !== null && position !== scheduledPosition)) {
+            d.outcome = 'held';
+            d.reasons.push('place is missing or conflicts with the approved drawing schedule; review required');
+            return;
+        }
+        const ticketFree = d.row.ticketNumber === '';
+        // A blank ticket needs a slot the calendar proves: main prize, gift card or a bonus drawing. A legacy numbered supplement does not qualify.
+        if (ticketFree && !(scheduledPosition === 1 || scheduledPosition === 2 || scheduledPosition === BONUS)) {
+            d.outcome = 'held';
+            d.reasons.push('a winner without a ticket needs one approved main, gift card or bonus prize on the calendar');
+            return;
+        }
+        // The slot is the identity. Numbered places also stay exclusive for stored rows with no matching description; several bonus drawings may coexist.
+        const holder = existing.find(w => w.drawDate === d.row.drawDate && (storedSlot(w, schedule) === prize.id
+            || (position !== BONUS && parseWinnerPrize(w.prize ?? null).position === position)));
+        if (holder) { d.outcome = 'rejected'; d.reasons.push(`${placementLabel(position)} for ${d.row.drawDate} already belongs to another winner`); return; }
+        d.prize = composePrize(position, prize.description);
+        d.prizeSlotId = prize.id;
+        d.winnerId = ticketFree ? ticketlessWinnerId(d.row.drawDate, prize.id) : winnerId(d.row.drawDate, Number(d.row.ticketNumber));
+        if (options.removedWinnerIds?.has(d.winnerId)) {
+            d.outcome = 'held'; d.reasons.push('this photo already published this winner and an administrator removed it; not republished');
+            return;
+        }
+        if (d.row.readDate !== undefined) d.reasons.push(d.row.readDate === d.row.drawDate ? "the cell's own label names this date's approved bonus drawing"
+            : `date from the approved calendar: the cell's own label names only this date's bonus drawing; the extraction placed it on ${d.row.readDate}`);
+        d.reasons.push(`all ${passes.length} extraction passes agree`, `${how} ${prize.id}`,
+            `${placementLabel(position)} from ${d.row.position === null ? 'the approved calendar' : 'the printed label and approved calendar'}`,
+            ...(ticketFree ? ['every extraction pass confirms no ticket number is printed'] : []));
+    };
+    const unidentified = new Set<RowDecision>();
     for (const d of rows) {
         if (d.outcome === 'held' || d.outcome === 'duplicate') continue;
         const cmp = compareWinner(d.row, existing);
@@ -556,38 +640,10 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             d.outcome = 'held';
             d.prizeMatch = fold(d.row.prize ?? '').length < 3 ? 'none' : 'unmatched';
             d.reasons.push('prize or column header must identify exactly one approved scheduled prize; review required');
+            if (!d.row.strayLabel) unidentified.add(d); // Every other check passed; the remaining-bonus step below may still place it.
             continue;
         }
-        d.prizeMatch = 'scheduled';
-        const position = d.row.position ?? scheduledPosition;
-        if (position === null || (scheduledPosition !== null && position !== scheduledPosition)) {
-            d.outcome = 'held';
-            d.reasons.push('place is missing or conflicts with the approved drawing schedule; review required');
-            continue;
-        }
-        const ticketFree = d.row.ticketNumber === '';
-        // A blank ticket needs a slot the calendar proves: main prize, gift card or a bonus drawing. A legacy numbered supplement does not qualify.
-        if (ticketFree && !(scheduledPosition === 1 || scheduledPosition === 2 || scheduledPosition === BONUS)) {
-            d.outcome = 'held';
-            d.reasons.push('a winner without a ticket needs one approved main, gift card or bonus prize on the calendar');
-            continue;
-        }
-        // The slot is the identity. Numbered places also stay exclusive for stored rows with no matching description; several bonus drawings may coexist.
-        const holder = existing.find(w => w.drawDate === d.row.drawDate && (storedSlot(w, schedule) === prize.id
-            || (position !== BONUS && parseWinnerPrize(w.prize ?? null).position === position)));
-        if (holder) { d.outcome = 'rejected'; d.reasons.push(`${placementLabel(position)} for ${d.row.drawDate} already belongs to another winner`); continue; }
-        d.prize = composePrize(position, prize.description);
-        d.prizeSlotId = prize.id;
-        d.winnerId = ticketFree ? ticketlessWinnerId(d.row.drawDate, prize.id) : winnerId(d.row.drawDate, Number(d.row.ticketNumber));
-        if (options.removedWinnerIds?.has(d.winnerId)) {
-            d.outcome = 'held'; d.reasons.push('this photo already published this winner and an administrator removed it; not republished');
-            continue;
-        }
-        if (d.row.readDate !== undefined) d.reasons.push(d.row.readDate === d.row.drawDate ? "the cell's own label names this date's approved bonus drawing"
-            : `date from the approved calendar: the cell's own label names only this date's bonus drawing; the extraction placed it on ${d.row.readDate}`);
-        d.reasons.push(`all ${passes.length} extraction passes agree`, `prize matches approved calendar entry ${prize.id}`,
-            `${placementLabel(position)} from ${d.row.position === null ? 'the approved calendar' : 'the printed label and approved calendar'}`,
-            ...(ticketFree ? ['every extraction pass confirms no ticket number is printed'] : []));
+        settle(d, prize, scheduledPosition);
     }
 
     const placements = new Map<string, RowDecision[]>();
@@ -618,6 +674,58 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         if (confirmed.get(category)) { d.reasons.push(`layout remark resolved: stored ${category} winners confirm this column's dates in every pass`); continue; }
         d.outcome = 'held';
         d.reasons = [`an extraction pass reported an ambiguous layout and too few stored winners confirm this prize column's dates; review required: ${category}`];
+    }
+
+    // ---- The drawing's one remaining bonus prize, by elimination ----
+    // Nov 22: "Vexliar - 781 - …" was held although the firearm and gift card had published and the Vexilar Fish Finder was the only
+    // approved prize of the night left. A winner whose every other check passed and whose prize text names no approved prize takes the
+    // drawing's remaining bonus only when all of these hold; otherwise it stays held exactly as before:
+    //  - it is the only such winner in the announcement window, and every pass places it in a bonus column: an explicit Bonus place, a
+    //    bonus heading ("Bonus Drawing", "2nd Drawing"), or a label printed in the cell's own text, never a numbered place or a stray label;
+    //  - its text names no approved prize of another date (a misdated cell of another night);
+    //  - every numbered-place prize of its date is already stored or published by this photo, and exactly one approved bonus of the date,
+    //    which the calendar fully explains, is unaccounted for, with no other bonus of the window unaccounted for;
+    //  - the bonus column's dates are not refuted (misdated stored bonus winner) and, under a layout remark, are confirmed.
+    // Slot holders, removed winners and the blank-ticket rule are checked exactly as for a named prize (settle).
+    const inWindowDates = new Set(windowDates(announcementDate));
+    const inWindow = (d: RowDecision) => inWindowDates.has(d.row.drawDate) && d.row.drawDate <= announcementDate;
+    const loose = rows.filter(d => inWindow(d) && d.outcome === 'held' && fold(d.row.name).length >= 2 && !d.prizeSlotId
+        && !identifyPrize(d.row.prize, d.row.drawDate, schedule));
+    const remaining = loose.length === 1 && unidentified.has(loose[0]) ? loose[0] : null;
+    if (remaining) {
+        const date = remaining.row.drawDate;
+        const accounted = (p: ScheduledPrize) => existing.some(w => w.drawDate === p.drawDate && storedSlot(w, schedule) === p.id)
+            || rows.some(d => d.row.drawDate === p.drawDate && (d.prizeSlotId === p.id || identifyPrize(d.row.prize, p.drawDate, schedule)?.id === p.id));
+        const day = schedule.filter(p => p.status === 'approved' && p.drawDate === date);
+        // A numbered place counts only when it is stored or this photo publishes it; a held or rejected cell naming it does not.
+        const settled = (p: ScheduledPrize) => existing.some(w => w.drawDate === p.drawDate && storedSlot(w, schedule) === p.id)
+            || rows.some(d => d.outcome === 'insert' && d.prizeSlotId === p.id);
+        const placed = day.filter(p => p.category !== 'Bonus drawing');
+        const open = day.filter(p => p.category === 'Bonus drawing' && !accounted(p));
+        const elsewhere = schedule.filter(p => p.status === 'approved' && p.category === 'Bonus drawing' && p.drawDate !== date
+            && inWindowDates.has(p.drawDate) && p.drawDate <= announcementDate && !accounted(p));
+        const otherDates = [...inWindowDates].filter(v => v !== date);
+        const bonusColumn = (m: DraftWinner) => {
+            const visible = fold(m.prize ?? ''), label = ownLabel(m.cellText ?? '');
+            if (m.position !== null && m.position !== BONUS) return false;
+            const heading = Object.hasOwn(CATEGORY_HEADINGS, visible) ? CATEGORY_HEADINGS[visible] : null;
+            if (heading && heading !== 'Bonus drawing') return false;
+            if (!heading && (calendarBonus(m, schedule) || otherDates.some(v => identifyPrize(m.prize, v, schedule)))) return false;
+            // A label printed in the cell must not name something else: a bonus heading, or words that loosely belong to the remaining prize.
+            const own = label ? fold(label) : '';
+            const labelOk = !label || (Object.hasOwn(CATEGORY_HEADINGS, own) ? CATEGORY_HEADINGS[own] === 'Bonus drawing'
+                : open.length === 1 && compatibleLabel(label, open[0].description));
+            if (m.position === BONUS || heading === 'Bonus drawing') return labelOk;
+            return !!label && visible.length >= 3 && same(label, m.prize) && labelOk;
+        };
+        const members = groups[remaining.rowNumber - 1]?.members.filter((m): m is DraftWinner => !!m) ?? [];
+        const columnSure = !misdated.has('Bonus drawing') && (!layoutPending || columnConfirmed('Bonus drawing', passes, existing, schedule, redated));
+        if (members.length === passes.length && members.every(bonusColumn) && placed.length > 0 && placed.every(settled)
+            && open.length === 1 && !elsewhere.length && calendarPosition(open[0], schedule) === BONUS && columnSure) {
+            remaining.outcome = 'insert'; remaining.reasons = [];
+            settle(remaining, open[0], BONUS, 'prize assigned by elimination to approved calendar entry');
+            if (remaining.outcome === 'insert') remaining.reasons.push(`prize by elimination: the only approved bonus drawing of ${date} not yet accounted for; every numbered place of the drawing is stored or published and every extraction pass places this winner in the bonus column`);
+        }
     }
 
     // An approved prize of the announcement's own drawing that no cell accounts for (stored, published or held) is reported. Real reads of

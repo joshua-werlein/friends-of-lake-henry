@@ -96,10 +96,18 @@ test('November 21 labels that are not the approved prize, or are not certain, st
     const schedule = await calendar(t);
     const held = (cells, label) => { const d = decidePhoto(cells, before(DATE), schedule, DATE);
         assert.equal(inserted(d).some(r => r.prizeSlotId === AUGER || r.row.ticketNumber === '029'), false, label); return augerRow(d); };
-    // Two letters off, added or reordered words, words from another prize, or a different item.
-    for (const label of ['Ice Augerr', 'Ice Augers', 'Ice Agur', 'Ice Fishing Auger', 'Auger Ice', 'Strike Ice Auger', 'Ice Auger Bit', 'Ice Shelter',
-        'Strike Mastr Ice Auger', 'Ice', 'Master', 'Auger Set'])
+    // Added words, or a different item: the label names something other than the night's remaining bonus.
+    // A generic one-word fragment of the prize ("Ice", "Master") is no evidence either.
+    for (const label of ['Ice Fishing Auger', 'Ice Auger Bit', 'Ice Shelter', 'Auger Set', 'Ice', 'Master'])
         assert.match(held(relabel(label), label).reasons.join(' '), /exactly one approved|label printed in the cell/, label);
+    // Two letters off, reordered words or a fragment never identify the prize, but (Nov 22 change) with the firearm and gift card published
+    // and the Ice Augur the night's only approved bonus left, the bonus cell takes it by elimination.
+    for (const label of ['Ice Augerr', 'Ice Augers', 'Ice Agur', 'Auger Ice', 'Strike Ice Auger', 'Strike Mastr Ice Auger', 'Augerr']) {
+        assert.equal(matchPrize(label, DATE, schedule).match, 'unmatched', label);
+        const d = decidePhoto(relabel(label), before(DATE), schedule, DATE);
+        assert.deepEqual([augerRow(d).outcome, augerRow(d).prizeSlotId, augerRow(d).prize], ['insert', AUGER, MANUAL.prize], label);
+        assert.ok(augerRow(d).reasons.includes(`prize assigned by elimination to approved calendar entry ${AUGER}`), label);
+    }
     // Another night's prize, in the calendar's or the Page's spelling.
     for (const label of ['Bubba Filet Knife', 'Fish Finder', 'Blackstone']) held(relabel(label), label);
     // The cell is labelled for another prize while the extraction says auger, in both passes or one.
