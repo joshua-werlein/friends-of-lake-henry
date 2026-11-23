@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
-import { decidePhoto, parseCell, printedName, reasonCode, rowDiagnostics, loadContext, writeDecision } from '../src/lib/server/raffle-photo-autopublish.ts';
+import { decidePhoto, matchPrize, parseCell, printedName, reasonCode, rowDiagnostics, loadContext, writeDecision } from '../src/lib/server/raffle-photo-autopublish.ts';
 import { readDates } from '../workers/facebook-photos/reads.ts';
 import { asStored, assertTrue, calendar, day, events, fixture, futureTruth, inserted, read, slots, storedThrough11, tonight as truthTonight } from './november-table.mjs';
 
@@ -116,9 +116,15 @@ test('November 20 label spellings: verified variants of the approved prize publi
     // Added words, a different word that shares a letter pattern, and a near-miss spelling below 5 letters.
     for (const label of ['Bubba Knife Sharpener', 'Bubba Fillet Knives Set', 'Bubba Flat Knife'])
         assert.ok(held({ prize: label, cellText: CELL.replace('Bubba Filet Knife', label) }).reasons.some(r => r === LABEL || /must identify exactly one/.test(r)), label);
-    // Two spelling variants in one label, or a variant plus an added word, stay held.
-    for (const label of ['Bubba Filett Knive', 'Filet Knife Set'])
+    // A variant plus an added word stays held.
+    for (const label of ['Filet Knife Set'])
         assert.ok(held({ prize: label, cellText: CELL.replace('Bubba Filet Knife', label) }).reasons.some(r => r === LABEL || /must identify exactly one/.test(r)), label);
+    // Two spelling variants never identify the knife, but (Nov 22 change) it is the night's only approved bonus left, so the bonus cell
+    // takes it by elimination.
+    assert.equal(matchPrize('Bubba Filett Knive', DATE, schedule).match, 'unmatched');
+    const twoVariants = knifeRow(decidePhoto(bonus({ prize: 'Bubba Filett Knive', cellText: CELL.replace('Bubba Filet Knife', 'Bubba Filett Knive') }), before(DATE), schedule, DATE));
+    assert.deepEqual([twoVariants.outcome, twoVariants.prizeSlotId], ['insert', KNIFE]);
+    assert.ok(twoVariants.reasons.includes(`prize assigned by elimination to approved calendar entry ${KNIFE}`));
     // The label names another night's prize, in the calendar's or the Page's spelling: it is never published as tonight's knife.
     held({ prize: 'Ice Augur', cellText: CELL.replace('Bubba Filet Knife', 'Ice Augur') });
     held({ prize: 'Ice Auger', cellText: CELL.replace('Bubba Filet Knife', 'Ice Auger') });
@@ -177,9 +183,15 @@ test('two bonus prizes on one night each publish to their own slot; swapped labe
     const swapped = decidePhoto(withSecond({ cellText: 'Bubba Filet Knife - Ruth Lund, Blair, WI' }), before(DATE), two, DATE);
     assert.deepEqual(outcomes(swapped).filter(([, n]) => n === 'Ruth Lund').map(([o]) => o), ['held']);
     assert.equal(inserted(swapped).filter(r => r.prizeSlotId === KNIFE).length, 1);
-    // A heading that fits either bonus names neither.
+    // A heading that fits either bonus names neither (Nov 22 change: but with the knife published to its own labelled winner, the shelter is
+    // the night's only approved bonus left and the heading cell takes it by elimination).
+    assert.equal(matchPrize('Bonus', DATE, two).match, 'unmatched');
     const heading = decidePhoto(withSecond({ prize: 'Bonus', cellText: 'Bonus - Ruth Lund, Blair, WI' }), before(DATE), two, DATE);
-    assert.equal(inserted(heading).some(r => r.row.name === 'Ruth Lund'), false);
+    assert.deepEqual(outcomes(heading), [['insert', 'Jason Haen', FIREARM], ['insert', 'Tallie Everson', GIFT], ['insert', 'John Wickum', KNIFE], ['insert', 'Ruth Lund', shelter.id]]);
+    // Both bonus cells under the bare heading: two prizes remain, so neither is assigned.
+    const both = decidePhoto(passes().map(p => ({ ...p, rows: [...p.rows.map(r => r.ticketNumber === '628' ? { ...r, prize: 'Bonus', cellText: 'Bonus - 628 - John Wickum, Wilson, WI' } : r),
+        { ...second, prize: 'Bonus', cellText: 'Bonus - Ruth Lund, Blair, WI' }] })), before(DATE), two, DATE);
+    assert.equal(inserted(both).some(r => r.row.name === 'Ruth Lund' || r.row.name === 'John Wickum'), false);
 });
 
 test('window reads Nov 12–30 with tickets printed on bonus cells publish exactly each night\'s winners, once', async t => {
