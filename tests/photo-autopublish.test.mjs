@@ -149,6 +149,102 @@ test('November 5 column reads map both prizes and a cumulative Friday table stay
     assert.deepEqual(twice.rows.filter(r => !r.row.name).map(r => [r.outcome, r.prizeSlotId]), [['held', `daily:${dan.drawDate}:0`]]);
 });
 
+const missingPositionDate = '2026-11-24';
+const numberedRows = [
+    row({ drawDate: missingPositionDate, cellText: '412 - Jane Doe, Blair, WI', town: 'Blair, WI' }),
+    row({ drawDate: missingPositionDate, position: 2, ticketNumber: '077', name: 'Bob Smith',
+        town: 'Taylor, WI', prize: 'Gift Card', cellText: '077 - Bob Smith, Taylor, WI' }),
+];
+const missingPositions = rows => rows.map(r => ({ ...r, position: null }));
+
+test('missing numbered positions resolve from the agreed columns in either pass order and preserve the stored reads', async t => {
+    const db = await database(t), schedule = await prizeSchedule(db, '2026-11');
+    const passes = [pass(numberedRows), pass(missingPositions(numberedRows))];
+    const original = structuredClone(passes);
+    const published = [
+        ['insert', '412', 1, '1st place — Seekins Precision Havak Pro Hunter 7MM Backcountry'],
+        ['insert', '077', 2, '2nd place — $100 gift certificate from Safe & Secure Firearms'],
+    ];
+    const { photoSignals } = await import('../workers/facebook-photos/alerts.ts');
+    const reviewIds = async () => (await photoSignals(db, new Date(), {
+        webhookConfigured: true, automationEnabled: true, webhookDeliveryAlert: false, seasonStart: missingPositionDate,
+    })).signals.map(s => s.id);
+    const store = (photoId, reads, decision) => writeDecision(db, {
+        photoId, postId: PAGE + '_' + photoId, sha256: null, width: null, height: null, model: null, passes: reads,
+    }, decision, true);
+
+    const conflicting = [passes[0], pass([{ ...passes[1].rows[0], position: 2 }, passes[1].rows[1]])];
+    // Both cells must be held here so the isolated alert check does not populate either winner slot.
+    conflicting[1].rows[1] = { ...conflicting[1].rows[1], position: 1 };
+    assert.equal(await store('201', conflicting, decidePhoto(conflicting, [], schedule, missingPositionDate)), 'held');
+    assert.deepEqual(await reviewIds(), ['photo:review:201']);
+
+    for (const reads of [passes, [...passes].reverse()]) {
+        const d = decidePhoto(reads, [], schedule, missingPositionDate);
+        assert.equal(d.status, 'published');
+        assert.deepEqual(d.rows.map(r => [r.outcome, r.row.ticketNumber, r.derivedPosition, r.prize]), published);
+    }
+    const reversed = [...passes].reverse();
+    const decision = decidePhoto(reversed, [], schedule, missingPositionDate);
+    assert.equal(await store('202', reversed, decision), 'published');
+    assert.deepEqual(await reviewIds(), ['photo:review:201']);
+    assert.deepEqual(passes, original);
+    const { extraction_json } = await db.prepare("SELECT extraction_json FROM raffle_photo_auto_imports WHERE photo_id='202'").first();
+    assert.deepEqual(JSON.parse(extraction_json), [...original].reverse());
+    const audits = (await db.prepare("SELECT reasons_json, row_json FROM raffle_photo_auto_rows WHERE photo_id='202' ORDER BY row_number").all()).results;
+    for (const [i, audit] of audits.entries()) {
+        assert.equal(JSON.parse(audit.row_json).position, null);
+        assert.ok(JSON.parse(audit.reasons_json).includes(
+            `${i === 0 ? '1st' : '2nd'} place derived from the agreed column and approved calendar because a pass left position blank`));
+    }
+    const existing = (await db.prepare("SELECT id, draw_date AS drawDate, ticket_number AS ticketNumber, winner_name AS name, town, prize, prize_slot_id AS prizeSlotId FROM raffle_winners WHERE draw_date=?")
+        .bind(missingPositionDate).all()).results;
+    assert.equal(decidePhoto(passes, existing, schedule, missingPositionDate).status, 'duplicate');
+    assert.equal(await store('203', reversed, decision), 'duplicate');
+});
+
+test('numbered-column reconciliation keeps conflicts, ambiguity, and winner safeguards', async t => {
+    const schedule = await prizeSchedule(await database(t), '2026-11');
+    const [first, second] = numberedRows, blank = missingPositions(numberedRows);
+    const through = (other = blank, options = {}) => decidePhoto([pass(numberedRows), { ...pass(other), warnings: options.warnings ?? [] }],
+        options.existing ?? [], options.schedule ?? schedule, missingPositionDate, options);
+    const mainSlot = schedule.find(p => p.drawDate === missingPositionDate && p.category === 'Main prize');
+    const duplicateSlot = { ...mainSlot, id: 'second-main' };
+    for (const [why, other, options] of [
+        ['wrong explicit position', [{ ...first, position: 2 }, blank[1]], {}],
+        ['swapped headings', [{ ...blank[0], prize: 'Gift Card' }, { ...blank[1], prize: 'Firearm' }], {}],
+        ['unverified heading', [{ ...blank[0], prize: 'Seekins Precision Havak Pro Hunter 7MM Backcountry' }, blank[1]], {}],
+        ['missing row', [blank[1]], {}],
+        ['different name', [{ ...blank[0], name: 'Jan Doe', cellText: '412 - Jan Doe, Blair, WI' }, blank[1]], {}],
+        ['missing cell text', [{ ...blank[0], cellText: '' }, blank[1]], {}],
+        ['cell text disagrees', [{ ...blank[0], cellText: '123 - Jane Doe, Blair, WI' }, blank[1]], {}],
+        ['cell warning', blank, { warnings: [{ scope: 'cell', code: 'illegible', drawDate: missingPositionDate, ticketNumber: first.ticketNumber, message: 'ticket is unclear' }] }],
+        ['unapproved prize', blank, { schedule: schedule.map(p => p.drawDate === missingPositionDate && p.category === 'Main prize' ? { ...p, status: 'draft' } : p) }],
+        ['ambiguous slot', blank, { schedule: [...schedule, duplicateSlot] }],
+    ]) assert.equal(through(other, options).rows.find(r => r.row.ticketNumber === first.ticketNumber)?.outcome, 'held', why);
+    assert.equal(decidePhoto([pass(numberedRows)], [], schedule, missingPositionDate).status, 'rejected');
+    assert.equal(decidePhoto([pass(blank), pass([{ ...first, position: 2 }, second])], [], schedule, missingPositionDate)
+        .rows[0].outcome, 'held');
+    assert.equal(decidePhoto([pass(numberedRows), pass([{ ...blank[0], position: 2 }, blank[1]]), pass(blank)],
+        [], schedule, missingPositionDate).rows[0].outcome, 'held');
+    const rival = { ...first, ticketNumber: '123', name: 'John Roe', cellText: '123 - John Roe, Blair, WI' };
+    const collision = decidePhoto([pass([...blank, { ...rival, position: null }]), pass([first, second, rival])],
+        [], schedule, missingPositionDate);
+    assert.deepEqual(collision.rows.filter(r => r.row.prize === 'Firearm').map(r => r.outcome), ['held', 'held']);
+    assert.ok(collision.rows.filter(r => r.row.prize === 'Firearm').every(r => r.reasons.includes('place appears twice for this date in the image')));
+    const id = '2026-11-2026-11-24-412';
+    const removed = through(blank, { removedWinnerIds: new Set([id]) });
+    assert.match(removed.rows[0].reasons.join(), /administrator removed/);
+    assert.equal(removed.rows[0].outcome, 'held');
+    const holder = { id: 'other', drawDate: missingPositionDate, ticketNumber: 101, name: 'Other Winner', town: 'Blair, WI',
+        prize: '1st place — Seekins Precision Havak Pro Hunter 7MM Backcountry', prizeSlotId: mainSlot.id };
+    assert.equal(through(blank, { existing: [holder] }).rows[0].outcome, 'rejected');
+    const stored = { ...holder, id, ticketNumber: 412, name: first.name, town: 'Osseo, WI', townSource: 'automated' };
+    const hometown = through(blank, { existing: [stored] }).rows[0];
+    assert.equal(hometown.outcome, 'held');
+    assert.equal(hometown.correction, undefined);
+});
+
 test('visible prize text matches exactly one verified scheduled prize; nothing is inferred from place', async t => {
     const schedule = await prizeSchedule(await database(t), '2026-11');
     assert.deepEqual(matchPrize('Tikka T3X 7MM Rem Mag', '2026-11-03', schedule), { description: 'Tikka T3X Hunter 7MM Rem Mag', match: 'scheduled' });
