@@ -1,5 +1,5 @@
-import type { D1Database } from '@cloudflare/workers-types';
-import { compareWinner, numericId, type DraftWinner, type Extraction, type ExtractionWarning, type ExistingWinner, type StructuredWarning } from '../raffle-photo-import';
+import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
+import { compareWinner, numericId, townKey, type DraftWinner, type Extraction, type ExtractionWarning, type ExistingWinner, type StructuredWarning } from '../raffle-photo-import';
 import { BONUS, parseWinnerPrize, cleanPrizeDescription, placementLabel, ticketlessWinnerId, type WinnerPosition } from '../winner-prize';
 import { calendarPosition, prizeSchedule, type ScheduledPrize } from './raffle-prizes';
 
@@ -8,9 +8,16 @@ import { calendarPosition, prizeSchedule, type ScheduledPrize } from './raffle-p
 // nor contradicts an existing winner. Anything else is recorded with a reason and never guessed or overwritten.
 // held = the evidence is ambiguous, so a person should review it. rejected = it contradicts stored data.
 
-export type RowOutcome = 'insert' | 'duplicate' | 'held' | 'rejected' | 'outside-window';
+// correct = a stored, automatically read hometown is replaced (see TownCorrection); every other field of the winner stays as stored.
+export type RowOutcome = 'insert' | 'duplicate' | 'held' | 'rejected' | 'outside-window' | 'correct';
+/**
+ * A candidate correction of a stored winner's hometown. decidePhoto proposes it and leaves the row at `fallback` (the outcome it has
+ * without a correction); only confirmTownCorrections, given an independent targeted re-read of the cell, turns it into 'correct'.
+ */
+export type TownCorrection = { winnerId: string; drawDate: string; ticketNumber: string; name: string; prizeSlotId: string;
+    from: string; to: string; fallback: 'rejected' | 'outside-window' };
 export type RowDecision = { rowNumber: number; outcome: RowOutcome; reasons: string[]; row: DraftWinner;
-    winnerId: string | null; prize: string | null; prizeSlotId?: string | null; prizeMatch: 'scheduled' | 'unmatched' | 'none' };
+    winnerId: string | null; prize: string | null; prizeSlotId?: string | null; prizeMatch: 'scheduled' | 'unmatched' | 'none'; correction?: TownCorrection };
 export type PhotoDecision = { status: 'published' | 'partial' | 'duplicate' | 'held' | 'rejected' | 'ignored';
     reasons: string[]; rows: RowDecision[] };
 
@@ -627,6 +634,13 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             if (stored !== null && scheduledPosition !== null && stored !== scheduledPosition) d.reasons.push(`stored place ${placementLabel(stored)} differs from approved schedule ${placementLabel(scheduledPosition)}; review in admin`);
             continue;
         }
+        // Any image-wide remark, even one outvoted above, rules out changing a stored winner.
+        const correction = cmp.status === 'conflicting' && !imageWide.length ? townCorrection(d, cmp, existing, prize, groups[d.rowNumber - 1], passes.length) : null;
+        if (correction) {
+            d.correction = correction; d.winnerId = correction.winnerId; d.outcome = correction.fallback;
+            d.reasons.push(correction.fallback === 'rejected' ? 'conflicts with existing winner (town)' : 'draw date is older than this announcement window');
+            continue;
+        }
         if (d.outcome === 'outside-window') { d.reasons.push('draw date is older than this announcement window'); continue; }
         if (cmp.status !== 'missing') {
             d.outcome = cmp.status === 'incomplete' ? 'held' : 'rejected';
@@ -747,18 +761,260 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             winnerId: null, prize: null, prizeSlotId: p.id, prizeMatch: 'none' });
     }
 
+    // Several hometown conflicts in one photo look like a misread column, not a corrected spreadsheet: none is corrected automatically.
+    const proposed = rows.filter(d => d.correction);
+    if (proposed.length > MAX_TOWN_CORRECTIONS) for (const d of proposed) {
+        delete d.correction;
+        if (d.outcome === 'rejected') d.reasons.push(`${proposed.length} hometown conflicts in one photo; automatic correction is limited to ${MAX_TOWN_CORRECTIONS}; review required`);
+    }
+    return { status: photoStatus(rows), reasons: photoStatus(rows) === 'ignored' ? ['no rows for the current drawing window'] : [], rows };
+}
+
+function photoStatus(rows: RowDecision[]): PhotoDecision['status'] {
     const count = (o: RowOutcome) => rows.filter(d => d.outcome === o).length;
     const inserted = count('insert'), held = count('held'), rejected = count('rejected');
-    const status = inserted && (held || rejected) ? 'partial' : inserted ? 'published' : rejected ? 'rejected' : held ? 'held'
-        : count('duplicate') ? 'duplicate' : 'ignored';
-    return { status, reasons: status === 'ignored' ? ['no rows for the current drawing window'] : [], rows };
+    // A confirmed hometown correction changes a stored winner but publishes no new one, so like a duplicate it never needs review.
+    return inserted && (held || rejected) ? 'partial' : inserted ? 'published' : rejected ? 'rejected' : held ? 'held'
+        : count('duplicate') || count('correct') ? 'duplicate' : 'ignored';
+}
+
+// ---- Self-correction of a stored hometown from a later (cumulative) announcement ----
+// Nov 22: both passes read the bonus cell as "… Troy Mish, Westby, WI", the town of the Gift Card cell beside it, and it was published.
+// Both passes of the Nov 24 cumulative table read "Maple Park, IL" for the same cell (the Page's table was edited between the posts:
+// "Brodhead, Wi" also became "WI"), and the row was rejected as a conflict because nothing in this pipeline ever changes a stored winner.
+// A stored hometown is replaced only when every one of these holds; otherwise the row is rejected (or outside the window) exactly as before:
+//  - the row has no other problem at all (every per-row, cell-text, label and agreement check passed) and the image has no image-wide
+//    warning in any pass, not even an outvoted layout remark;
+//  - exactly one stored winner matches, on the same date with the same ticket and the same name, and the hometown is the only field that
+//    differs; the place does not conflict and the printed prize identifies exactly the stored approved prize slot;
+//  - every pass read the cell, all agree on the new hometown (harmless formatting aside) and mark it readable;
+//  - the stored hometown is the one a winner photo read (townSource 'automated'), never one an administrator edited or entered;
+//  - at most MAX_TOWN_CORRECTIONS such rows in the photo; and finally an independent targeted re-read of that one cell confirms it.
+export const MAX_TOWN_CORRECTIONS = 2;
+function townCorrection(d: RowDecision, cmp: ReturnType<typeof compareWinner>, existing: ExistingWinner[], prize: ScheduledPrize | null,
+    group: RowGroup | undefined, passCount: number): TownCorrection | null {
+    if (d.reasons.length || (d.outcome !== 'insert' && d.outcome !== 'outside-window')) return null;
+    if (cmp.conflicts.length !== 1 || cmp.conflicts[0] !== 'town' || cmp.missingFields.length) return null;
+    const record = existing.find(w => w.id === cmp.existingId), row = d.row;
+    if (!record || record.townSource !== 'automated' || !record.prizeSlotId || !prize || prize.id !== record.prizeSlotId) return null;
+    if (record.drawDate !== row.drawDate || !/^\d{1,9}$/.test(row.ticketNumber) || Number(row.ticketNumber) !== Number(record.ticketNumber)
+        || fold(row.name).length < 2 || !same(row.name, record.name)) return null;
+    const members = group?.members.filter((m): m is DraftWinner => !!m) ?? [];
+    if (members.length !== passCount || !members.every(m => m.townStatus === 'readable' && townKey(m.town) === townKey(row.town))) return null;
+    if (townKey(row.town).length < 2 || !townKey(record.town) || townKey(row.town) === townKey(record.town)) return null;
+    return { winnerId: record.id, drawDate: row.drawDate, ticketNumber: row.ticketNumber, name: row.name, prizeSlotId: record.prizeSlotId,
+        from: record.town!, to: row.town, fallback: d.outcome === 'insert' ? 'rejected' : 'outside-window' };
+}
+/** The cells to re-read: one targeted AI read each, requested only when decidePhoto proposed a correction. */
+export const townCorrectionTargets = (decision: PhotoDecision) => decision.rows.filter(d => d.correction)
+    .map(d => ({ rowNumber: d.rowNumber, drawDate: d.correction!.drawDate, ticketNumber: d.correction!.ticketNumber, name: d.correction!.name }));
+/** The targeted re-read confirms the cell: same date, ticket and name, a readable hometown equal to the proposed one, and consistent cell text. */
+export function rereadConfirms(c: TownCorrection, r: DraftWinner | null | undefined) {
+    return !!r && r.drawDate === c.drawDate && /^\d{1,9}$/.test(r.ticketNumber) && Number(r.ticketNumber) === Number(c.ticketNumber)
+        && same(r.name, c.name) && r.townStatus === 'readable' && !r.notes && townKey(r.town) === townKey(c.to) && townKey(r.town) !== townKey(c.from)
+        && !!(r.cellText ?? '').trim() && cellTextProblems(r).length === 0;
+}
+/**
+ * Applies the targeted re-reads (by row number; null = the read failed or found nothing). A confirmed candidate becomes 'correct'; any
+ * other keeps its fallback outcome and reasons, plus why it was not corrected, so an administrator still reviews a rejected row.
+ */
+export function confirmTownCorrections(decision: PhotoDecision, rereads: Map<number, DraftWinner | null>): PhotoDecision {
+    const rows = decision.rows.map(d => {
+        if (!d.correction || d.outcome === 'correct') return d;
+        // Shown on Admin > Raffle > Photo imports. A correction row is never held or rejected, so these reasons never reach an alert email;
+        // the old and new hometowns follow a colon, which reasonCode drops from logs and diagnostics.
+        if (rereadConfirms(d.correction, rereads.get(d.rowNumber))) return { ...d, outcome: 'correct' as const, reasons: [
+            `hometown corrected automatically by the photo importer, not by an administrator: “${d.correction.from}” → “${d.correction.to}”`,
+            'every extraction pass and a targeted re-read of the cell agree on the new hometown; the stored one was read by the importer and never edited by an administrator',
+            `same date, ticket, name and approved prize slot: ${d.correction.prizeSlotId}` ] };
+        const why = rereads.has(d.rowNumber) ? 'a targeted re-read of the cell did not confirm the new hometown' : 'the targeted re-read of the cell was not available';
+        return { ...d, reasons: [...d.reasons, `${why}; not corrected automatically${d.correction.fallback === 'rejected' ? '; review required' : ''}`] };
+    });
+    const status = photoStatus(rows);
+    return { status, reasons: status === 'ignored' ? ['no rows for the current drawing window'] : decision.reasons, rows };
+}
+
+// JSON fields of the audit tables, read without ever failing on a malformed value.
+const jsonField = (column: string, path: string) => `CASE WHEN json_valid(${column}) THEN json_extract(${column}, '${path}') END`;
+/** An administrator's edit of the winner (any 'update' correction not written by the importer) protects its hometown for good. */
+const MANUAL_EDIT = `EXISTS (SELECT 1 FROM raffle_winner_corrections c WHERE c.winner_id=w.id AND c.action='update'
+    AND coalesce(${jsonField('c.after_json', '$.source')}, '')<>'photo-auto')`;
+/** The stored hometown is exactly what a winner photo read (row_json keeps the read even after an admin review) or an automatic correction wrote. */
+const AUTOMATED_TOWN = `(EXISTS (SELECT 1 FROM raffle_photo_auto_rows a WHERE a.winner_id=w.id AND a.outcome='inserted' AND ${jsonField('a.row_json', '$.town')}=w.town)
+    OR EXISTS (SELECT 1 FROM raffle_winner_corrections c WHERE c.winner_id=w.id AND ${jsonField('c.after_json', '$.source')}='photo-auto'
+        AND ${jsonField('c.after_json', '$.town')}=w.town))`;
+/**
+ * The month-wide scan (whole-table reads of the cumulative table, made after tonight's post is finished). For winners drawn before
+ * tonight's 3-day publication window, in the announcement's own raffle month, it returns:
+ *  - correction proposals (with `correction`, outcome 'outside-window' until a targeted re-read confirms them), only for dates that
+ *    tonight's window reads did not cover (`covered`: the window decision already handled those);
+ *  - display-only conflicts (outcome 'outside-window', no correction): every pass reads a stored winner's ticket and name with the same
+ *    other hometown, but the correction rules do not allow changing it. They are shown in Photo imports, never reviewed or alerted.
+ * The first reason of each row names the stored and the printed hometown; writeMonthScan uses it to show each conflict only once.
+ * Nothing else from these reads is ever written: new winners still publish only from the window reads.
+ * Running the whole decidePhoto on a 73-cell table costs ~8 ms of cold CPU on top of the window decision, beyond the Workers Free budget, so
+ * a cheap filter first skips every row unless a stored winner of that date has the same ticket and name and another hometown. Only those
+ * rows then take the window decision's checks: no image-wide warning, the passes match row to row, every pass read the cell and agrees on
+ * every field, no row, cell-text or label problem, no row warning, the ticket appears once for the date, one stored winner, only the town
+ * differs, the printed prize identifies the stored approved slot, and the stored hometown is automated (townCorrection).
+ * `windowProposed` is how many corrections tonight's window decision proposed for the same photo: the MAX_TOWN_CORRECTIONS limit is shared,
+ * and when the two workflows together would exceed it, none of the month scan's proposals is corrected (all are shown as conflicts).
+ */
+export function monthCorrections(passes: Extraction[], existing: ExistingWinner[], schedule: ScheduledPrize[], announcementDate: string,
+    covered: Iterable<string>, windowProposed = 0): PhotoDecision {
+    const none: PhotoDecision = { status: 'duplicate', reasons: [], rows: [] };
+    const skip = new Set(covered), month = announcementDate.slice(0, 7), publishFrom = windowDates(announcementDate)[0];
+    if (passes.length < 2 || passes.some(p => !p.containsWinners)) return none;
+    // A typical night ends here: no cell anywhere shows a stored winner's ticket and name with another hometown.
+    const byPerson = new Map<string, ExistingWinner[]>();
+    for (const w of existing) if (w.ticketNumber && w.drawDate?.startsWith(month)) {
+        const k = `${Number(w.ticketNumber)}|${fold(w.name ?? '')}`; byPerson.set(k, [...(byPerson.get(k) ?? []), w]);
+    }
+    const suspect = (r: DraftWinner) => /^\d{1,9}$/.test(r.ticketNumber)
+        && !!byPerson.get(`${Number(r.ticketNumber)}|${fold(r.name)}`)?.some(w => townKey(w.town) !== townKey(r.town));
+    if (!passes.every(p => p.rows.some(suspect))) return none;
+    // Bonus cells are dated by the calendar exactly as in decidePhoto, but only the suspect ones: the rest are never proposed anyway.
+    passes = passes.map(p => { const dated = calendarDated({ ...p, rows: p.rows.filter(suspect) }, schedule).rows;
+        let k = 0; return { ...p, rows: p.rows.map(r => suspect(r) ? dated[k++] : r) }; });
+    // An unreliable read shows nothing: an image-wide warning, or passes that cannot be matched row to row.
+    const { imageWide, rowWarnings } = classifyWarnings(passes);
+    if (imageWide.length) return none;
+    const groups = reconcileRows(passes);
+    if (groups.filter(g => passes.every((_, i) => g.members[i])).length * 2 < Math.max(...passes.map(p => p.rows.length))) return none;
+    const byDate = new Map<string, ExistingWinner[]>();
+    for (const w of existing) if (w.drawDate) byDate.set(w.drawDate, [...(byDate.get(w.drawDate) ?? []), w]);
+    const proposals: RowDecision[] = [], conflicts: RowDecision[] = [];
+    groups.forEach((g, i) => {
+        const members = g.members.filter((m): m is DraftWinner => !!m), row = members[0];
+        if (!row || members.length !== passes.length || !realDate(row.drawDate) || row.drawDate.slice(0, 7) !== month || row.drawDate >= publishFrom) return;
+        const sameDay = byDate.get(row.drawDate) ?? [];
+        const stored = sameDay.filter(w => Number(w.ticketNumber) === Number(row.ticketNumber) && same(w.name, row.name) && townKey(w.town) !== townKey(row.town));
+        // Shown only when every pass prints the same other hometown; reads that disagree with each other are no evidence of anything.
+        if (stored.length !== 1 || !members.every(m => townKey(m.town) === townKey(row.town) && m.town.trim())) return;
+        const w = stored[0];
+        const base: RowDecision = { rowNumber: i + 1, outcome: 'outside-window', row, winnerId: w.id, prize: null, prizeMatch: 'none',
+            reasons: [`older hometown differs from the stored winner; not corrected automatically: stored “${w.town}”, printed “${row.town}”`] };
+        if (skip.has(row.drawDate)) {
+            conflicts.push({ ...base, reasons: [...base.reasons, "read with tonight's announcement window, whose decision did not correct it"] });
+            return;
+        }
+        const reasons = [...rowProblems(row, announcementDate).reasons, ...g.issues];
+        const prize = identifyPrize(row.prize, row.drawDate, schedule);
+        for (const m of members) {
+            reasons.push(...cellTextProblems(m), ...labelProblems(m, schedule));
+            const agrees = (['drawDate', 'name', 'town'] as const).every(f => same(row[f], m[f])) && m.ticketNumber === row.ticketNumber && m.position === row.position
+                && m.townStatus === row.townStatus && m.ticketStatus === row.ticketStatus && !m.notes && identifyPrize(m.prize, m.drawDate, schedule) === prize;
+            if (!agrees) reasons.push('the extraction passes disagree on this cell');
+        }
+        if (rowWarnings.some(r => members.includes(r.row))) reasons.push('an extraction pass flagged this cell');
+        if (passes.some(p => p.rows.filter(r => r.drawDate === row.drawDate && Number(r.ticketNumber) === Number(row.ticketNumber)).length > 1)) reasons.push('the ticket appears twice for this date');
+        const cmp = compareWinner(row, sameDay);
+        const correction = cmp.status === 'conflicting' ? townCorrection({ ...base, reasons }, cmp, sameDay, prize, g, passes.length) : null;
+        if (correction) { proposals.push({ ...base, correction }); return; }
+        const why = w.townSource === 'manual' ? 'the stored hometown was edited by an administrator'
+            : w.townSource !== 'automated' ? 'the stored winner was not published from a winner photo exactly as read'
+            : reasons.length ? `the cell did not pass every extraction check (${[...new Set(reasons)].slice(0, 3).join('; ')})`
+            : 'date, ticket, name and approved prize slot do not identify the stored winner unambiguously';
+        conflicts.push({ ...base, reasons: [...base.reasons, why] });
+    });
+    const allowed = Math.max(0, MAX_TOWN_CORRECTIONS - windowProposed);
+    if (proposals.length > allowed) return { ...none, rows: [...conflicts, ...proposals.map(({ correction: _c, ...d }) => ({ ...d, reasons: [...d.reasons,
+        `${proposals.length + windowProposed} hometown corrections in one photo would exceed its limit of ${MAX_TOWN_CORRECTIONS}`
+        + (windowProposed ? ` (${windowProposed} already proposed by tonight's window reads)` : '') + '; review required'] }))] };
+    return { ...none, rows: [...proposals, ...conflicts] };
+}
+
+/**
+ * One month-wide scan per decided photo, in its own cron invocation. The decision's invocation only queues it: a reserved audit row
+ * (MONTH_SCAN_ROW, shown in Photo imports) whose first reason is MONTH_SCAN_QUEUED and whose row_json carries what the scan needs. A later
+ * invocation with no post to process takes it with an atomic queued → started update; overlapping invocations race on that update and
+ * exactly one wins, so the table is read once. The row is created only for a decided (not failed) photo, and never twice.
+ */
+export const MONTH_SCAN_ROW = 9000;
+export const MONTH_SCAN_QUEUED = 'month-wide hometown check queued: it runs in the next cron invocation that has no post to process';
+const MONTH_SCAN_STARTED = 'month-wide hometown check started: whole-table reads, used only to verify stored hometowns';
+export type QueuedMonthScan = { photoId: string; postId: string; announcementDate: string; windowProposed: number };
+export async function queueMonthScan(db: D1Database, scan: QueuedMonthScan) {
+    const res = await db.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
+        SELECT ?, ?, 'outside-window', NULL, NULL, ?, ? WHERE EXISTS (SELECT 1 FROM raffle_photo_auto_imports WHERE photo_id=? AND status<>'failed')
+        ON CONFLICT(photo_id, row_number) DO NOTHING`)
+        .bind(scan.photoId, MONTH_SCAN_ROW, JSON.stringify([MONTH_SCAN_QUEUED]), JSON.stringify({ monthScan: scan }), scan.photoId).run();
+    return res.meta.changes === 1;
+}
+/** The oldest queued scan, or null. */
+export async function nextMonthScan(db: D1Database): Promise<QueuedMonthScan | null> {
+    const row = await db.prepare(`SELECT row_json AS json FROM raffle_photo_auto_rows WHERE row_number=? AND reasons_json=? ORDER BY created_at LIMIT 1`)
+        .bind(MONTH_SCAN_ROW, JSON.stringify([MONTH_SCAN_QUEUED])).first<{ json: string }>();
+    try { const scan = JSON.parse(row?.json ?? 'null')?.monthScan; return scan && numericId(scan.photoId) ? scan : null; } catch { return null; }
+}
+/** Takes a queued scan: true for exactly one caller. */
+export async function startMonthScan(db: D1Database, photoId: string) {
+    const res = await db.prepare(`UPDATE raffle_photo_auto_rows SET reasons_json=? WHERE photo_id=? AND row_number=? AND reasons_json=?`)
+        .bind(JSON.stringify([MONTH_SCAN_STARTED]), photoId, MONTH_SCAN_ROW, JSON.stringify([MONTH_SCAN_QUEUED])).run();
+    return res.meta.changes === 1;
+}
+export async function finishMonthScan(db: D1Database, photoId: string, summary: string) {
+    await db.prepare(`UPDATE raffle_photo_auto_rows SET reasons_json=? WHERE photo_id=? AND row_number=?`)
+        .bind(JSON.stringify([`month-wide hometown check: ${summary}`]), photoId, MONTH_SCAN_ROW).run();
+}
+/** The decided photo's stored image hash and reads, so the scan reuses them and checks that Facebook still serves the same image. */
+export async function decidedReads(db: D1Database, photoId: string) {
+    const row = await db.prepare(`SELECT image_sha256 AS sha256, extraction_json AS json FROM raffle_photo_auto_imports WHERE photo_id=? AND status<>'failed'`)
+        .bind(photoId).first<{ sha256: string | null; json: string }>();
+    if (!row) return null;
+    try { const reads = JSON.parse(row.json); return { sha256: row.sha256, reads: Array.isArray(reads) ? reads.filter(r => r && typeof r === 'object' && r.read && Array.isArray(r.rows)) : [] }; }
+    catch { return { sha256: row.sha256, reads: [] }; }
+}
+export type MonthScanMode = 'correct' | 'report';
+/**
+ * Writes a month-wide scan for a photo that is already decided, in one atomic batch after the photo's existing audit rows; the photo's
+ * status and its other rows are not touched, so nothing here can open a review or an alert:
+ *  - a confirmed correction (mode 'correct', publishing on): the same guarded statements as writeDecision; losing a race leaves an
+ *    'outside-window' conflict row, never a rejection;
+ *  - every other row, and confirmed corrections in report mode: an 'outside-window' row, written only if no earlier photo already shows
+ *    this exact conflict for this winner (same stored and printed hometown), so a cumulative table repeats nothing night after night.
+ * Returns how many corrections and how many newly shown conflicts were stored.
+ */
+export async function writeMonthScan(db: D1Database, photoId: string, decision: PhotoDecision, mode: MonthScanMode, publish: boolean) {
+    const result = { corrected: 0, shown: 0 };
+    if (!decision.rows.length) return result;
+    const done = new Set((await db.prepare(`SELECT winner_id AS id FROM raffle_winner_corrections WHERE ${jsonField('after_json', '$.source')}='photo-auto'
+        AND ${jsonField('after_json', '$.photoId')}=?`).bind(photoId).all<{ id: string }>()).results.map(r => r.id));
+    const last = (await db.prepare(`SELECT coalesce(max(row_number), 0) AS n FROM raffle_photo_auto_rows WHERE photo_id=?`).bind(photoId).first<{ n: number }>())?.n ?? 0;
+    let n = last;
+    const statements: D1PreparedStatement[] = [];
+    for (const d of decision.rows) {
+        if (d.correction && done.has(d.correction.winnerId)) continue;
+        const row = JSON.stringify(d.row), key = d.reasons[0];
+        if (d.outcome === 'correct' && d.correction && mode === 'correct' && publish) {
+            statements.push(...townCorrectionStatements(db, photoId, ++n, d, d.correction, row,
+                { outcome: 'outside-window', reasons: [key.startsWith('older hometown') ? key : 'older hometown differs from the stored winner; not corrected automatically',
+                    'the stored winner changed before the automatic hometown correction could be written'] }));
+            continue;
+        }
+        const conflict = d.outcome === 'correct' ? `older hometown differs from the stored winner; not corrected automatically: stored “${d.correction!.from}”, printed “${d.correction!.to}”` : key;
+        const reasons = d.outcome === 'correct' ? [conflict, mode === 'report' ? 'report-only mode (FB_PHOTO_MONTH_SCAN=report): every check and a targeted re-read confirm the printed hometown; not written'
+            : 'dry run: verified but not written (FB_PHOTO_AUTOPUBLISH is off)'] : d.reasons;
+        statements.push(db.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
+            SELECT ?, ?, 'outside-window', ?, NULL, ?, ? WHERE NOT EXISTS (SELECT 1 FROM raffle_photo_auto_rows a WHERE a.winner_id=? AND a.outcome='outside-window'
+                AND ${jsonField('a.reasons_json', '$[0]')}=?)`).bind(photoId, ++n, d.winnerId, JSON.stringify(reasons), row, d.winnerId, conflict));
+    }
+    if (!statements.length) return result;
+    await db.batch(statements);
+    const after = await db.prepare(`SELECT count(*) AS n FROM raffle_winner_corrections WHERE ${jsonField('after_json', '$.source')}='photo-auto'
+        AND ${jsonField('after_json', '$.photoId')}=?`).bind(photoId).first<{ n: number }>();
+    const shown = await db.prepare(`SELECT count(*) AS n FROM raffle_photo_auto_rows WHERE photo_id=? AND row_number>? AND outcome='outside-window'`).bind(photoId, last).first<{ n: number }>();
+    return { corrected: (after?.n ?? 0) - done.size, shown: shown?.n ?? 0 };
 }
 
 export async function loadContext(db: D1Database, months: string[]) {
     const existing: ExistingWinner[] = [], schedule: ScheduledPrize[] = [];
     for (const month of [...new Set(months)]) {
-        const res = await db.prepare(`SELECT id, draw_date AS drawDate, ticket_number AS ticketNumber, winner_name AS name, town, prize, prize_slot_id AS prizeSlotId
-            FROM raffle_winners WHERE raffle_key=?`).bind(month).all<ExistingWinner>();
+        const columns = 'id, draw_date AS drawDate, ticket_number AS ticketNumber, winner_name AS name, town, prize, prize_slot_id AS prizeSlotId';
+        const res = await db.prepare(`SELECT ${columns}, CASE WHEN ${MANUAL_EDIT} THEN 'manual' WHEN ${AUTOMATED_TOWN} THEN 'automated' END AS townSource
+            FROM raffle_winners w WHERE raffle_key=?`).bind(month).all<ExistingWinner>()
+            // Without the audit tables no hometown counts as automated, so nothing is ever corrected.
+            .catch(() => db.prepare(`SELECT ${columns}, NULL AS townSource FROM raffle_winners WHERE raffle_key=?`).bind(month).all<ExistingWinner>());
         existing.push(...res.results);
         try { schedule.push(...await prizeSchedule(db, month)); } catch { /* No calendar: new winners stay held for review. */ }
     }
@@ -770,6 +1026,42 @@ export async function removedAutoWinners(db: D1Database, photoId: string) {
     const res = await db.prepare(`SELECT a.winner_id AS id FROM raffle_photo_auto_rows a LEFT JOIN raffle_winners w ON w.id=a.winner_id
         WHERE a.photo_id=? AND a.outcome='inserted' AND a.winner_id IS NOT NULL AND w.id IS NULL`).bind(photoId).all<{ id: string }>();
     return new Set(res.results.map(r => r.id));
+}
+
+/**
+ * One automatic hometown correction, in the same atomic batch as the rest of the decision:
+ *  1. the audit row in raffle_winner_corrections (action 'update', source 'photo-auto', before_json = the full stored row), written only
+ *     while the winner still has the reviewed date, ticket, name, slot and old hometown, no administrator edit exists, and this photo
+ *     has not corrected it before;
+ *  2. the hometown update, only while that audit row exists and the old hometown is still stored (so it runs at most once);
+ *  3. the photo's own row audit: 'duplicate' with the correction reasons, or 'rejected' as an ordinary town conflict if anything changed
+ *     underneath (an administrator edited the winner between decision and write).
+ * Repeating the batch (a requeue, a retried post) changes nothing: the old hometown is no longer stored.
+ */
+function townCorrectionStatements(db: D1Database, photoId: string, rowNumber: number, d: RowDecision, c: TownCorrection, row: string,
+    lost: { outcome: 'rejected' | 'outside-window'; reasons: string[] } = { outcome: 'rejected',
+        reasons: ['conflicts with existing winner (town)', 'the stored winner changed before the automatic hometown correction could be written; review required'] }) {
+    const after = JSON.stringify({ drawDate: c.drawDate, ticketNumber: Number(c.ticketNumber), name: c.name, town: c.to, prizeSlotId: c.prizeSlotId,
+        source: 'photo-auto', photoId, rowNumber, from: c.from,
+        note: 'Hometown corrected automatically from a later winner photo: every extraction pass and a targeted re-read of the cell agree' });
+    const ours = `SELECT 1 FROM raffle_winner_corrections c WHERE c.winner_id=? AND ${jsonField('c.after_json', '$.source')}='photo-auto'
+        AND ${jsonField('c.after_json', '$.photoId')}=? AND ${jsonField('c.after_json', '$.town')}=?`;
+    return [
+        db.prepare(`INSERT INTO raffle_winner_corrections (winner_id, action, before_json, after_json)
+            SELECT w.id, 'update', json_object('id', w.id, 'raffle_key', w.raffle_key, 'draw_date', w.draw_date, 'ticket_number', w.ticket_number,
+                'winner_name', w.winner_name, 'town', w.town, 'created_at', w.created_at, 'prize', w.prize, 'ticket_number_text', w.ticket_number_text,
+                'prize_slot_id', w.prize_slot_id), ?
+            FROM raffle_winners w WHERE w.id=? AND w.town=? AND w.draw_date=? AND w.ticket_number=? AND lower(w.winner_name)=lower(?) AND w.prize_slot_id=?
+                AND NOT ${MANUAL_EDIT} AND NOT EXISTS (${ours.replace('c.winner_id=?', 'c.winner_id=w.id')})`)
+            .bind(after, c.winnerId, c.from, c.drawDate, Number(c.ticketNumber), c.name, c.prizeSlotId, photoId, c.to),
+        db.prepare(`UPDATE raffle_winners SET town=? WHERE id=? AND town=? AND EXISTS (${ours})`).bind(c.to, c.winnerId, c.from, c.winnerId, photoId, c.to),
+        db.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
+            SELECT ?, ?, CASE WHEN ok THEN 'duplicate' ELSE ? END, ?, NULL, CASE WHEN ok THEN ? ELSE ? END, ?
+            FROM (SELECT EXISTS (SELECT 1 FROM raffle_winners WHERE id=? AND town=?) AND EXISTS (${ours}) AS ok) WHERE true
+            ON CONFLICT(photo_id, row_number) DO UPDATE SET outcome=excluded.outcome, winner_id=excluded.winner_id, prize=excluded.prize, reasons_json=excluded.reasons_json, row_json=excluded.row_json`)
+            .bind(photoId, rowNumber, lost.outcome, c.winnerId, JSON.stringify(d.reasons), JSON.stringify(lost.reasons),
+                row, c.winnerId, c.to, c.winnerId, photoId, c.to),
+    ];
 }
 
 /**
@@ -808,15 +1100,17 @@ export async function writeDecision(db: D1Database, photo: { photoId: string; po
                 ON CONFLICT(photo_id, row_number) DO UPDATE SET outcome=excluded.outcome, winner_id=excluded.winner_id, prize=excluded.prize, reasons_json=excluded.reasons_json, row_json=excluded.row_json`)
                 .bind(photo.photoId, number, d.prize, JSON.stringify(d.reasons), JSON.stringify(['entered by another writer before publication; nothing changed']),
                     JSON.stringify(['scheduled place became unavailable before publication']), row, month, d.row.drawDate, d.row.name, ticket, ticket));
+        } else if (d.outcome === 'correct' && publish && d.correction) {
+            statements.push(...townCorrectionStatements(db, photo.photoId, number, d, d.correction, row));
         } else {
-            const outcome = d.outcome === 'insert' ? 'held' : d.outcome;
-            const reasons = d.outcome === 'insert' ? ['dry run: verified but not published (FB_PHOTO_AUTOPUBLISH is off)', ...d.reasons] : d.reasons;
+            const outcome = d.outcome === 'insert' || d.outcome === 'correct' ? 'held' : d.outcome;
+            const reasons = d.outcome === 'insert' || d.outcome === 'correct' ? ['dry run: verified but not published (FB_PHOTO_AUTOPUBLISH is off)', ...d.reasons] : d.reasons;
             statements.push(db.prepare(`INSERT INTO raffle_photo_auto_rows (photo_id, row_number, outcome, winner_id, prize, reasons_json, row_json)
                 VALUES (?,?,?,?,?,?,?) ON CONFLICT(photo_id, row_number) DO UPDATE SET outcome=excluded.outcome, winner_id=excluded.winner_id, prize=excluded.prize, reasons_json=excluded.reasons_json, row_json=excluded.row_json`)
                 .bind(photo.photoId, number, outcome, d.winnerId, d.prize, JSON.stringify(reasons), row));
         }
     }
-    const dryRun = !publish && decision.rows.some(d => d.outcome === 'insert');
+    const dryRun = !publish && decision.rows.some(d => d.outcome === 'insert' || d.outcome === 'correct');
     // With no rows (or a dry run) the decision stands. Otherwise the stored audit decides: writes may have lost a race,
     // and rows published by an earlier run of this photo still count.
     const fallback = dryRun ? 'held' : decision.status, decided = dryRun || !decision.rows.length ? 0 : 1;

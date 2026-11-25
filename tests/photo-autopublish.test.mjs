@@ -588,9 +588,21 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     await new Promise(r => setTimeout(r, 300));
     assert.equal((await DB.prepare('SELECT status FROM raffle_photo_auto_posts WHERE post_id=?').bind(daily).first()).status, 'queued');
     assert.equal(aiCalls, 0);
-    await mf.getWorker('photos').then(w => w.scheduled({ scheduledTime: now, cron: '*/2 * * * *' }));
+    // Two overlapping cron invocations (the next tick starts while this one still runs): exactly one claims the post.
+    await mf.getWorker('photos').then(w => Promise.all([w.scheduled({ scheduledTime: now, cron: '*/2 * * * *' }), w.scheduled({ scheduledTime: new Date(now.getTime() + 1000), cron: '*/2 * * * *' })]));
     await settle(`SELECT status FROM raffle_photo_auto_posts WHERE post_id=?`, 'done', daily);
-    assert.equal(aiCalls, 2); // Two independent reads that had to agree.
+    // Two independent reads that had to agree. The month-wide hometown scan (once the month has dates before the reads' first date) is
+    // only queued here: it runs in a later invocation that processes no post, so it never adds to this one's CPU or wall time.
+    const { readDates } = await import('../workers/facebook-photos/reads.ts');
+    const monthScan = readDates(D)[0] > D.slice(0, 8) + '01', perPost = monthScan ? 4 : 2;
+    const scanRow = async () => (await DB.prepare(`SELECT reasons_json FROM raffle_photo_auto_rows WHERE photo_id='900000000000001' AND row_number=9000`).all()).results;
+    const kinds = async () => JSON.parse((await DB.prepare('SELECT extraction_json FROM raffle_photo_auto_imports WHERE photo_id=?').bind('900000000000001').first()).extraction_json).map(r => r.read.kind);
+    await new Promise(r => setTimeout(r, 300));
+    // The overlapping invocation found no post to process; it may already have taken the queued scan. Either way it is one scan.
+    assert.ok(aiCalls === 2 || aiCalls === perPost, String(aiCalls));
+    assert.equal((await scanRow()).length, monthScan ? 1 : 0);
+    // The post was finished by the window decision alone.
+    assert.equal((await DB.prepare('SELECT publication_status FROM raffle_photo_auto_posts WHERE post_id=?').bind(daily).first()).publication_status, 'published');
     const published = (await winners()).filter(w => w.drawDate === D);
     assert.deepEqual(published, [
         { drawDate: D, ticketNumber: 77, name: 'Bob Smith', town: 'Taylor', prize: '2nd place — $100 gift certificate from Safe & Secure Firearms' },
@@ -602,11 +614,21 @@ for (const ownToken of [true,false]) test(`Facebook photo via ${ownToken?'own to
     assert.deepEqual(pub.winners.filter(w => w.drawDate === D).map(w => [w.name, w.prize]),
         [['Jane Doe', '1st place — Tikka T3X Hunter 7MM Rem Mag'], ['Bob Smith', '2nd place — $100 gift certificate from Safe & Secure Firearms']]);
 
-    // 2. Meta redelivers the same event, and the polling fallback sees the same post: no duplicate work or rows.
+    // 2. Meta redelivers the same event, and the polling fallback sees the same post: no duplicate work or rows. Two more overlapping idle
+    // invocations: the queued scan is taken by exactly one of them (or was already taken above), and nothing is read again afterwards.
     assert.equal((await webhook([daily])).status, 200);
-    await mf.getWorker('photos').then(w => w.scheduled({ scheduledTime: new Date(now.getTime() + 60000), cron: '*/2 * * * *' }));
+    await mf.getWorker('photos').then(w => Promise.all([w.scheduled({ scheduledTime: new Date(now.getTime() + 60000), cron: '*/2 * * * *' }),
+        w.scheduled({ scheduledTime: new Date(now.getTime() + 61000), cron: '*/2 * * * *' })]));
+    for (let i = 0; i < 100 && aiCalls < perPost; i++) await new Promise(r => setTimeout(r, 100));
     await new Promise(r => setTimeout(r, 300));
-    assert.equal(aiCalls, 2);
+    assert.equal(aiCalls, perPost);
+    await mf.getWorker('photos').then(w => w.scheduled({ scheduledTime: new Date(now.getTime() + 120000), cron: '*/2 * * * *' }));
+    await new Promise(r => setTimeout(r, 300));
+    assert.equal(aiCalls, perPost);
+    assert.deepEqual(await kinds(), monthScan ? ['window', 'window', 'table', 'table'] : ['window', 'window']);
+    const claims = await scanRow();
+    assert.equal(claims.length, monthScan ? 1 : 0);
+    if (monthScan) assert.match(claims[0].reasons_json, /month-wide hometown check: 2 cells read; 0 hometown\(s\) corrected; 0 new conflict\(s\) shown/);
     assert.equal((await winners()).filter(w => w.drawDate === D).length, 2);
 
     // 3. Found only by polling (no webhook), first AI call fails → retried on a later tick → published once.

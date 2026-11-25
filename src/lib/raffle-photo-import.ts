@@ -111,11 +111,21 @@ export async function hashBytes(bytes: Uint8Array): Promise<string> {
     return [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * `townSource` says who last set the stored hometown (loadContext): 'automated' when it is exactly what a winner photo read (or what an
+ * earlier automatic correction wrote), 'manual' when an administrator edited the winner afterwards, null when unknown or entered by hand.
+ * Only an 'automated' hometown may ever be corrected automatically.
+ */
 export type ExistingWinner = { id: string; drawDate: string | null; ticketNumber: number | null;
-    name: string | null; town: string | null; prize?: string | null; prizeSlotId?: string | null };
+    name: string | null; town: string | null; prize?: string | null; prizeSlotId?: string | null; townSource?: 'automated' | 'manual' | null };
 export type Comparison = { status: 'complete' | 'incomplete' | 'missing' | 'conflicting';
     existingId: string | null; missingFields: string[]; conflicts: string[]; issues: string[] };
 const normalized = (v: string | null) => (v ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+/**
+ * A hometown with harmless formatting removed: case, accents, spacing, commas and periods ("Brodhead, Wi" = "Brodhead, WI",
+ * "Auburn,WA" = "Auburn, WA", "La Crosse" = "LaCrosse", "St. Paul" = "St Paul"). A missing or different state is a real difference.
+ */
+export const townKey = (v: string | null | undefined) => normalized(v ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[\s,.]+/g, '');
 const positiveTicket = (v: unknown) => Number.isSafeInteger(Number(v)) && Number(v) > 0 ? Number(v) : null;
 export function compareWinner(row: DraftWinner, existing: ExistingWinner[]): Comparison {
     const date = row.drawDate, ticket = positiveTicket(row.ticketNumber), name = normalized(row.name);
@@ -132,8 +142,8 @@ export function compareWinner(row: DraftWinner, existing: ExistingWinner[]): Com
     if (!matches.length) return { status: 'missing', existingId: null, missingFields: [], conflicts: [], issues };
     const found = matches[0], missingFields: string[] = [], conflicts: string[] = [];
     for (const field of ['drawDate', 'ticketNumber', 'name', 'town'] as const) {
-        const old = field === 'ticketNumber' ? positiveTicket(found[field]) : field === 'town' ? normalized(found.town).replace(/[\s,]+/g, '') : normalized(found[field]);
-        const next = field === 'ticketNumber' ? ticket : field === 'town' ? normalized(row.town).replace(/[\s,]+/g, '') : normalized(row[field]);
+        const old = field === 'ticketNumber' ? positiveTicket(found[field]) : field === 'town' ? townKey(found.town) : normalized(found[field]);
+        const next = field === 'ticketNumber' ? ticket : field === 'town' ? townKey(row.town) : normalized(row[field]);
         if (field === 'town' && !old && !next && row.townStatus === 'blank') continue;
         // An announcement that prints no ticket says nothing about a stored one. The caller compares prize slots before calling this a duplicate.
         if (field === 'ticketNumber' && ticketFree) continue;

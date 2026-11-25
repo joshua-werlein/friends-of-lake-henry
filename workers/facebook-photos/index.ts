@@ -7,8 +7,9 @@ import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, we
 import { downloadPhoto, extractPhotoCandidates } from '../facebook-live/photos';
 import { PHOTO_MODEL, hashBytes } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
-    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
-import { extractPasses, readableImage, PHOTO_LEASE_SECONDS, QuotaExhausted, type ReadEnv } from './reads';
+    removedAutoWinners, rowDiagnostics, sanitizeCode, validPostId, writeDecision, townCorrectionTargets, confirmTownCorrections, monthCorrections, writeMonthScan, queueMonthScan, nextMonthScan, startMonthScan, finishMonthScan, decidedReads, type MonthScanMode,
+    type PublicationSummary } from '../../src/lib/server/raffle-photo-autopublish';
+import { extractPasses, extractMonthPasses, keepReads, readableImage, readDates, rereadTownCells, PHOTO_LEASE_SECONDS, QuotaExhausted, type ReadEnv, type StoredRead } from './reads';
 import { evaluatePhotoAlerts, recordWebhookReceipts } from './alerts';
 import type { AlertEnv } from '../../src/lib/server/alerts';
 import { configureSeason } from '../../src/lib/server/raffle-season';
@@ -26,6 +27,7 @@ export type Env = FacebookCredentials & AlertEnv & ReadEnv & {
     FB_PHOTO_AUTOPUBLISH?: string;        // "false" records decisions as held without inserting winners
     FB_PHOTO_POLL_ENABLED?: string;       // polling fallback when webhooks are unavailable
     FB_PHOTO_EXTRACTION_PASSES?: string;  // differently instructed AI reads that must agree (2-3)
+    FB_PHOTO_MONTH_SCAN?: string;         // month-wide hometown scan: unset/"true" corrects, "report" only shows, "false" is off
     FB_RAFFLE_MARKER?: string;
     FB_SEASON_START?: string;
     FB_SEASON_END?: string;
@@ -154,7 +156,15 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
                 { sha256, width: dimensions.width, height: dimensions.height }, readable.enlarged);
             const months = new Set([announcementDate.slice(0, 7), ...passes.flatMap(p => p.rows.map(r => r.drawDate.slice(0, 7))).filter(m => /^\d{4}-\d{2}$/.test(m))]);
             const { existing, schedule } = await loadContext(env.DB, [...months]);
-            const decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId) });
+            let decision = decidePhoto(passes, existing, schedule, announcementDate, { removedWinnerIds: await removedAutoWinners(env.DB, photo.photoId) });
+            // Only a proposed hometown correction costs an extra AI call: one targeted re-read of that cell must confirm it.
+            const targets = townCorrectionTargets(decision);
+            if (targets.length) {
+                const cells = await rereadTownCells(env, readable.bytes, readable.mime, context, { sha256, width: dimensions.width, height: dimensions.height }, readable.enlarged, targets, reads);
+                decision = confirmTownCorrections(decision, cells.results);
+                log('town-corrections', { ...context, attempt: attempt ?? 0, proposed: targets.length, confirmed: decision.rows.filter(r => r.outcome === 'correct').length,
+                    aiCalls: cells.aiCalls, reused: cells.reused });
+            }
             // The stored extraction keeps every read with its kind, dates, prompt version and token usage.
             const status = await writeDecision(env.DB, { photoId: photo.photoId, postId, sha256,
                 width: dimensions.width, height: dimensions.height, model: PHOTO_MODEL, passes: reads }, decision, env.FB_PHOTO_AUTOPUBLISH === 'true');
@@ -173,6 +183,13 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
             await recordAttempts(env.DB, [{ ...context, stage: 'photo', outcome: status, detail: { imageReasons: decision.reasons.map(r => sanitizeCode(r.split(':')[0])),
                 aiCalls, reused, fallback, estNeurons } },
                 ...rows.map(r => ({ ...context, stage: 'row' as const, rowNumber: r.rowNumber, outcome: r.outcome, detail: r }))]);
+            // Tonight's winners are stored. The rest of the month is checked for hometowns in a later cron invocation (runMonthScan), so
+            // the scan's reads and CPU are never added to this one, and it can never fail, retry or delay a post or the queue alerts.
+            if (status !== 'ignored' && !fallback && passes.some(p => p.containsWinners) && env.FB_PHOTO_MONTH_SCAN !== 'false'
+                && readDates(announcementDate)[0] > announcementDate.slice(0, 8) + '01') {
+                try { await queueMonthScan(env.DB, { photoId: photo.photoId, postId, announcementDate, windowProposed: targets.length }); }
+                catch (e) { log('month-scan-queue-failed', { ...context, attempt: attempt ?? 0, code: sanitizeCode(e) }); }
+            }
             if (status !== 'ignored') queue = 'done';
         } catch (e) {
             const code = sanitizeCode(e);
@@ -184,10 +201,71 @@ export async function processPost(env: Env, postId: string, fetcher: Fetcher, no
     return { queue, publication: summaryFor(statuses, counts) };
 }
 
+/**
+ * Month-wide hometown verification of one decided photo, in a cron invocation that processed no post: the oldest queued scan is taken
+ * atomically (startMonthScan; an overlapping invocation gets false and reads nothing), the photo is downloaded again and must be the
+ * same image that was decided, then two whole-table reads, monthCorrections, a targeted re-read per proposal and writeMonthScan
+ * (corrections; conflicts shown once in Photo imports without review or alert). The window decision's proposals for this photo count
+ * against the shared correction limit. No AI read starts after `deadline`. Every failure is logged and swallowed, and the scan is never
+ * retried: publication is long complete and the next announcement's table is scanned again.
+ */
+const MONTH_SCAN_MAX_AGE_MS = 12 * 3600_000; // a scan still queued after this (no idle tick before the season ended) is dropped
+async function runMonthScan(env: Env, fetcher: Fetcher, now: Date, deadline: number) {
+    const next = await nextMonthScan(env.DB);
+    if (!next) return false;
+    const context = { postId: next.postId, photoId: next.photoId, attempt: null }, mode: MonthScanMode = env.FB_PHOTO_MONTH_SCAN === 'report' ? 'report' : 'correct';
+    if (!(await startMonthScan(env.DB, next.photoId))) { log('month-scan-skipped', { ...context, attempt: 0, reason: 'taken-by-another-invocation' }); return false; }
+    try {
+        const stored = await decidedReads(env.DB, next.photoId);
+        const age = now.getTime() - Date.parse(next.announcementDate + 'T23:59:59-06:00');
+        if (!stored?.sha256 || age > MONTH_SCAN_MAX_AGE_MS) { await finishMonthScan(env.DB, next.photoId, 'not run: the photo or its queue entry is no longer current'); return true; }
+        const get = photoReader(env, now, fetcher);
+        const { image, dimensions } = await downloadPhoto(get, fetcher, next.photoId);
+        const sha256 = await hashBytes(image.bytes);
+        if (sha256 !== stored.sha256) { await finishMonthScan(env.DB, next.photoId, 'not run: Facebook now serves a different image than the one decided'); return true; }
+        const readable = await readableImage(env, image.bytes, image.mime, dimensions.width, context);
+        const info = { sha256, width: dimensions.width, height: dimensions.height }, reads = stored.reads as StoredRead[];
+        const month = await extractMonthPasses(env, readable.bytes, readable.mime, next.announcementDate, context, info, readable.enlarged, reads, deadline);
+        if (!month.passes) { await finishMonthScan(env.DB, next.photoId, 'the whole-table reads did not complete; the next announcement is checked again'); return true; }
+        const { existing, schedule } = await loadContext(env.DB, [next.announcementDate.slice(0, 7)]);
+        let found = monthCorrections(month.passes, existing, schedule, next.announcementDate, readDates(next.announcementDate), next.windowProposed);
+        const targets = townCorrectionTargets(found);
+        let cellCalls = 0;
+        if (targets.length) {
+            const cells = await rereadTownCells(env, readable.bytes, readable.mime, context, info, readable.enlarged, targets, reads, deadline);
+            cellCalls = cells.aiCalls;
+            found = confirmTownCorrections(found, cells.results);
+            await keepReads(env.DB, next.photoId, info, reads);
+        }
+        const written = await writeMonthScan(env.DB, next.photoId, found, mode, env.FB_PHOTO_AUTOPUBLISH === 'true');
+        await finishMonthScan(env.DB, next.photoId, `${month.passes[0].rows.length} cells read; ${written.corrected} hometown(s) corrected; ${written.shown} new conflict(s) shown`
+            + (mode === 'report' ? ' (report-only mode)' : ''));
+        log('month-scan', { ...context, attempt: 0, mode, aiCalls: month.aiCalls + cellCalls, reused: month.reused, proposed: targets.length, windowProposed: next.windowProposed,
+            corrected: written.corrected, shown: written.shown, estNeurons: Math.round(reads.filter(r => r.read.kind !== 'window').reduce((n, r) => n + (r.read.usage?.estNeurons ?? 0), 0)) });
+        await recordAttempts(env.DB, found.rows.map(d => ({ ...context, stage: 'row' as const, rowNumber: null, outcome: d.outcome === 'correct' ? 'month-correct' : 'month-conflict',
+            detail: rowDiagnostics(d) })));
+    } catch (e) {
+        log('month-scan-failed', { ...context, attempt: 0, code: sanitizeCode(e) });
+        try { await finishMonthScan(env.DB, next.photoId, `stopped (${sanitizeCode(e)}); the next announcement is checked again`); } catch { /* diagnostics only */ }
+    }
+    return true;
+}
+
+// Cloudflare ends a scheduled invocation after 15 minutes of wall time. A month-end whole-table read takes about 2 minutes, so no
+// month-scan AI read starts later than 8 minutes into the invocation.
+const MONTH_SCAN_DEADLINE_MS = 8 * 60_000; // not exported: a Worker entry module may export only handlers and entrypoints
 export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?: string[]) {
+    const started = Date.now();
     const ids = only ?? await duePosts(env.DB, now);
+    const processed = await drainPosts(env, fetcher, now, ids);
+    // A tick that processed a post does nothing else, so a scan never shares an invocation (CPU, wall time) with a publication.
+    if (!processed && !only && env.FB_PHOTO_MONTH_SCAN !== 'false') await runMonthScan(env, fetcher, now, started + MONTH_SCAN_DEADLINE_MS);
+}
+async function drainPosts(env: Env, fetcher: Fetcher, now: Date, ids: string[]) {
+    let processed = 0;
     for (const [index, id] of ids.entries()) {
         if (!(await claimPost(env.DB, id, now, PHOTO_LEASE_SECONDS))) continue;
+        processed++;
         const claimed = await env.DB.prepare(`SELECT source, attempts FROM raffle_photo_auto_posts WHERE post_id=?`).bind(id).first<{ source: string; attempts: number }>();
         const attempt = claimed?.attempts ?? 1;
         try {
@@ -207,6 +285,7 @@ export async function drain(env: Env, fetcher: Fetcher, now = new Date(), only?:
             if (quota) { if (index < ids.length - 1) log('drain-stopped-quota', { skipped: ids.length - index - 1 }); break; }
         }
     }
+    return processed;
 }
 
 /** Fallback discovery with the Page token's already-working published_posts read; no webhook permissions needed. */
