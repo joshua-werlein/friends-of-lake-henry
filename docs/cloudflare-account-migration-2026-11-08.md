@@ -5,16 +5,16 @@ to the **nonprofit Cloudflare account** (`ffe1aa6f4a533743f8f1b624f43c6d3d`, DES
 Phase 1 created and filled destination resources only. Nothing in SOURCE was modified, and no traffic,
 DNS, Facebook webhook, cron, or email was switched.
 
-## Status on 2026-11-19
+## Current status and historical checkpoints
 
 **Decision: no cutover before the season ends. The domain move waits until after November 30, 2026.**
 The Cloudflare Registrar move (below) cannot be undone quickly and needs the destination to accept it, so it is not
 done between nightly drawings.
 
-Production and staging Pages, Worker and D1 evidence is from the November 18–19 releases (read-only checks after each). DNS and
-the R2 inventory below reflect the November 14 checkpoint. **Migration 009 is not applied to either database.**
+The release inventory below records the current Photo Worker versions and the earlier Pages and Live Worker checkpoints.
+DNS and the R2 inventory reflect the November 14 checkpoint. **Migration 009 is not applied to either database.**
 
-## Next-session cutover action tracker (updated 2026-11-19)
+## Next-session cutover action tracker
 
 **Current disposition: NO-GO for cutover.** SOURCE production `93fe0d3b` and DESTINATION staging
 `1c163014` both use the tested `da5333c` Astro 5 security release; `/_image` returns 404 in both.
@@ -41,8 +41,9 @@ nightly drawings. Update the checkboxes only after recording evidence, IDs and U
 
 **Engineer prerequisites (validate while automation remains OFF):**
 
-- [ ] **Photo Worker parity.** Add the missing DESTINATION `IMAGES` binding, check the exact source
-  commit and staged bindings; keep cron, public Worker URL, auto-import and alert flags off.
+- [ ] **Photo Worker parity.** DESTINATION `ee409ca8` is staged from the same source as SOURCE `40eba822` (`476637c`).
+  Add and verify the outstanding DESTINATION `IMAGES` binding. Keep cron, the public Worker URL, auto-import
+  and alert flags off during staging.
 - [ ] **Live Worker provenance.** Identify the source commit corresponding to SOURCE `ced68381`,
   rebuild and stage that exact version in DESTINATION; verify Durable Object/service bindings with
   schedules and alert/automation flags off.
@@ -51,9 +52,9 @@ nightly drawings. Update the checkboxes only after recording evidence, IDs and U
   privacy, contact/photo submit and correct email behavior using safe isolated checks. Confirm
   `/_image` remains 404; record the exact Pages deployment SHA and bindings. Do not exercise
   production mutations from staging.
-- [ ] **Reconcile final November operations.** Confirm all drawings/winners, photo imports,
-  unresolved whole-photo Issues and failed/retry jobs have been reviewed. Document any deferred
-  webhook or delivery events before allowing a freeze.
+- [ ] **Reconcile final November operations.** Verify the Photo Worker release during the next live raffle drawing.
+  Confirm all drawings/winners, photo imports, unresolved whole-photo Issues and failed/retry jobs have been reviewed.
+  Document any deferred webhook or delivery events before allowing a freeze.
 - [ ] **Cutover dry-run and sign-off.** Recheck SOURCE and DESTINATION version parity; list pending
   migrations (001–008 and 010 applied, **009 absent**); verify a safe write/ingress freeze covers
   custom domains, Pages aliases/previews, admin, public forms, webhook POSTs, crons and in-flight
@@ -73,7 +74,7 @@ nightly drawings. Update the checkboxes only after recording evidence, IDs and U
 - [ ] **Post-cutover only:** after stability, separately approve migration 009 on DESTINATION,
   verify calendar approval, port/supersede `da5333c` on Git `main` before any main-based Pages
   deployment, and schedule Astro 7/Workers modernization as an independent project.
-- [ ] **Post-cutover: 2027 raffle prize places.** The deployed pre-009 Photo Worker lineage (`49b3fd3`, `e2f9aa4`)
+- [ ] **Post-cutover: 2027 raffle prize places.** The deployed pre-009 Photo Worker lineage (current source `476637c`)
   derives 1st/2nd/Bonus from the calendar only for `2026-11-*` dates (`calendarPosition` in
   `src/lib/server/raffle-prizes.ts`); any other month's winners would all be held for review. `main` already replaces this
   with the migration 009 season calendar (recurring-prize `place`, approved month). Before the 2027 season: apply 009,
@@ -101,15 +102,45 @@ removes the reachable image-processing path, it does not resolve them.
 |---|---|---|
 | Pages | `93fe0d3b-8991-41c1-bad2-3d9594ca2a0c` (Nov 19, 21:54 UTC), **Direct Upload** of `da5333c` (the security release above on `d92eb2c`: inline photo review, history with Needs review / Issues / Completed / All, mobile scrolling) built from a clean `git archive` export with Node **22.23.5**. Production branch `main`; automatic production deployments paused; preview builds off. Previous: `2f96df08` (`d92eb2c`, unpatched `/_image`), `ba1bc408` (`f789234`), `3a16b88e` (hosted build of `482d851`) | `1c163014-f387-4bdc-8ee9-ce6a831680da` (Nov 19, 22:04 UTC), Direct Upload of the **same `da5333c` `dist`** with DESTINATION bindings, on `friends-of-lake-henry-d16.pages.dev` only. Previous: `7cdc9851` (`d92eb2c`, unpatched), `df1fc387` (Nov 8, `97c81a0`). `/api/photos/file` and both poster routes **500** until R2 exists |
 | D1 schema | migrations 001–008 **and 010** (010 adds only `raffle_photo_row_resolutions`); **009 not applied** | same: 001–008 and 010; **009 not applied** |
-| D1 data | 85 winners through Nov 23 (Nov 25 00:20 UTC; all rows byte-identical before and after the `3ae49baf` release, sha256 of `SELECT * ... ORDER BY id` `2644380f5f5187c0`; the Nov 22 bonus hometown, ticket 781, corrected manually by the owner Nov 24, correction id 9); 83 winners through Nov 22 (Nov 23 01:10 UTC; unchanged by the `256d96d6` release; the Nov 22 bonus entered manually); 80 through Nov 21 (Nov 22 15:36 UTC: no duplicate IDs, tickets or prize slots per day); 24 photo-review resolutions; both whole-photo Issues (the Nov 12 quota failure and a Nov 5 rejection) marked handled Nov 21; 6 hometowns corrected and the Nov 12 alert closed Nov 22 (see the November 12 reconciliation below); all 14 photo-automation alert incidents resolved | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
+| D1 data | **57 November 2026 winners through Nov 24**, verified after the missing-position release. Historical all-winner checkpoints: 85 winners through Nov 23 (Nov 25 00:20 UTC; all rows byte-identical before and after the `3ae49baf` release, sha256 of `SELECT * ... ORDER BY id` `2644380f5f5187c0`; the Nov 22 bonus hometown, ticket 781, corrected manually by the owner Nov 24, correction id 9); 83 winners through Nov 22 (Nov 23 01:10 UTC; unchanged by the `256d96d6` release; the Nov 22 bonus entered manually); 80 through Nov 21 (Nov 22 15:36 UTC: no duplicate IDs, tickets or prize slots per day); 24 photo-review resolutions; both whole-photo Issues (the Nov 12 quota failure and a Nov 5 rejection) marked handled Nov 21; 6 hometowns corrected and the Nov 12 alert closed Nov 22 (see the November 12 reconciliation below); all 14 photo-automation alert incidents resolved | 46 winners through 2026-11-07 (stale by design; final sync replaces it) |
 | R2 `folh-photos` | 28 objects, 16.6 MB, ENAM (unchanged since Nov 8) | **R2 not enabled** (API code 10042) |
 | Live Worker | `ced68381-190a-42dd-b426-511e14d88ea3` at 100% (unchanged) | `a134d4df`, no cron, flags off |
-| Photo Worker | `3ae49baf-fe0d-45e3-b1d4-a340ee67848a` at 100% (Nov 25 00:14 UTC), built from `e44af14` (`task/photo-hometown-self-correction`, tag `photo-worker-3ae49baf`; `main` port `2314982`): `7571781` plus the Nov 24 hometown self-correction and month-wide scan. Previous: `256d96d6` (`7571781`, tag `photo-worker-256d96d6`), `165eb38c` (`def561f`, tag `photo-worker-165eb38c`), `9a14b7c3` (`e2f9aa4`), `077637f8` (`49b3fd3`), `dc1ad438` (`7a9d4c4`), `3d4928c9` (`893d371`) | `8ebd67eb-cfc9-47ed-934f-9f59b74d7c66` (Nov 22 15:08 UTC), built from `def561f` with `wrangler.nonprofit.staged.json`: no cron, workers.dev off, all automation and alert flags off, no secrets, **no `IMAGES` binding yet**. Not restaged with `7571781` (owner: no nonprofit-account deploys before the ~Dec 1 migration). Previous: `af328d6d` (`e2f9aa4`), `82b7d603` (`49b3fd3`), `1ca3d573` (Nov 8) |
+| Photo Worker | `40eba822-d6df-42d7-85ea-54ab8249ae68` at 100%, built from `476637c` (tag `photo-worker-40eba822`, `main` integration `35ed114`). Previous: `3ae49baf` (`e44af14`, tag `photo-worker-3ae49baf`, `main` port `2314982`), `256d96d6` (`7571781`, tag `photo-worker-256d96d6`), `165eb38c` (`def561f`, tag `photo-worker-165eb38c`), `9a14b7c3` (`e2f9aa4`), `077637f8` (`49b3fd3`), `dc1ad438` (`7a9d4c4`), `3d4928c9` (`893d371`) | `ee409ca8-a236-4a57-8c6d-d11ae63f942d`, built from `476637c` with `wrangler.nonprofit.staged.json`. No cron, workers.dev off, automation and alerts disabled, **`IMAGES` outstanding**. Previous: `8ebd67eb-cfc9-47ed-934f-9f59b74d7c66` (`def561f`, Nov 22 15:08 UTC), `af328d6d` (`e2f9aa4`), `82b7d603` (`49b3fd3`), `1ca3d573` (Nov 8) |
 | Secrets | Pages 7, Live 3, Photo 5 (names below) | **none** |
 | `FOHL_SYNC_*` credentials | not set (legacy credentials in use) | not set |
 | Domain | Cloudflare Registrar, `clientTransferProhibited`, DNSSEC off, expires 2027-12-12, NS `angelina`/`sam` | not added |
 
-SOURCE Pages rollback order: `2f96df08-e195-4a5f-8e14-36070fb6d74c` (`d92eb2c`, same features as `93fe0d3b` but with the unpatched `/_image` endpoint; verified listed and serving on its alias Nov 19; use only for an application regression and re-release a patched build promptly), then `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0. Photo rollback: `256d96d6-9635-4b35-9d8c-f01941a34cff` (`7571781`; `wrangler versions deploy 256d96d6-9635-4b35-9d8c-f01941a34cff@100% --name folh-facebook-winner-photos` with `CLOUDFLARE_ACCOUNT_ID=aa86268490e681cccb3a41a62093e2aa`; brings back the Nov 24 rejection: a later table that prints another hometown for a stored winner is rejected for review and corrected by hand, and older winners are never re-checked; queued month scans then simply never run), then `165eb38c-c2b5-48ab-8bf8-ce40394ef670` (`def561f`; same command with that ID; brings back the Nov 22 hold: a brand-only or swapped-letter bonus label such as "Vexliar", or an unidentified label of the night's only remaining bonus, is held and entered manually), then `9a14b7c3-2a25-4309-bd85-999c550fd2c4` (`e2f9aa4`; same command with that ID; brings back the Nov 21 hold: a bonus label spelled one letter differently from the calendar, such as "Ice Auger", is held and entered manually), then `077637f8-f77a-4773-a0cc-289a7313defa` (`49b3fd3`, keeps the Nov 16 fix), then `dc1ad438-bb57-4705-a9f6-0d8e3945ee80` (`7a9d4c4`). A rollback to `077637f8` or `dc1ad438` also brings back the Nov 20 hold: bonus cells printed as `Label - Ticket - Name, Town` are held and must be entered manually. DESTINATION rollbacks: Pages `7cdc9851` (`d92eb2c`, unpatched), then `df1fc387`, Photo `af328d6d` (`e2f9aa4`), then `82b7d603` (`49b3fd3`), then `1ca3d573` (only for a failed staging upload, never for cutover). The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
+SOURCE Pages rollback order: `2f96df08-e195-4a5f-8e14-36070fb6d74c` (`d92eb2c`, same features as `93fe0d3b` but with the unpatched `/_image` endpoint; verified listed and serving on its alias Nov 19; use only for an application regression and re-release a patched build promptly), then `ba1bc408-a311-4285-bb37-09552713373c` (`f789234`, inline review without the history view), then `3a16b88e-5ff4-447b-b982-5da9e8ba6b1a` (hosted build of `482d851`, Node 22.23.5; its code ignores migration 010), then the emergency [`995a1755-4d19-4d31-af4e-a3227b2d9130`](https://dash.cloudflare.com/aa86268490e681cccb3a41a62093e2aa/pages/view/friends-of-lake-henry/995a1755-4d19-4d31-af4e-a3227b2d9130) built from `cf8252e` under Node 20.20.0.
+
+**SOURCE Photo rollback order**
+
+1. `3ae49baf-fe0d-45e3-b1d4-a340ee67848a` (`e44af14`) restores the previous missing-position behavior and retains hometown self-correction.
+2. `256d96d6-9635-4b35-9d8c-f01941a34cff` (`7571781`) restores manual hometown review. Queued month scans stop running.
+3. `165eb38c-c2b5-48ab-8bf8-ce40394ef670` (`def561f`) restores the Nov 22 hold for a brand-only or swapped-letter bonus label such
+   as "Vexliar", or an unidentified label for the night's only remaining bonus.
+4. `9a14b7c3-2a25-4309-bd85-999c550fd2c4` (`e2f9aa4`) restores the Nov 21 hold for a one-letter variant such as "Ice Auger".
+5. `077637f8-f77a-4773-a0cc-289a7313defa` (`49b3fd3`) retains the Nov 16 fix. This version and the next restore the Nov 20 hold
+   for bonus cells printed as `Label - Ticket - Name, Town`.
+6. `dc1ad438-bb57-4705-a9f6-0d8e3945ee80` (`7a9d4c4`).
+
+DESTINATION staging rollback order: Pages `7cdc9851` (`d92eb2c`, unpatched), then `df1fc387`. Photo `8ebd67eb-cfc9-47ed-934f-9f59b74d7c66` (`def561f`), then `af328d6d-7cad-4a04-99ed-837a9e4be67b` (`e2f9aa4`, staged Nov 21 01:58 UTC), `82b7d603` (`49b3fd3`, staged Nov 19), and `1ca3d573`. Use these Photo versions to recover staging with automation off. Cutover requires parity with the current SOURCE release and a verified DESTINATION `IMAGES` binding.
+
+The Nov 19 releases kept the Pages project settings, bindings, variables and secrets, and the Worker bindings, flags, compatibility dates and cron settings, identical (compared before and after).
+
+**Photo Worker release for the November 24 missing-position incident** (`photo:review:122337579074073310`).
+SOURCE `40eba822-d6df-42d7-85ea-54ab8249ae68` and inactive DESTINATION staging
+`ee409ca8-a236-4a57-8c6d-d11ae63f942d` were built from `476637c` (tag `photo-worker-40eba822`,
+`main` integration `35ed114`). The fix derives a missing position only when all extraction passes agree on the
+verified column, the date and column identify one approved calendar slot, and every explicit position agrees with
+that slot. Explicit contradictions and ambiguous matches still require review. The audit records the derived
+position while preserving the original extraction responses and existing publication safeguards.
+
+All 93 targeted tests passed. Local replay of both stored passes in both orders against the pre-incident state
+produced 2 publishable winners (ticket 588 first and ticket 848 second), 15 duplicates, 0 held and 0 rejected.
+Release checks verified each account's `DB`, `AI`, `FACEBOOK_READS` and `FACEBOOK_LIVE` bindings, idle queues in both
+accounts and 57 November winners in SOURCE through November 24. SOURCE has `IMAGES` and the two-minute cron.
+DESTINATION automation remains disabled, and its `IMAGES` binding is outstanding. Live raffle verification is deferred
+until the next drawing.
 
 **Photo Worker release, 2026-11-25 00:14 UTC (Nov 24, 6:14 PM Central; owner-approved outside the usual window after the Live
 ended with no winner photo pending; Photo Worker only; SOURCE account `aa86268490e681cccb3a41a62093e2aa`).** Fixes incident
@@ -230,11 +261,12 @@ objects needs the dashboard object list or an R2 S3 API token (the wrangler OAut
   default image endpoint). Port `da5333c` (config, pins, lockfile, `src/lib/server/disabled-image-endpoint.ts`,
   `tests/pages-security-smoke.mjs`) to `main`, or supersede it with the Astro 7 upgrade, and confirm `/_image` returns 404 before
   any Pages release from `main`.
-- **Photo Worker production source:** `e2f9aa4` on `fix/photo-cell-parser` (pushed; tag `photo-worker-9a14b7c3` on origin), a
-  child of `49b3fd3` (`fix/photo-name-separator`, tag `photo-worker-077637f8`), which extends `7a9d4c4` (`fix/photo-prize-spacing`,
-  tag `photo-worker-dc1ad438`) and `893d371` (tag `photo-worker-3d4928c9`). Ported to `main` as `4c34d8f`.
-  Deploy Photo Worker changes from this pre-009 lineage, never from `main`, until 009 is applied.
-- **`main`** (fast-forwarded and pushed Nov 19 from `integrate/photo-review-main`): `da838bb` plus the Node pin, the Nov 15 and Nov 16
+- **Photo Worker production and staging source:** `476637c` (tag `photo-worker-40eba822`), with the fix integrated
+  into `main` as `35ed114`. Build and deploy the Photo Worker from the pre-009 release lineage until 009 is applied.
+  Earlier lineage: `e2f9aa4` on `fix/photo-cell-parser` (tag `photo-worker-9a14b7c3`, ported to `main` as `4c34d8f`),
+  a child of `49b3fd3` (`fix/photo-name-separator`, tag `photo-worker-077637f8`), which extends `7a9d4c4`
+  (`fix/photo-prize-spacing`, tag `photo-worker-dc1ad438`) and `893d371` (tag `photo-worker-3d4928c9`).
+- **Historical `main` checkpoint** (fast-forwarded and pushed Nov 19 from `integrate/photo-review-main`): `da838bb` plus the Node pin, the Nov 15 and Nov 16
   Photo fixes, inline review, the history view and Issues filter, migration 010, the ported tests (run with 009) and these notes.
   Full suite 219/219 on Node 22.23.5; Astro 5.16.6, migration 009 and the prize-calendar work intact. `main` code **requires
   migration 009** (Pages and the integrated Photo Worker). Until 009 is applied in production, every push to `main` must carry
@@ -269,10 +301,11 @@ Before cutover, pin and test a Wrangler v4 release **at least `4.59.1`** for Dir
 Migration 009 is additive (old code ignores the new columns). It also records November 2026's calendar as
 `approved` with heading `Firearm`, which is the approval the integrated Photo Worker checks before any AI read.
 
-1. Cut over first with the code that runs in production at the time of the cutover. As of November 19 that is Pages
-   `da5333c` built with Node 22.23.5 (SOURCE `93fe0d3b`, staged as `1c163014`; not `d92eb2c`/`7cdc9851`, which expose `/_image`), Photo Worker `e2f9aa4` (SOURCE `9a14b7c3`, staged as `af328d6d`, Nov 21), and Live Worker
-   from the `ced68381` source commit. If a later Pages or Photo release reaches SOURCE production before the cutover, stage
-   and use that release instead; never an older build. No schema change during the move.
+1. Cut over with the code running in SOURCE production at the time of the move. The current baseline is Pages
+   `da5333c` built with Node 22.23.5 (SOURCE `93fe0d3b`, staged as `1c163014`), Photo Worker `476637c`
+   (SOURCE `40eba822`, staged as `ee409ca8` with `IMAGES` still outstanding), and the Live Worker from the
+   `ced68381` source commit. Stage any intervening SOURCE release before the move and use that release at cutover.
+   Keep the current schema during the move.
 2. After cutover is stable: apply 009 to DESTINATION D1 (the only production database by then), verify
    `raffle_months.calendar_status = 'approved'` for `2026-11` (or the current season's month), then deploy Pages and
    the Photo Worker from `main` (which must already contain the production fixes; see Release sources).
@@ -306,7 +339,7 @@ Wrangler matches by name). Pre-change exports: `C:\Users\Jwerl\dev\folh-backups-
 | R2 `folh-photos` (binding `PHOTOS_BUCKET`) | 28 objects, 16,606,134 bytes, private, ENAM | **not created: R2 not enabled on the account** |
 | Worker `folh-facebook-live-discovery` | UTC crons `50-59 23 * 11 *` and `0-30 0 * 11,12 *`; `FB_AUTOMATION_ENABLED=true`, `FB_VIDEO_PROBE_ENABLED=true`, `ALERTS_ENABLED=true`, `ALERTS_MODE=live`; workers.dev off | version `a134d4df-1133-436a-af28-47615b481d69`, no cron, no workers.dev, flags off, no secrets |
 | Durable Object `DiscoveryScheduler` (SQLite) | namespace `2e316a104a5843c4a3a914090c174ff9` | namespace `9435462e26fc43658e15bfb550db2150`, empty |
-| Worker `folh-facebook-winner-photos` | UTC cron `*/2 * * * *`; workers.dev on; `FB_PHOTO_AUTOMATION_ENABLED=true`, `FB_PHOTO_AUTOPUBLISH=true`, `FB_PHOTO_POLL_ENABLED=true`, `ALERTS_ENABLED=true`, `ALERTS_MODE=live`, `ALERT_WEBHOOK_DELIVERY_ENABLED=false` | version `af328d6d-7cad-4a04-99ed-837a9e4be67b` (`e2f9aa4`, Nov 21; previously `82b7d603`, `1ca3d573`), no cron, no workers.dev, flags off, no secrets, no `IMAGES` yet |
+| Worker `folh-facebook-winner-photos` | Version `40eba822-d6df-42d7-85ea-54ab8249ae68`, UTC cron `*/2 * * * *`; workers.dev on; `FB_PHOTO_AUTOMATION_ENABLED=true`, `FB_PHOTO_AUTOPUBLISH=true`, `FB_PHOTO_POLL_ENABLED=true`, `ALERTS_ENABLED=true`, `ALERTS_MODE=live`, `ALERT_WEBHOOK_DELIVERY_ENABLED=false` | version `ee409ca8-a236-4a57-8c6d-d11ae63f942d` (`476637c`), no cron, no workers.dev, automation and alerts disabled, no secrets, `IMAGES` outstanding |
 | Zone `friendsoflakehenry.com` | `521cd66466d2270d975476d8d08b967f`, active, full setup | not added |
 
 `workers/fohl-sync` (`folh-sync-webhook-test`) is a probe and is not deployed in either account.
@@ -398,10 +431,12 @@ Live **selection** is in CONFIG KV (copied). Photo alert incidents are in D1 (co
    --branch main --commit-hash <full SHA>` with the patched Wrangler. The committed `wrangler.json` names SOURCE resources and
    must never be uploaded to DESTINATION unchanged. Once R2 exists, add `PHOTOS_BUCKET` → `folh-photos` and redeploy. Keep both
    accounts on schema 001–008 plus 010 until cutover is stable.
-4. **Staged Photo Worker** — redone Nov 21 01:58 UTC: `af328d6d` from `e2f9aa4` (previously `82b7d603` from `49b3fd3`, Nov 19) with `workers/facebook-photos/wrangler.nonprofit.staged.json`
-   (no cron, workers.dev off, all `FB_PHOTO_*` and alert flags off). **Before activation**, add the `IMAGES` binding to that
-   staged config (production has it; the importer enlarges photos with it) and confirm Images is available on the DESTINATION
-   account, then redeploy and validate. Do not activate it before the cutover runbook.
+4. **Staged Photo Worker** — `ee409ca8-a236-4a57-8c6d-d11ae63f942d` from `476637c` (tag `photo-worker-40eba822`)
+   with `workers/facebook-photos/wrangler.nonprofit.staged.json`. Keep cron, workers.dev, automation and alerts off.
+   Before cutover rehearsal, confirm Images is available to DESTINATION, add the `IMAGES` binding, and redeploy
+   and validate the same release with automation disabled. Verify the DESTINATION D1, AI, Images and Live service bindings
+   and record the refreshed staging version ID. If staging must be rolled back, use `8ebd67eb-cfc9-47ed-934f-9f59b74d7c66` with automation off and restore parity
+   before proceeding.
 5. **Staging tests**: public pages, `/api/photos/file`, event posters, raffle month/prizes APIs, admin login and one
    admin read (no edits, including Admin > Raffle > Photo imports, which needs 010), contact form against the DESTINATION
    Turnstile widget. Workers stay without cron, flags off.
@@ -454,8 +489,9 @@ until the final sync and domain switch. DESTINATION becomes the sole writer afte
    staged as `1c163014`; it must be `da5333c` or a later release containing the same security changes, and `/_image` must
    return 404 on the DESTINATION deployment before the domain moves) under Node 22.23.5 and schema 001–008 plus 010. Verify that Pages `DB` and Photo `DB` use the same DESTINATION D1 ID, Pages `CONFIG` and Live `CONFIG`
    use the same DESTINATION KV ID, the Live Durable Object and both Pages service bindings resolve there, and Pages
-   reads the DESTINATION bucket. Validate the exact Worker source, cron expressions, flags, and bindings for
-   activation. Keep staging automation inactive, and close staging write paths before the final sync.
+   reads the DESTINATION bucket. Rehearse the Photo Worker from `476637c`, current SOURCE version `40eba822`, after
+   refreshing the inactive DESTINATION stage (`ee409ca8`) with the verified `IMAGES` binding. Validate the planned
+   activation schedules, flags and bindings. Keep staging automation inactive, and close staging write paths before the final sync.
 2. **Verify a write freeze on both accounts.** Gate admin mutations, public photo submissions, and contact-form
    sends on the custom domain, Pages aliases, and any reachable previews. Keep SOURCE Pages available for read-only
    service while it is the public site. Pause or gate signed webhook POST delivery to SOURCE, using a tested method
@@ -467,7 +503,8 @@ until the final sync and domain switch. DESTINATION becomes the sole writer afte
 3. **Sync under the freeze.** Export SOURCE D1, refresh DESTINATION in place, and verify schema, table hashes, and
    `sqlite_sequence`. Both databases must still be on 001–008 plus 010 (no 009); the export must carry
    `raffle_photo_row_resolutions` (review and handled-issue audit) and the `d1_migrations` row for 010. Check the winner count
-   and fingerprint against SOURCE (70 winners on Nov 19, plus any later drawings) and that no Photo job is pending. Re-copy CONFIG KV with matching values, expiry, and metadata, and remove destination-only keys.
+   and fingerprint against SOURCE, including the 57 November winners verified through Nov 24 and any later drawings.
+   Confirm that no Photo job is pending. Re-copy CONFIG KV with matching values, expiry, and metadata, and remove destination-only keys.
    Leave SESSION KV uncopied. Refresh R2 against the final SOURCE manifest and verify every D1 object reference.
    Keep snapshots of both accounts and confirm SOURCE did not change after the export. Repeat the sync if a SOURCE
    write slipped through. On the reviewed DESTINATION Pages deployment, verify read-only parity for winners, the
@@ -480,10 +517,11 @@ until the final sync and domain switch. DESTINATION becomes the sole writer afte
    routing, Pages deployment ID, and read-only parity on the actual domain. Treat the waiting period as maintenance
    if the apex or its certificate is unavailable.
 5. **Activate DESTINATION against the same data the public site reads.** Confirm the old SOURCE Pages aliases and
-   previews remain write-gated. Activate Live first from the verified `ced68381` source, then Photo from the SOURCE production Photo source (today `e2f9aa4`),
-   using the DESTINATION resource IDs, the exact UTC schedules and flags in the inventory, and the Photo
-   `IMAGES` binding. The copied season ends at midnight Central on December 1. Expect no November backup polling
-   after its eligible window, and verify the next eligible natural executions without extending the season.
+   previews remain write-gated. Activate Live first from the verified `ced68381` source, then Photo from the SOURCE
+   production lineage (current source `476637c`, tag `photo-worker-40eba822`). Use the release rehearsed with
+   DESTINATION resource IDs, the exact UTC schedules and flags in the inventory, and the verified Photo `IMAGES` binding.
+   The copied season ends at midnight Central on December 1. Expect no November backup polling after its eligible window,
+   and verify the next eligible natural executions without extending the season.
    Switch and re-verify the Facebook callback at
    `https://folh-facebook-winner-photos.friendsoflakehenryblair.workers.dev/facebook/webhook`.
    Verify SOURCE ingestion and scheduling remain stopped before accepting DESTINATION deliveries. Reconcile
@@ -506,7 +544,10 @@ SOURCE data before restoring its webhook at
 `https://folh-facebook-winner-photos.jjwerlein.workers.dev/facebook/webhook`, Worker versions, schedules, and public
 write paths. If the SOURCE Pages release itself fails, roll SOURCE back to `93fe0d3b` (the security release) if it is not
 already live; use `2f96df08` (unpatched `/_image`) only if `93fe0d3b` itself is at fault, then `3a16b88e` (or the emergency
-`995a1755`), and verify its production alias. If the SOURCE Photo Worker fails, roll back to `077637f8` (then `dc1ad438`).
+`995a1755`), and verify its production alias. If the SOURCE Photo Worker fails, use
+`3ae49baf-fe0d-45e3-b1d4-a340ee67848a` first, then follow the SOURCE Photo rollback order above. Use
+`wrangler versions deploy 3ae49baf-fe0d-45e3-b1d4-a340ee67848a@100% --name folh-facebook-winner-photos`
+with `CLOUDFLARE_ACCOUNT_ID=aa86268490e681cccb3a41a62093e2aa`.
 
 **After DESTINATION accepts:** keep the public site and any active writers in DESTINATION during recovery.
 - **Application fault:** use the verified DESTINATION Pages artifact built from the cutover commit (staging step 3) or a
@@ -516,7 +557,10 @@ already live; use `2f96df08` (unpatched `/_image`) only if `93fe0d3b` itself is 
 - **Data fault:** freeze DESTINATION writes, preserve the current snapshot, and reconcile post-cutover writes before
   restoring with D1 Time Travel or the cutover export. Recheck KV and R2 consistency before reopening.
 - **Automation fault:** gate the DESTINATION callback, crons, and flags until the known-good versions and bindings
-  are verified. Keep SOURCE Workers stopped. Use a reviewed manual fallback on DESTINATION if needed.
+  are verified. Keep SOURCE Workers stopped. For Photo, the nonprofit rollback version is
+  `8ebd67eb-cfc9-47ed-934f-9f59b74d7c66` with automation gated. Confirm a working DESTINATION `IMAGES`
+  binding and verify the activation configuration before resuming automation. Use a reviewed manual fallback on
+  DESTINATION if needed.
 - **DNS or certificate fault:** restore the DESTINATION routing and zone settings from the export. Keep the write gate
   until the apex, certificate, and Pages deployment are confirmed.
 
