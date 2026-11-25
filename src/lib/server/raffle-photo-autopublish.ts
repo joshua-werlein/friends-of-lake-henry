@@ -17,7 +17,8 @@ export type RowOutcome = 'insert' | 'duplicate' | 'held' | 'rejected' | 'outside
 export type TownCorrection = { winnerId: string; drawDate: string; ticketNumber: string; name: string; prizeSlotId: string;
     from: string; to: string; fallback: 'rejected' | 'outside-window' };
 export type RowDecision = { rowNumber: number; outcome: RowOutcome; reasons: string[]; row: DraftWinner;
-    winnerId: string | null; prize: string | null; prizeSlotId?: string | null; prizeMatch: 'scheduled' | 'unmatched' | 'none'; correction?: TownCorrection };
+    winnerId: string | null; prize: string | null; prizeSlotId?: string | null; prizeMatch: 'scheduled' | 'unmatched' | 'none';
+    derivedPosition?: 1 | 2; correction?: TownCorrection };
 export type PhotoDecision = { status: 'published' | 'partial' | 'duplicate' | 'held' | 'rejected' | 'ignored';
     reasons: string[]; rows: RowDecision[] };
 
@@ -457,6 +458,20 @@ function cellTextProblems(row: DraftWinner) {
     return problems;
 }
 
+// Reconcile a missing position only from these verified numbered headings. Each pass must read the
+// same heading on the same date, and any explicit position must match the calendar.
+function numberedColumnPosition(row: DraftWinner, members: DraftWinner[], schedule: ScheduledPrize[]): 1 | 2 | undefined {
+    const heading = fold(row.prize ?? '');
+    if (heading !== 'firearm' && heading !== 'gift card') return;
+    const slot = identifyPrize(row.prize, row.drawDate, schedule);
+    if (!slot || (heading === 'firearm' ? slot.category !== 'Main prize' || slot.source !== 'event'
+        : slot.category !== 'Gift card' || slot.source !== 'daily')) return;
+    const position = calendarPosition(slot, schedule);
+    if (position !== 1 && position !== 2) return;
+    if (members.every(m => m.drawDate === row.drawDate && fold(m.prize ?? '') === heading
+        && m.cellText?.trim() && !m.strayLabel && (m.position === null || m.position === position))) return position;
+}
+
 function rowProblems(row: DraftWinner, announcementDate: string): { reasons: string[]; outside: boolean } {
     const reasons: string[] = [];
     if (!realDate(row.drawDate)) reasons.push('draw date missing or invalid');
@@ -515,8 +530,12 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         // Every pass's own copy of the cell must support what that pass read, and its printed label must name the prize it read.
         for (const m of group.members) if (m) for (const p of [...(m === row ? [] : cellTextProblems(m)), ...labelProblems(m, schedule)])
             if (!reasons.includes(p)) reasons.push(p);
-        const seen = group.members.filter(Boolean).length;
+        const members = group.members.filter((m): m is DraftWinner => !!m);
+        const seen = members.length;
         if (seen < passes.length) reasons.push(`row was read by only ${seen} of ${passes.length} extraction passes`);
+        // Existing winners retain the original duplicate and hometown-correction rules.
+        const derivedPosition = !outside && seen === passes.length && members.some(m => m.position !== row.position)
+            && compareWinner(row, existing).status === 'missing' ? numberedColumnPosition(row, members, schedule) : undefined;
         for (const o of group.members) {
             if (!o || o === row) continue;
             const differs: string[] = (['drawDate', 'name', 'town'] as const).filter(f => !same(row[f], o[f]));
@@ -525,7 +544,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
             if (!row.town && row.townStatus !== o.townStatus) reasons.push('extraction passes disagree on whether hometown is visibly blank');
             if (!row.ticketNumber && row.ticketStatus !== o.ticketStatus) reasons.push('extraction passes disagree on whether the ticket is visibly blank');
             if (o.notes || o.townStatus === 'uncertain' || o.ticketStatus === 'uncertain') reasons.push('another extraction pass flagged uncertainty');
-            if (row.position !== o.position) differs.push('position');
+            if (row.position !== o.position && derivedPosition === undefined) differs.push('position');
             // Different wording is still agreement when both reads identify the same single approved prize.
             if (!same(row.prize, o.prize)) {
                 const a = identifyPrize(row.prize, row.drawDate, schedule), b = identifyPrize(o.prize, o.drawDate, schedule);
@@ -559,15 +578,16 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         }
         // A row older than this announcement's window can never publish, so reading it imperfectly is not a hold.
         return { rowNumber: i + 1, outcome: outside ? 'outside-window' : reasons.length ? 'held' : 'insert', reasons, row,
-            winnerId: null, prize: null, prizeMatch: 'none' as const };
+            winnerId: null, prize: null, prizeMatch: 'none' as const, derivedPosition };
     });
 
     // Conflicts inside the image itself hold every involved row rather than picking one.
     const clusters = new Map<string, RowDecision[]>();
     for (const d of rows) {
         if (!realDate(d.row.drawDate) || d.outcome === 'outside-window' || d.outcome === 'duplicate') continue;
+        const position = d.derivedPosition ?? d.row.position;
         const keys = [...(d.row.ticketNumber ? [`t:${d.row.drawDate}:${Number(d.row.ticketNumber)}`] : []),
-            ...(d.row.position !== null && d.row.position !== BONUS ? [`p:${d.row.drawDate}:${d.row.position}`] : [])];
+            ...(position !== null && position !== BONUS ? [`p:${d.row.drawDate}:${position}`] : [])];
         for (const k of keys) clusters.set(k, [...(clusters.get(k) ?? []), d]);
     }
     for (const [k, list] of clusters) if (list.length > 1) for (const d of list) {
@@ -577,7 +597,7 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
     // Places a row in an identified approved slot: place, blank-ticket, slot-holder and removed-winner checks, then the publish reasons.
     const settle = (d: RowDecision, prize: ScheduledPrize, scheduledPosition: WinnerPosition, how = 'prize matches approved calendar entry') => {
         d.prizeMatch = 'scheduled';
-        const position = d.row.position ?? scheduledPosition;
+        const position = d.derivedPosition ?? d.row.position ?? scheduledPosition;
         if (position === null || (scheduledPosition !== null && position !== scheduledPosition)) {
             d.outcome = 'held';
             d.reasons.push('place is missing or conflicts with the approved drawing schedule; review required');
@@ -603,8 +623,10 @@ export function decidePhoto(passes: Extraction[], existing: ExistingWinner[], sc
         }
         if (d.row.readDate !== undefined) d.reasons.push(d.row.readDate === d.row.drawDate ? "the cell's own label names this date's approved bonus drawing"
             : `date from the approved calendar: the cell's own label names only this date's bonus drawing; the extraction placed it on ${d.row.readDate}`);
-        d.reasons.push(`all ${passes.length} extraction passes agree`, `${how} ${prize.id}`,
-            `${placementLabel(position)} from ${d.row.position === null ? 'the approved calendar' : 'the printed label and approved calendar'}`,
+        const reconciled = d.derivedPosition !== undefined;
+        d.reasons.push(`all ${passes.length} extraction passes agree${reconciled ? ' on the winner and column' : ''}`, `${how} ${prize.id}`,
+            reconciled ? `${placementLabel(position)} derived from the agreed column and approved calendar because a pass left position blank`
+                : `${placementLabel(position)} from ${d.row.position === null ? 'the approved calendar' : 'the printed label and approved calendar'}`,
             ...(ticketFree ? ['every extraction pass confirms no ticket number is printed'] : []));
     };
     const unidentified = new Set<RowDecision>();
