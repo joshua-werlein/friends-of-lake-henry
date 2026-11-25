@@ -2,9 +2,9 @@
 // announcement window plus a few anchor dates twice, and reuse any read this exact image already completed. Every AI read renews the lease.
 import type { D1Database } from '@cloudflare/workers-types';
 import { base64Image, visionRequest, winnerPrompt } from '../facebook-live/photos';
-import { PHOTO_MODEL, hashBytes, parseExtraction, type Extraction } from '../../src/lib/raffle-photo-import';
+import { PHOTO_MODEL, draftRows, hashBytes, parseExtraction, type DraftWinner, type Extraction } from '../../src/lib/raffle-photo-import';
 import { recordAttempts, renewLease, sanitizeCode, WINDOW_DAYS } from '../../src/lib/server/raffle-photo-autopublish';
-import { focusPrompt } from './focus';
+import { cellPrompt, focusPrompt } from './focus';
 
 export type ReadEnv = {
     DB: D1Database;
@@ -68,8 +68,9 @@ export const isQuotaExhausted = (e: unknown) => /(?:^|\D)4006(?:\D|$)|daily[\s-]
 export class QuotaExhausted extends Error {}
 
 // ---- Reads, checkpointed per image ----
-export type ReadKind = 'window' | 'table';
-export type ReadMeta = { version: string; kind: ReadKind; pass: number; dates: string[]; enlarged: boolean; usage: Usage | null };
+export type ReadKind = 'window' | 'table' | 'cell';
+/** `target` (cell reads only) is the re-read cell, `date:ticket`. */
+export type ReadMeta = { version: string; kind: ReadKind; pass: number; dates: string[]; enlarged: boolean; usage: Usage | null; target?: string };
 export type StoredRead = Extraction & { read: ReadMeta };
 export type Reads = { passes: Extraction[]; reads: StoredRead[]; aiCalls: number; reused: number; fallback: 'no-window-dates' | 'unparseable' | null };
 type ReadPlan = { kind: ReadKind; pass: number; dates: string[]; prompt: string; maxTokens: number };
@@ -138,7 +139,7 @@ export async function extractPasses(env: ReadEnv, bytes: Uint8Array, mime: strin
         let raw: unknown;
         try {
             aiCalls++;
-            raw = await env.AI!.run(PHOTO_MODEL, { ...visionRequest(PHOTO_MODEL, plan.prompt, dataUrl ??= `data:${mime};base64,${base64Image(bytes)}`), max_tokens: plan.maxTokens });
+            raw = await env.AI!.run(PHOTO_MODEL, { ...visionRequest(PHOTO_MODEL, plan.prompt, dataUrl ??= imageDataUrl(bytes, mime)), max_tokens: plan.maxTokens });
         } catch (e) {
             const code = sanitizeCode(e), quota = isQuotaExhausted(e);
             log('extraction-pass-failed', { ...context, attempt: context.attempt ?? 0, passNumber, kind: plan.kind, code, quota, durationMs: Date.now() - started });
@@ -183,4 +184,127 @@ export async function extractPasses(env: ReadEnv, bytes: Uint8Array, mime: strin
         chosen = await run(i => tablePlan(announcementDate, i), passes);
     }
     return { passes: (chosen ?? []).map(({ read: _read, ...p }) => p), reads: done, aiCalls, reused, fallback };
+}
+
+// The photo is base64-encoded once per invocation, however many reads (window, month, cell) use it: encoding costs Worker CPU.
+const dataUrls = new WeakMap<Uint8Array, string>();
+export function imageDataUrl(bytes: Uint8Array, mime: string) {
+    let url = dataUrls.get(bytes);
+    if (!url) dataUrls.set(bytes, url = `data:${mime};base64,${base64Image(bytes)}`);
+    return url;
+}
+
+// ---- Month-wide correction scan: the whole cumulative table, read only to verify stored hometowns ----
+// The window reads (above) stay the only reads that can publish a winner: whole-table reads of large tables drop sparse bonus cells. These
+// two whole-table reads run after tonight's decision is written, so they can never delay, block or retry publication, and their rows can
+// only ever propose a hometown correction (which a targeted cell re-read must still confirm). Cost, from measured rates: about 210-510
+// neurons per read as the month grows (27 to 73 cells), so at most ~1,000 a night of the 10,000 daily allocation. Whole-table reads the
+// window step already made (its fallback) are reused, not repeated. Any failure (quota, timeout, unparseable reply, lost lease) ends the
+// scan quietly; the next night's cumulative table is scanned again, so nothing is lost.
+export async function extractMonthPasses(env: ReadEnv, bytes: Uint8Array, mime: string, announcementDate: string, context: AttemptContext,
+    image: ImageInfo | null, enlarged: boolean, reads: StoredRead[], deadline = Infinity): Promise<{ passes: Extraction[] | null; aiCalls: number; reused: number }> {
+    const count = Math.min(3, Math.max(2, Number(env.FB_PHOTO_EXTRACTION_PASSES) || 2));
+    const version = await readVersion();
+    const out: Extraction[] = [];
+    let aiCalls = 0, reused = 0;
+    for (let i = 0; i < count; i++) {
+        const plan = tablePlan(announcementDate, i), passNumber = 100 + i + 1; // pass numbers 101+ mark month-scan reads in diagnostics
+        const prior = reads.find(r => sameRead(r, plan, version, enlarged));
+        if (prior) { reused++; const { read: _r, ...p } = prior; out.push(p); continue; }
+        // No read starts after the deadline: the invocation keeps a wide margin under Cloudflare's wall-clock limit for scheduled Workers.
+        if (Date.now() >= deadline) { log('month-scan-read-skipped', { ...context, attempt: context.attempt ?? 0, passNumber, reason: 'invocation-time-budget' });
+            await keepReads(env.DB, context.photoId, image, reads); return { passes: null, aiCalls, reused }; }
+        const started = Date.now();
+        try {
+            await holdLease(env, context);
+            aiCalls++;
+            const raw = await env.AI!.run(PHOTO_MODEL, { ...visionRequest(PHOTO_MODEL, plan.prompt, imageDataUrl(bytes, mime)), max_tokens: plan.maxTokens });
+            const usage = usageOf(raw), pass = parseExtraction(raw);
+            reads.push({ ...pass, read: { version, kind: plan.kind, pass: plan.pass, dates: plan.dates, enlarged, usage } });
+            out.push(pass);
+            await recordAttempts(env.DB, [{ ...context, stage: 'pass', passNumber, outcome: 'ok', detail: { kind: 'month', rows: pass.rows.length,
+                warnings: pass.warnings.length, durationMs: Date.now() - started, ...(usage ?? {}) } }]);
+        } catch (e) {
+            const code = sanitizeCode(e);
+            log('month-scan-read-failed', { ...context, attempt: context.attempt ?? 0, passNumber, code, durationMs: Date.now() - started });
+            await recordAttempts(env.DB, [{ ...context, stage: 'pass', passNumber, outcome: 'failed', code, detail: { kind: 'month', quota: isQuotaExhausted(e) } }]);
+            await keepReads(env.DB, context.photoId, image, reads);
+            return { passes: null, aiCalls, reused };
+        }
+    }
+    await keepReads(env.DB, context.photoId, image, reads);
+    return { passes: out, aiCalls, reused };
+}
+/** The photo is already decided, so its stored extraction is updated directly (the checkpoint only writes undecided photos). */
+export async function keepReads(db: D1Database, photoId: string, image: ImageInfo | null, reads: StoredRead[]) {
+    try {
+        await db.prepare(`UPDATE raffle_photo_auto_imports SET extraction_json=? WHERE photo_id=? AND (? IS NULL OR image_sha256=?)`)
+            .bind(JSON.stringify(reads).slice(0, 200000), photoId, image?.sha256 ?? null, image?.sha256 ?? null).run();
+    } catch { /* Diagnostics only. */ }
+}
+
+// ---- Targeted cell re-reads, only to confirm a proposed hometown correction ----
+// decidePhoto proposes a correction only for a stored, automatically read hometown that every pass reads differently while date, ticket,
+// name and prize slot all match (at most two per photo). Each such cell costs one small read (~2,600 input and ~150 output tokens, about
+// 90 neurons); a photo without such a cell makes no extra AI call. A failed or unparseable re-read never blocks or retries the post: the
+// row just keeps its ordinary outcome (rejected for review) as it would without this step.
+export const CELL_MAX_TOKENS = 512;
+export type TownTarget = { rowNumber: number; drawDate: string; ticketNumber: string; name: string };
+let cellVersionMemo: Promise<string> | null = null;
+const cellVersion = () => cellVersionMemo ??= hashBytes(new TextEncoder().encode(JSON.stringify([PHOTO_MODEL, READ_WIDTH, CELL_MAX_TOKENS,
+    cellPrompt('2000-01-01', '1', 'A B')]))).then(h => h.slice(0, 16));
+/** The re-read as a draft row of the asked date (null when the cell was not found), or 'unparseable'. */
+export function parseCellRead(response: unknown, drawDate: string): DraftWinner | null | 'unparseable' {
+    const body = (response as { response?: unknown } | null)?.response;
+    const raw = typeof body === 'string' ? body : body && typeof body === 'object' ? JSON.stringify(body) : null;
+    if (raw === null || raw.length > 4000) return 'unparseable';
+    try {
+        const v = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
+        if (!v || typeof v !== 'object' || typeof v.found !== 'boolean') return 'unparseable';
+        if (!v.found) return null;
+        return draftRows([{ drawDate, position: null, prize: '', ticketStatus: 'readable', cellText: typeof v.cellText === 'string' ? v.cellText : '',
+            ticketNumber: v.ticketNumber, name: v.name, town: v.town, townStatus: v.townStatus, notes: v.notes }])[0];
+    } catch { return 'unparseable'; }
+}
+/**
+ * One targeted read per target cell. Completed re-reads are appended to `reads` (stored with the photo's extraction) and checkpointed,
+ * and a requeued run of the same image reuses them instead of paying again. Returns the re-read row per target row number (null = none).
+ */
+export async function rereadTownCells(env: ReadEnv, bytes: Uint8Array, mime: string, context: AttemptContext, image: ImageInfo | null,
+    enlarged: boolean, targets: TownTarget[], reads: StoredRead[], deadline = Infinity) {
+    const results = new Map<number, DraftWinner | null>();
+    if (!targets.length) return { results, aiCalls: 0, reused: 0 };
+    const version = await cellVersion();
+    const saved = image ? await storedReads(env.DB, context.photoId, image.sha256) : [];
+    let dataUrl: string | null = null, aiCalls = 0, reused = 0;
+    for (const t of targets) {
+        const target = `${t.drawDate}:${Number(t.ticketNumber)}`;
+        const same = (r: StoredRead) => r.read?.kind === 'cell' && r.read.version === version && r.read.target === target && r.read.enlarged === enlarged;
+        let stored = reads.find(same) ?? saved.find(same);
+        if (stored) reused++;
+        else if (Date.now() >= deadline) { log('cell-read-skipped', { ...context, attempt: context.attempt ?? 0, reason: 'invocation-time-budget' }); continue; }
+        else {
+            const started = Date.now();
+            try {
+                await holdLease(env, context);
+                aiCalls++;
+                const raw = await env.AI!.run(PHOTO_MODEL, { ...visionRequest(PHOTO_MODEL, cellPrompt(t.drawDate, t.ticketNumber, t.name),
+                    dataUrl ??= imageDataUrl(bytes, mime)), max_tokens: CELL_MAX_TOKENS });
+                const row = parseCellRead(raw, t.drawDate), usage = usageOf(raw);
+                if (row === 'unparseable') throw Error('cell-read-unparseable');
+                stored = { containsWinners: true, rows: row ? [row] : [], warnings: [], read: { version, kind: 'cell', pass: 0, dates: [t.drawDate], enlarged, usage, target } };
+                await recordAttempts(env.DB, [{ ...context, stage: 'pass', outcome: 'ok', detail: { kind: 'cell', found: !!row, durationMs: Date.now() - started, ...(usage ?? {}) } }]);
+            } catch (e) {
+                const code = sanitizeCode(e);
+                log('cell-read-failed', { ...context, attempt: context.attempt ?? 0, code, durationMs: Date.now() - started });
+                await recordAttempts(env.DB, [{ ...context, stage: 'pass', outcome: 'failed', code, detail: { kind: 'cell', quota: isQuotaExhausted(e) } }]);
+                if (code === 'lease-lost') throw e; // Another run owns the post now and will finish it.
+                continue; // Not in results: the correction is "not available" and the row keeps its ordinary outcome.
+            }
+        }
+        if (!reads.includes(stored)) reads.push(stored);
+        if (image) await checkpoint(env.DB, { photoId: context.photoId, postId: context.postId, ...image }, reads);
+        results.set(t.rowNumber, stored.rows[0] ?? null);
+    }
+    return { results, aiCalls, reused };
 }
