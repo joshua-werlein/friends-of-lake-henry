@@ -3,7 +3,7 @@
 // can never replace folh-facebook-live-discovery, its DiscoveryScheduler Durable Object, migration or cron.
 import { graphReader, GRAPH_PAGE_ID, isoTime } from '../facebook-live/graph';
 import { pageAccessToken, usesFohlSync, type FacebookCredentials } from '../facebook-live/credentials';
-import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint } from './webhook';
+import { inSeason, qualifies, pollDue, alertsDue, sameSecret, validSignature, webhookPostIds, webhookLiveHint, webhookLiveEvents, liveEventSummary } from './webhook';
 import { downloadPhoto, extractPhotoCandidates } from '../facebook-live/photos';
 import { PHOTO_MODEL, hashBytes } from '../../src/lib/raffle-photo-import';
 import { chicagoDate, claimPost, decidePhoto, duePosts, enqueuePost, failPost, finishPost, loadContext, photoFinalStatus, recordAttempts, recordPhotoFailure,
@@ -15,7 +15,7 @@ import type { AlertEnv } from '../../src/lib/server/alerts';
 
 export type Env = FacebookCredentials & AlertEnv & ReadEnv & {
     DB: D1Database;
-    FACEBOOK_LIVE?:{notify(id:string):Promise<unknown>;recordDiagnostic?(value:unknown):Promise<unknown>};
+    FACEBOOK_LIVE?:{notify(id:string,events?:unknown[]):Promise<unknown>;recordDiagnostic?(value:unknown):Promise<unknown>};
     FACEBOOK_READS?: { read(path:string,params:Record<string,string>):Promise<Record<string,unknown>> };
     FB_APP_SECRET?: string;            // secret: verifies X-Hub-Signature-256
     FB_WEBHOOK_VERIFY_TOKEN?: string;  // secret: echoed by Meta during subscription
@@ -86,7 +86,11 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext, 
         // Timing correlation: eventRef is the first 12 hex of the body hash the Live coordinator logs too.
         const forwardAt = Date.now();
         try {
-            const result = await env.FACEBOOK_LIVE.notify(id) as { accepted?: boolean } | undefined;
+            // Signed Live/video facts (IDs, codes, key names) ride along as evidence; a Live Worker without support ignores them.
+            let events: ReturnType<typeof webhookLiveEvents> = [];
+            try { events = webhookLiveEvents(payload); } catch { /* Evidence is optional; forwarding the hint never depends on it. */ }
+            log('webhook-live-events', { eventRef: id.slice(0, 12), count: events.length, facts: liveEventSummary(events) });
+            const result = await env.FACEBOOK_LIVE.notify(id, events) as { accepted?: boolean } | undefined;
             log('webhook-live-forwarded', { eventRef: id.slice(0, 12), receivedAt: new Date(receivedAt).toISOString(), queueMs: forwardAt - receivedAt,
                 notifyMs: Date.now() - forwardAt, accepted: result?.accepted === true });
             diagnostic({stage:'webhook-forward',at:Date.now(),receivedAt,forwardAt,queueMs:forwardAt-receivedAt,notifyMs:Date.now()-forwardAt,accepted:result?.accepted===true});
