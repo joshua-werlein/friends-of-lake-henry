@@ -6,7 +6,7 @@ export const timingDay = (day: string) => inSeasonDay(day);
 type Store = { get<T>(key: string): Promise<T | undefined>; put(key: string, value: unknown): Promise<unknown> };
 export type TimingEntry = { stage: string; at: number; [key: string]: unknown };
 type Journal = { version: 1; day: string; entries: TimingEntry[]; dropped: number; first: Record<string, TimingEntry> };
-const stages = new Set(['webhook-received', 'webhook-forward', 'do-event', 'check-start', 'check-result', 'public-visible']);
+const stages = new Set(['webhook-received', 'webhook-forward', 'do-event', 'check-start', 'check-result', 'public-visible', 'webhook-live-event']);
 const numeric = ['receivedAt','forwardAt','queueMs','notifyMs','alarmAt','slotAt','wakeLagMs','completedAt','pollMs','graphMs','graphRequests','selectionWriteMs','stateWriteMs','selectionCompletedAt','stateCompletedAt','pending','candidates','verified','failures'];
 const code = (v: unknown) => typeof v === 'string' && /^[a-z][a-z0-9-]{0,59}$/.test(v);
 /** Fixed schema: never persist raw payloads, URLs, errors, headers or credentials. */
@@ -20,6 +20,10 @@ export function timingEntry(value: unknown): TimingEntry | null {
     for (const k of numeric) if (Number.isSafeInteger(v[k]) && Number(v[k]) >= 0) out[k] = v[k];
     for (const k of ['accepted','selected','paused']) if (typeof v[k] === 'boolean') out[k] = v[k];
     for (const k of ['status','reason','phase','trigger']) if (code(v[k])) out[k] = v[k];
+    // Signed webhook facts (Release B): field/item/verb codes (underscores allowed) and the live_videos object ID.
+    for (const k of ['field','item','verb']) if (typeof v[k] === 'string' && /^[a-z][a-z_]{0,39}$/.test(v[k] as string)) out[k] = v[k];
+    if (out.status === undefined && typeof v.status === 'string' && /^[a-z][a-z_]{0,39}$/.test(v.status)) out.status = v.status; // e.g. live_stopped
+    if (typeof v.liveVideoId === 'string' && /^\d{1,40}$/.test(v.liveVideoId)) out.liveVideoId = v.liveVideoId;
     if (typeof v.eventRef === 'string' && /^[a-f0-9]{12}$/.test(v.eventRef)) out.eventRef = v.eventRef;
     if (typeof v.videoId === 'string' && /^\d{1,40}$/.test(v.videoId)) out.videoId = v.videoId;
     if (typeof v.observedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v.observedAt) && inDrawingMonth(new Date(v.observedAt))) out.observedAt = v.observedAt;
@@ -32,7 +36,13 @@ export function timingEntry(value: unknown): TimingEntry | null {
     if(Array.isArray(v.videos))out.videos=v.videos.slice(0,8).filter((x:any)=>typeof x?.videoId==='string'&&/^\d{1,40}$/.test(x.videoId)).map((x:any)=>({
         videoId:x.videoId,liveStatus:['LIVE','LIVE_STOPPED','VOD'].includes(x.liveStatus)?x.liveStatus:'UNKNOWN',
         published:x.published===true,embeddable:x.embeddable===true,metadataVerified:x.metadataVerified===true,originVerified:x.originVerified===true,
+        ...(['page-video','reel','other'].includes(x.form)?{form:x.form}:{}),...(code(x.reason)?{reason:x.reason}:{}),
     }));
+    // Rejection reason codes -> counts only (at most 16 codes); never post text, URLs or raw Graph data.
+    if(v.rejections&&typeof v.rejections==='object'&&!Array.isArray(v.rejections)){
+        const r=Object.entries(v.rejections as Record<string,unknown>).filter(([k,n])=>code(k)&&Number.isSafeInteger(n)&&Number(n)>0&&Number(n)<=1000).slice(0,16);
+        if(r.length)out.rejections=Object.fromEntries(r);
+    }
     return out;
 }
 

@@ -247,7 +247,7 @@ test('drawingSelection: manual saves count any time today; automatic only in aut
 test('missed-drawing alert fires when Facebook does not identify the video as Live (Reel with no status, VOD with no prior, unproven /videos/ post)', async () => {
     const cases = {
         'Reel, live_status absent (dropped by link form)': { link: `https://www.facebook.com/reel/${REEL}`, live: '', status: 'no-eligible-video' },
-        'Reel, LIVE (still dropped by production link rule)': { link: `https://www.facebook.com/reel/${REEL}`, live: 'LIVE', status: 'no-eligible-video' },
+        // (Release B selects a LIVE Reel by design; that case lives in tests/live-missed-drawing.test.mjs.)
 
         'Page video, status absent (held pending)': { live: '', status: 'pending-live-confirmation' },
         'Page video, VOD never observed Live': { live: 'VOD', status: 'pending-live-confirmation' },
@@ -271,7 +271,7 @@ test('exact Nov 26 Graph v27 response (owner, published, embeddable, created 00:
         const h = day({ videos: [{ id: REEL, posted, created, link: `https://www.facebook.com/reel/${REEL}`, live: '' }] });
         await h.run(nov26(17, 49), nov26(18, 31), 5000);
         assert.equal(JSON.parse(h.kv.data.get(AUTOMATIC_KEY)).id, YESTERDAY);
-        assert.equal(h.state().candidates, 0); // exactly today's production outcome
+        assert.equal(h.state().rejections['not-live-video'] >= 1, true); // Release B: examined, then rejected (production: 0 candidates)
         assert.equal(h.emails.length, 1); assert.equal(h.emails[0].at, nov26(18, 16));
     }
 });

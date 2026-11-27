@@ -28,7 +28,11 @@ export class DiscoveryScheduler extends DurableObject<Env> {
             return Response.json({applied:await this.coordinator.recordAlert(body.id,body.key,body.result as never)});
         }
         if(url.pathname==='/event' && request.method==='POST') {
-            const id=await request.text();return Response.json({accepted:await this.ctx.blockConcurrencyWhile(()=>this.coordinator.event(id))});
+            // Body: {"id","events"} (Release B) or a bare body-hash id (older callers).
+            const text=await request.text();if(text.length>16384) return new Response(null,{status:413});
+            let id=text,events:unknown=[];
+            if(text.startsWith('{')){try{const body=JSON.parse(text);id=typeof body.id==='string'?body.id:'';events=body.events;}catch{id='';}}
+            return Response.json({accepted:await this.ctx.blockConcurrencyWhile(()=>this.coordinator.event(id,events))});
         }
         await this.coordinator.kick();
         return new Response(null, { status: 204 });
