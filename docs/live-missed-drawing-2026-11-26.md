@@ -1,5 +1,10 @@
 # November 26, 2026: missed Live detection and missing alert
 
+> **Status 2026-11-27.** Release A (the missed-drawing alert only) is live as Video Worker `61e98186`
+> (`docs/live-missed-drawing-alert-2026-11-26.md`, on `main`). This branch is **Release B**, rebased on Release A and
+> **not deployed**. The "Release B: signed Live webhook correlation" section below supersedes the earlier plan where
+> they differ.
+
 Branch `task/live-missed-drawing` (worktree `C:\Users\Jwerl\dev\.worktrees\friends-of-lake-henry\live-missed-drawing`),
 based on `cf8252e`, the recorded source of production Video Worker `ced68381-190a-42dd-b426-511e14d88ea3`.
 **Not deployed.** Photo Worker, winner processing and Pages are unchanged.
@@ -153,3 +158,65 @@ incident is open, or accept that email. There are no KV, D1 or secret changes to
 - **Webhook-carried video IDs:** would need a Photo Worker change (out of scope).
 - **Ambiguity ordering (pre-existing):** when a second Live is posted a minute after the first, the first poll stages
   the only one visible; later polls hold as ambiguous and the earlier selection remains.
+
+## Release B: signed Live webhook correlation (option 1, owner-approved for build; not deployed)
+
+The owner's Graph v27 read of Reel `1467167912212118` found it Page-owned, published and embeddable, created
+`2026-11-27T00:03:41Z`, with `live_status` omitted. That proves no Live origin, so discovery here rejects it
+(`not-live-video`). Release B adds Live origin from Meta's own signed webhook, tied to the **exact video ID**.
+
+### Photo Worker (branch `task/photo-live-event-forwarding`, base `photo-worker-40eba822` = `476637c`)
+
+- `webhookLiveEvents(payload)` extracts sanitized facts from the signed payload. Kept: `field` (`live_videos`, `videos`,
+  `feed`), numeric `id` / `video_id` / `post_id`, lowercase `status` / `item` / `verb`, and payload key **names**. Dropped:
+  message, name, link and every other value. At most 10 facts.
+- They are passed as `LiveEvents.notify(id, events)`; an older Live Worker ignores the extra argument. The log line
+  `webhook-live-events` (facts summary) records Meta's real payload shape.
+- Sanitizer errors never change the response. Photo queueing, AI extraction, winner logic and deduplication are untouched.
+- Tests: 251/251 (247 existing + 4 new in `tests/photo-live-events.test.mjs`). Bindings and vars are identical to
+  production `40eba822`.
+
+### Video Worker (this branch)
+
+- `notify` re-validates the facts (`live-events.ts`), and the Durable Object stores them (48 hours, at most 60), plus a
+  `webhook-live-event` journal entry and a `live-event-facts` log line. The bare-id body is still accepted.
+- **Origin rule:** a signed `live_videos` event with status `live`, `live_now` or `live_stopped` proves Live origin only
+  when its `id` **equals** the candidate video ID, or a read-only `GET /{live-video-id}?fields=id,status,video` returns
+  `video.id` equal to it. That means at most 2 lookups per check, with a 3 s timeout, cached for 7 days (only final
+  outcomes are cached; timeouts are retried). Failures never pause or fail detection. **Timing never ties an event to a
+  video.** Ownership, published, embeddable, the time rule and ambiguity are all still required.
+- A signed `feed` video fact adds that exact video as a candidate before `published_posts` indexes it. It still needs Live
+  origin (Graph `LIVE`/`LIVE_STOPPED` or a correlated event).
+- Records carry `originEvidence` (`graph-live-status` or `signed-live-webhook`), `originCorrelation`
+  (`event-video-id` or `live-video-lookup`) and `originEventRef`. `origin` keeps the value the deployed resolver requires.
+- Tests: 215/215 (all suites, including the migration test).
+  - New `tests/live-signed-webhook.test.mjs`, plus Release B cases in `tests/live-missed-drawing.test.mjs`: the Nov 26
+    replay with today's exact metadata; the lookup path; a different video, unsupported (100), permission (10),
+    scheduled status or feed-only facts all leave nothing selected and the alert fires; final lookups are not retried
+    and transient ones are; an ordinary Reel next to a correlated Live; two correlated Lives are ambiguous; delayed
+    indexing through a feed fact; the bare-id body; redelivery.
+  - A cross-Worker run of the real new Photo `fetch` and the real new coordinator over the shared contract fixture: a
+    signed `live_videos` event selects today's Reel response, and a feed-only change selects nothing.
+
+### Prerequisites and unknowns
+
+- **Webhook subscription.** The Page subscription is recorded as `feed` only, so Meta likely sends no `live_videos`
+  changes today. Adding `live_videos` to the app's Page subscription (`POST /144051422124740/subscribed_apps`, keeping
+  `feed`) is a Meta configuration change for the owner. Until then Release B adds only the feed-fact candidate path and
+  diagnostics.
+- **Unverified:** whether a `live_videos` event's `id` is the Video ID or a LiveVideo ID, and whether
+  `GET /{live-video-id}?fields=video` is readable with the Page token. Meta's reference lists the read but its field page
+  is unavailable. Either way an unmatched event selects nothing, and the `webhook-live-events` / `live-event-facts` logs
+  plus the timing journal will show the real IDs after the first Live.
+
+### Deployment (requires approval; outside 5:45–6:35 PM CT)
+
+1. Video first (accepts the new body, old Photo still works). Run from this worktree:
+   `npx wrangler versions upload -c workers/facebook-live/wrangler.video.activation.existing-account.json`, then
+   `versions deploy <id>@100%`.
+2. Photo second, from the Photo worktree, with `-c workers/facebook-photos/wrangler.json` (same commands).
+   Verify the `webhook-live-events` log on the next signed webhook.
+
+Rollback, in either order: Photo `40eba822-d6df-42d7-85ea-54ab8249ae68`, Video `61e98186-c418-4664-b798-516091d5b344`
+(Release A). Both are compatible with each other and with the new versions. Stored facts and mappings are ignored by
+the older code.

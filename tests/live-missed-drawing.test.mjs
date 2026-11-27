@@ -39,7 +39,7 @@ const yesterdayStage = { schemaVersion: 2, graphPageId: GRAPH, publicPageId: PAG
  * One drawing day. `videos`: { id, posted (post created_time ms), created (Video created_time ms), live (status or fn(clock)),
  * link, owner, type, visibleFrom (post appears in published_posts), message }.
  */
-function day({ videos = [], season = season2026, alerts = true, manual, graphError, resend = () => 200, extraEnv = {} } = {}) {
+function day({ videos = [], season = season2026, alerts = true, manual, graphError, resend = () => 200, extraEnv = {}, liveVideos = {} } = {}) {
     configureSeason(season);
     let clock = 0, alarm = null, n = 0;
     const data = new Map([[RAFFLE_LIVE_KEY, JSON.stringify(manual ?? { latestVideoUrl: canonical(YESTERDAY), updatedAt: '2026-11-26T00:01:00.000Z', selectionMode: 'automatic', automaticEnabled: true })],
@@ -65,6 +65,10 @@ function day({ videos = [], season = season2026, alerts = true, manual, graphErr
         if (path.endsWith('published_posts')) return Response.json({ data: videos.filter(v => clock >= (v.visibleFrom ?? -Infinity)).map(v => ({
             id: `${GRAPH}_${v.post ?? v.id}`, created_time: iso(v.posted), ...(v.message ? { message: v.message } : {}),
             attachments: { data: [{ type: v.type ?? 'video_inline', target: { id: v.id, url: v.link ?? canonical(v.id) }, url: v.link ?? canonical(v.id) }] } })) });
+        // Read-only LiveVideo node lookups (Release B): { [liveId]: { video, status } | { error: code } }.
+        if (u.searchParams.get('fields') === 'id,status,video' && liveVideos[path]) { const lv = liveVideos[path];
+            if (lv.error) return Response.json({ error: { code: lv.error } }, { status: 400 });
+            return Response.json({ id: path, ...(lv.status ? { status: lv.status } : {}), ...(lv.video ? { video: { id: lv.video } } : {}) }); }
         const v = videos.find(x => x.id === path);
         if (v && u.searchParams.get('fields') === 'id,format') return Response.json({ id: v.id, format: [{ width: 720, height: 1280 }] });
         if (v) { const live = typeof v.live === 'function' ? v.live(clock) : v.live;
@@ -83,7 +87,7 @@ function day({ videos = [], season = season2026, alerts = true, manual, graphErr
         if (path === '/missed') return Response.json(await coord.missedDrawing());
         if (path === '/alerts/claim') return Response.json(await coord.claimAlerts());
         if (path === '/alerts/result') { const b = JSON.parse(init.body); return Response.json({ applied: await coord.recordAlert(b.id, b.key, b.result) }); }
-        if (path === '/event') return Response.json({ accepted: await coord.event(init.body) });
+        if (path === '/event') { const b = init.body.startsWith('{') ? JSON.parse(init.body) : { id: init.body, events: [] }; return Response.json({ accepted: await coord.event(b.id, b.events) }); }
         return new Response(null, { status: 404 });
     } }; } };
     const cronEnv = { ...env, DISCOVERY_SCHEDULER: scheduler };
@@ -97,7 +101,7 @@ function day({ videos = [], season = season2026, alerts = true, manual, graphErr
         state() { return JSON.parse(data.get(STATE_KEY) ?? 'null'); },
         manualSave(at, videoUrl) { const prev = JSON.parse(data.get(RAFFLE_LIVE_KEY));
             data.set(RAFFLE_LIVE_KEY, JSON.stringify({ ...prev, latestVideoUrl: videoUrl, updatedAt: new Date(at).toISOString(), manualOverrideAt: new Date(at).toISOString(), manualOverrideUrl: videoUrl })); },
-        async hint(at) { clock = at; return coord.event((++n).toString(16).padStart(64, '0')); },
+        async hint(at, events = []) { clock = at; return coord.event((++n).toString(16).padStart(64, '0'), events); },
         show(at) { return loadRaffleSelection(kv, true, new Date(at), season, () => coord.selectionSnapshot(), new SnapshotCache()); },
         /** Advance second by second: cron each minute when due, then any due alarm (the DO serializes alarms). */
         async run(from, to, step = 1000, onTick) {
@@ -364,4 +368,103 @@ test('exact Nov 26 Graph v27 response (owner, published, embeddable, created 00:
         assert.equal(h.state().rejections['not-live-video'] >= 1, true);
         assert.equal(h.emails.length, 1); assert.equal(h.emails[0].at, nov26(18, 16));
     }
+});
+
+// ---- Release B: Live origin from a signed live_videos webhook tied to the exact video ID ----
+const REEL_LINK = `https://www.facebook.com/reel/${REEL}`;
+const CREATED = Date.parse('2026-11-27T00:03:41Z'); // the real Nov 26 created_time (6:03:41 PM CT)
+const HINT = Date.parse('2026-11-27T00:04:34Z');    // the real signed webhook arrival (6:04:34 PM CT)
+const reelVideo = (extra = {}) => ({ id: REEL, posted: CREATED + 20_000, created: CREATED, link: REEL_LINK, live: '', ...extra });
+const liveEvent = (id, status = 'live') => ({ field: 'live_videos', id, status, keys: ['id', 'status'] });
+const feedVideo = id => ({ field: 'feed', item: 'video', verb: 'add', videoId: id, postId: `${GRAPH}_${id}`, keys: ['item', 'post_id', 'verb', 'video_id'] });
+const everRejected = (h, reason) => (h.state().rejections?.[reason] ?? 0) >= 1
+    || (h.disk.get('timing:v1:2026-11-26')?.entries ?? []).some(e => (e.rejections?.[reason] ?? 0) >= 1);
+
+test('Nov 26 replay: a signed live_videos event whose id is the Reel video id proves Live origin without live_status', async () => {
+    const h = day({ videos: [reelVideo()] });
+    await h.run(nov26(17, 49), HINT - 1000, 5000);
+    assert.equal(JSON.parse(h.kv.data.get(AUTOMATIC_KEY)).id, YESTERDAY); // not before the event
+    assert.equal(await h.hint(HINT, [liveEvent(REEL)]), true);
+    await h.run(HINT, HINT); await h.run(nov26(18, 5), nov26(23, 59, 59), 5000);
+    const stage = JSON.parse(h.kv.data.get(AUTOMATIC_KEY));
+    assert.equal(stage.id, REEL); assert.equal(stage.url, canonical(REEL));
+    assert.equal(stage.originEvidence, 'signed-live-webhook'); assert.equal(stage.originCorrelation, 'event-video-id');
+    assert.match(stage.originEventRef, /^[a-f0-9]{12}$/);
+    assert.equal(stage.origin, 'page-video-live-status'); // resolver-compatible value; the evidence is recorded separately
+    assert.equal((await h.show(nov26(23, 59, 59))).source, 'automatic');
+    assert.equal(h.emails.length, 0); // selected: no missed-drawing alert
+    const journal = h.disk.get('timing:v1:2026-11-26');
+    assert.ok(journal.entries.some(e => e.stage === 'webhook-live-event' && e.liveVideoId === REEL && e.status === 'live'));
+});
+
+test('a LiveVideo id differing from the video id is tied only by a read-only lookup returning that exact video id; one lookup, then cached', async () => {
+    const h = day({ videos: [reelVideo()], liveVideos: { '9990001': { video: REEL, status: 'LIVE' } } });
+    await h.hint(HINT, [liveEvent('9990001')]);
+    await h.run(HINT, HINT); await h.run(nov26(18, 5), nov26(18, 15), 5000);
+    const stage = JSON.parse(h.kv.data.get(AUTOMATIC_KEY));
+    assert.equal(stage.id, REEL); assert.equal(stage.originCorrelation, 'live-video-lookup');
+    assert.equal(h.graphCalls.filter(p => p === '9990001').length, 1);
+    assert.deepEqual(Object.keys(h.disk.get('live-video-map')), ['9990001']);
+    assert.equal(h.disk.get('live-video-map')['9990001'].videoId, REEL);
+});
+
+test('no exact tie, no selection: other video, failed or unsupported lookup, non-live status, feed fact only; detection never pauses; the alert fires', async () => {
+    const cases = {
+        'lookup returns a different video': { liveVideos: { '9990002': { video: '1234' } }, events: [liveEvent('9990002')], reason: 'live-event-uncorrelated' },
+        'lookup unsupported (code 100)': { liveVideos: { '9990003': { error: 100 } }, events: [liveEvent('9990003')], reason: 'live-lookup-unsupported-contract' },
+        'lookup permission denied (code 10)': { liveVideos: { '9990004': { error: 10 } }, events: [liveEvent('9990004')], reason: 'live-lookup-permission-denied' },
+        'scheduled status on the exact id': { events: [liveEvent(REEL, 'scheduled_live')], reason: 'not-live-video' },
+        'only a feed video fact (no live event)': { events: [feedVideo(REEL)], reason: 'not-live-video' },
+    };
+    for (const [name, c] of Object.entries(cases)) {
+        const h = day({ videos: [reelVideo()], liveVideos: c.liveVideos ?? {} });
+        await h.run(nov26(17, 49), HINT - 1000, 5000);
+        await h.hint(HINT, c.events);
+        await h.run(HINT, HINT); await h.run(nov26(18, 5), nov26(18, 31), 5000);
+        assert.equal(JSON.parse(h.kv.data.get(AUTOMATIC_KEY)).id, YESTERDAY, name);
+        assert.ok(everRejected(h, c.reason), name);
+        assert.equal(h.state().paused, false, name); assert.equal(h.state().failures, 0, name);
+        assert.equal(h.emails.length, 1, name); assert.match(h.emails[0].subject, /not on the website/, name);
+    }
+    // Final lookup outcomes are not retried; a transient failure is retried on a later check.
+    const unsupported = day({ videos: [reelVideo()], liveVideos: { '9990003': { error: 100 } } });
+    await unsupported.hint(HINT, [liveEvent('9990003')]); await unsupported.run(HINT, HINT); await unsupported.run(nov26(18, 5), nov26(18, 15), 5000);
+    assert.equal(unsupported.graphCalls.filter(p => p === '9990003').length, 1);
+    const transient = day({ videos: [reelVideo()], liveVideos: { '9990005': { error: 2 } } });
+    await transient.hint(HINT, [liveEvent('9990005')]); await transient.run(HINT, HINT); await transient.run(nov26(18, 5), nov26(18, 10), 5000);
+    assert.ok(transient.graphCalls.filter(p => p === '9990005').length > 1);
+});
+
+test('ordinary Reels stay out: a signed live event for one video never makes another (ordinary) Reel eligible', async () => {
+    const ordinary = { id: '6100', posted: nov26(17, 58), created: nov26(17, 57), link: 'https://www.facebook.com/reel/6100', live: '' };
+    const h = day({ videos: [ordinary, reelVideo()] });
+    await h.hint(HINT, [liveEvent(REEL)]);
+    await h.run(HINT, HINT); await h.run(nov26(18, 5), nov26(18, 15), 5000);
+    assert.equal(JSON.parse(h.kv.data.get(AUTOMATIC_KEY)).id, REEL); // only the correlated video
+    assert.ok(everRejected(h, 'not-live-video'));                      // the ordinary Reel
+    // Two videos each tied to a signed live event: ambiguous, nothing new selected.
+    const both = day({ videos: [reelVideo(), reelVideo({ id: '6200', link: 'https://www.facebook.com/reel/6200' })] });
+    await both.hint(HINT, [liveEvent(REEL), liveEvent('6200')]);
+    await both.run(HINT, HINT); await both.run(nov26(18, 5), nov26(18, 15), 5000);
+    assert.equal(JSON.parse(both.kv.data.get(AUTOMATIC_KEY)).id, YESTERDAY); assert.equal(both.state().status, 'ambiguous-livestream');
+});
+
+test('delayed indexing: a signed feed video fact names the video before published_posts shows it', async () => {
+    // Graph reports LIVE for the video, but the Page post is not indexed until 6:30 PM.
+    const h = day({ videos: [reelVideo({ live: 'LIVE', visibleFrom: nov26(18, 30) })] });
+    await h.hint(HINT, [feedVideo(REEL)]);
+    await h.run(HINT, HINT); await h.run(nov26(18, 5), nov26(18, 6), 5000);
+    const stage = JSON.parse(h.kv.data.get(AUTOMATIC_KEY));
+    assert.equal(stage.id, REEL); assert.equal(stage.postId, `${GRAPH}_${REEL}`); assert.equal(stage.publishedAt, iso(CREATED));
+    assert.equal(stage.originEvidence, 'graph-live-status');
+});
+
+test('older body format (bare id) is still accepted, and a redelivered webhook stores its facts once', async () => {
+    const h = day({ videos: [] });
+    await h.run(nov26(18, 0), nov26(18, 0));
+    assert.equal(await h.coord.event('c'.repeat(64)), true);
+    assert.equal(await h.coord.event('d'.repeat(64), [liveEvent(REEL)]), true);
+    assert.equal(await h.coord.event('d'.repeat(64), [liveEvent(REEL)]), false); // redelivery
+    assert.equal(h.disk.get('live-events').length, 1);
+    assert.ok(!JSON.stringify([...h.disk.values()]).includes(TOKEN));
 });

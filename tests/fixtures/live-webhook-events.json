@@ -1,0 +1,23 @@
+{
+  "_comment": "Contract between the Photo Worker webhook sanitizer and the Live Worker. Identical copy in both release branches.",
+  "payload": {
+    "object": "page",
+    "entry": [
+      { "id": "144051422124740", "time": 1795737874, "changes": [
+        { "field": "live_videos", "value": { "id": "1467167912212118", "status": "live" } },
+        { "field": "feed", "value": { "item": "video", "verb": "add", "post_id": "144051422124740_1467167912212118", "video_id": "1467167912212118",
+          "message": "PRIVATE CAPTION TEXT", "from": { "id": "144051422124740", "name": "Friends of Lake Henry" }, "link": "https://www.facebook.com/reel/1467167912212118",
+          "published": 1, "created_time": 1795737821 } },
+        { "field": "feed", "value": { "item": "photo", "verb": "add", "post_id": "144051422124740_122337900314073310", "photo_id": "122337900314073310" } },
+        { "field": "live_videos", "value": { "id": "not-a-number", "status": "LIVE<script>" } }
+      ] },
+      { "id": "999999999", "changes": [ { "field": "live_videos", "value": { "id": "5555", "status": "live" } } ] }
+    ]
+  },
+  "facts": [
+    { "field": "live_videos", "id": "1467167912212118", "status": "live", "keys": ["id", "status"] },
+    { "field": "feed", "item": "video", "verb": "add", "videoId": "1467167912212118", "postId": "144051422124740_1467167912212118",
+      "keys": ["created_time", "from", "item", "link", "message", "post_id", "published", "verb", "video_id"] },
+    { "field": "live_videos", "keys": ["id", "status"] }
+  ]
+}

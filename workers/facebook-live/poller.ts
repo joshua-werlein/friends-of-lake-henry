@@ -7,6 +7,7 @@ import { STATE_KEY, VERIFICATION_KEY, verificationValid } from '../../src/lib/se
 import { burstCadence, inDrawingMonth, lastDiscoverySlot, liveDay } from '../../src/lib/server/raffle-discovery-schedule';
 import { pageAccessToken, type FacebookCredentials } from './credentials';
 import type { AlertEnv } from '../../src/lib/server/alerts';
+import type { LiveSignals } from './live-events';
 const CRON_EARLY_SLACK_MS = 10_000; // jitter tolerance remains below the one-minute interval
 // Consecutive transient failures retried on the next 15-second drawing slot before exponential backoff resumes.
 export const BURST_RETRY_LIMIT = 3;
@@ -29,7 +30,8 @@ type State = { version: 1; accessRevision: string; lastAttemptAt: number; nextAt
     failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number; lastError?:Record<string,string|number>; lastSuccessAt?:string; pendingVideos?:unknown[]; lastLiveObservation?:unknown; retryAfterUntil?:number; rejections?:Record<string,number> };
 /** Sanitized facts for alerting and timing: IDs, counts and codes only. */
 export type PollMonitor = { failures: number; paused: boolean; reason?: string; phase?: string; liveVideoId?: string; selected: boolean; pending?:number; candidates?:number; verified?:number; videos?:unknown[]; rejections?:Record<string,number> };
-export type Outcome = { status: string; candidates?: number; postsExamined?: number; monitor?: PollMonitor };
+export type LiveLookup = { liveId: string; videoId?: string; status?: string; reason?: string };
+export type Outcome = { status: string; candidates?: number; postsExamined?: number; monitor?: PollMonitor; lookups?: LiveLookup[] };
 export type Staged = Discovery & { schemaVersion: 2; id: string; graphPageId: string; publicPageId: string;
     apiVersion: string; contract: string; observedAt: string };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -59,7 +61,7 @@ function previousIdentity(raw: string | null): { id: string; publishedAt: string
 }
 
 /** Staging only. There is deliberately no code path that writes/deletes raffle_live. */
-export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number; nextScheduledAt?: number; trigger?:'webhook'|'poll' } = {}): Promise<Outcome> {
+export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher?: typeof fetch; random?: () => number; nextScheduledAt?: number; trigger?:'webhook'|'poll'; signals?: LiveSignals } = {}): Promise<Outcome> {
     if (env.FB_AUTOMATION_ENABLED !== 'true') return { status: 'disabled' };
     const now = dependencies.now ?? new Date();
     // This gate precedes every KV operation and every Facebook request. The coordinator runs checks only on backup
@@ -102,7 +104,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         const probing = env.FB_VIDEO_PROBE_ENABLED === 'true';
         const previousRaw=await store.get(AUTOMATIC_KEY);
         const prior=previousState?.lastLiveObservation??(previousRaw?JSON.parse(previousRaw):null);
-        const result = await discoverLivestreams({ token, now, prior, fetcher: dependencies.fetcher });
+        const result = await discoverLivestreams({ token, now, prior, fetcher: dependencies.fetcher, signals: dependencies.signals });
         state.pendingVideos=result.pending??[];
         // Why each examined post/video was not selected (codes and counts only), for the admin status and diagnostics.
         state.rejections=result.rejections??{};
@@ -163,7 +165,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         const monitor: PollMonitor = { failures: state.failures, paused: state.paused, pending:result.pending?.length??0,videos:result.checks,rejections:result.rejections,
             ...(result.ok ? {candidates:result.candidates,verified:result.discoveries.length} : { reason: result.reason,phase:typeof result.detail?.phase==='string'?result.detail.phase:undefined }),
             ...(liveVideoId ? { liveVideoId } : {}), selected: !!liveVideoId && ['staged', 'unchanged'].includes(state.status) && state.lastVerifiedVideoId === liveVideoId };
-        return { status: state.status, ...(state.candidates === undefined ? {} : { candidates: state.candidates, postsExamined: state.postsExamined }), monitor };
+        return { status: state.status, ...(state.candidates === undefined ? {} : { candidates: state.candidates, postsExamined: state.postsExamined }), monitor,
+            ...(result.lookups?.length ? { lookups: result.lookups } : {}) };
     } catch {
         // No raw exception, token, request URL, post message or pagination data escapes.
         return { status: 'storage-or-state-failure' };

@@ -6,6 +6,7 @@ import { inSeasonDay } from '../../src/lib/server/raffle-season';
 import { claimLiveDeliveries, deliverFromCoordinator, MISSED_PREFIX, nextLiveDeliveryAt, planLiveAlerts, planMissedDrawing, recordLiveDelivery } from './alerts';
 import type { Delivery } from '../../src/lib/server/alerts';
 import { TimingJournal } from './timing';
+import { factSummary, FACTS_KEY, liveFacts, MAP_KEY, pruneFacts, pruneMappings, type LiveMapping, type LiveSignals, type StoredFact } from './live-events';
 
 /** First-occurrence timestamps per drawing day (at most a few DO writes a day). Never contains tokens or post data. */
 export type DrawingTimeline = { day: string; firstWebhookAt?: string; firstWebhookRef?: string; firstLiveEvidenceAt?: string;
@@ -37,11 +38,19 @@ export class DiscoveryCoordinator {
 
     async recordTiming(value: unknown) { await this.journal.append(value); }
 
-    async event(id:string):Promise<boolean> {
+    async event(id:string, forwarded:unknown=[]):Promise<boolean> {
         if(!/^[a-f0-9]{64}$/.test(id)||!liveDay(new Date(this.now()))) return false;
         const events=await this.storage.get<string[]>('events')??[];
         if(events.includes(id)) return false;
         const received=this.now();
+        // Signed Live/video facts from this webhook: stored (bounded, 48 h) as evidence for discovery, journaled and logged.
+        const facts=liveFacts(forwarded);
+        if(facts.length){
+            const stored=await this.storage.get<StoredFact[]>(FACTS_KEY)??[];
+            await this.storage.put(FACTS_KEY,pruneFacts([...stored,...facts.map(f=>({...f,at:received,ref:id.slice(0,12)}))],received));
+            for(const f of facts) await this.journal.append({stage:'webhook-live-event',at:received,eventRef:id.slice(0,12),field:f.field,status:f.status,item:f.item,verb:f.verb,liveVideoId:f.id,videoId:f.videoId});
+            console.log(JSON.stringify({component:'facebook-live',event:'live-event-facts',eventRef:id.slice(0,12),count:facts.length,facts:factSummary(facts)}));
+        }
         if(this.env.CONFIG) await this.env.CONFIG.put('raffle_live_webhook_state',JSON.stringify({lastEventReceivedAt:new Date(received).toISOString(),signedEventReceived:true}));
         await this.storage.put('pending-event',id);
         await this.storage.put('pending-event-at',received);
@@ -187,11 +196,14 @@ export class DiscoveryCoordinator {
                 try { await store.put(key, value); if(key===AUTOMATIC_KEY) selectionCompletedAt=this.now(); else if(key===STATE_KEY) stateCompletedAt=this.now(); }
                 finally { if (key === AUTOMATIC_KEY) timing.selectionWriteMs += this.now() - started; else if (key === STATE_KEY) timing.stateWriteMs += this.now() - started; }
             } };
+            // Stored signed webhook facts and learned LiveVideo mappings (DO storage only) for exact-ID Live correlation.
+            const signals: LiveSignals = { facts: pruneFacts(await this.storage.get<StoredFact[]>(FACTS_KEY) ?? [], time),
+                mappings: pruneMappings(await this.storage.get<Record<string, LiveMapping>>(MAP_KEY) ?? {}, time) };
             const pollStarted = this.now();
             const correlation = {trigger:webhook?'webhook':'poll',eventRef:webhook?pending!.slice(0,12):undefined,alarmAt:time,slotAt:slot};
             await this.journal.append({stage:'check-start',at:time,...correlation});
             const outcome = await this.poll({ ...this.env, CONFIG: timedStore }, {
-                now: date, trigger:webhook?'webhook':'poll', nextScheduledAt: next ?? time + 60_000,
+                now: date, trigger:webhook?'webhook':'poll', nextScheduledAt: next ?? time + 60_000, signals,
                 fetcher: async (input, init) => {
                     assertWindow();
                     const started = this.now(); timing.graphRequests++;
@@ -206,6 +218,11 @@ export class DiscoveryCoordinator {
                 throw error;
             });
             const finished = this.now();
+            if (outcome.lookups?.length) {
+                const map = { ...signals.mappings };
+                for (const l of outcome.lookups) map[l.liveId] = { ...(l.videoId ? { videoId: l.videoId } : {}), ...(l.status ? { status: l.status } : {}), ...(l.reason ? { reason: l.reason } : {}), at: finished };
+                await this.storage.put(MAP_KEY, pruneMappings(map, finished));
+            }
             const wakeLagMs = webhook && eventAt !== undefined ? time - eventAt : time - slot;
             await this.journal.append({stage:'check-result',at:finished,...correlation,completedAt:finished,wakeLagMs,
                 ...timing,graph,pollMs:finished-pollStarted,status:outcome.status,selectionCompletedAt,stateCompletedAt,

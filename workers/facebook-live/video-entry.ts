@@ -25,6 +25,7 @@ export { FacebookPhotoReads } from './photo-reads';
 import {discoverLivestreams} from './livestream';
 import {liveDay} from '../../src/lib/server/raffle-discovery-schedule';
 import {timingEntry} from './timing';
+import {liveFacts} from './live-events';
 export class LiveEvents extends SeasonEntrypoint {
     /** Private service-binding diagnostic sink. No public HTTP endpoint or scheduling side effects. */
     async recordDiagnostic(value:unknown) {
@@ -35,12 +36,13 @@ export class LiveEvents extends SeasonEntrypoint {
         const ns=this.env.DISCOVERY_SCHEDULER;
         await ns.get(ns.idFromName(seasonObjectName())).fetch('https://discovery.internal/diagnostic',{method:'POST',body:JSON.stringify(entry)});
     }
-    async notify(id:string) {
+    /** `events`: sanitized signed facts from the same webhook (Photo Worker, Release B); re-validated in the coordinator. */
+    async notify(id:string, events?:unknown) {
         // Signed Live hints are accepted at any time of year; outside the backup window each runs one check.
         if(!liveDay(new Date())||this.env.FB_AUTOMATION_ENABLED!=='true') return {accepted:false};
         if(!/^[a-f0-9]{64}$/.test(id)||!this.env.DISCOVERY_SCHEDULER) throw Error('invalid-event');
         const ns=this.env.DISCOVERY_SCHEDULER;
-        const response=await ns.get(ns.idFromName(seasonObjectName())).fetch('https://discovery.internal/event',{method:'POST',body:id});
+        const response=await ns.get(ns.idFromName(seasonObjectName())).fetch('https://discovery.internal/event',{method:'POST',body:JSON.stringify({id,events:liveFacts(events)})});
         if(!response.ok) throw Error('event-queue-unavailable');
         return response.json();
     }
