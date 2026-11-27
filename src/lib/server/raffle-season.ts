@@ -21,7 +21,8 @@ const centralDay = (t: number) => central.format(new Date(t));
 export function seasonDays(season: Season) { return { first: centralDay(season.start), end: centralDay(season.end) }; }
 /** A Central YYYY-MM-DD drawing day inside the season. */
 export function inSeasonDay(day: string, season: Season | null = activeSeason()): boolean {
-    if (!season || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    // A real calendar day only: string comparison alone would accept 2026-11-31.
+    if (!season || !/^\d{4}-\d{2}-\d{2}$/.test(day) || new Date(day + 'T12:00:00Z').toISOString().slice(0, 10) !== day) return false;
     const { first, end } = seasonDays(season);
     return day >= first && day < end;
 }

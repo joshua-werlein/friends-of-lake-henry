@@ -1,5 +1,5 @@
 import { type Env } from './poller';
-import { inAlertDeliveryWindow, inDiscoveryWindow } from '../../src/lib/server/raffle-discovery-schedule';
+import { inAlertDeliveryWindow, inDiscoveryWindow, inMissedDrawingCheck } from '../../src/lib/server/raffle-discovery-schedule';
 import { deliverLiveAlerts } from './alerts';
 import { configureSeason, seasonObjectName } from '../../src/lib/server/raffle-season';
 type ScheduledEnv = Env & { DISCOVERY_SCHEDULER?: { idFromName(name: string): unknown; get(id: unknown): { fetch(url: string, init?: RequestInit): Promise<Response> } } };
@@ -15,6 +15,12 @@ export default {
             if (!env.DISCOVERY_SCHEDULER) throw Error('Missing discovery coordinator binding');
             const namespace = env.DISCOVERY_SCHEDULER;
             await namespace.get(namespace.idFromName(seasonObjectName())).fetch('https://discovery.internal/kick');
+        }
+        // 6:16-6:30 PM on season days: plan the missed-drawing alert (after the final backup slot) before this tick's
+        // delivery, so a due alert leaves in the same invocation. A failure never blocks delivery of other alerts.
+        if (env.FB_AUTOMATION_ENABLED === 'true' && env.ALERTS_ENABLED === 'true' && env.DISCOVERY_SCHEDULER && inMissedDrawingCheck(now) && inAlertDeliveryWindow(now)) {
+            try { const ns = env.DISCOVERY_SCHEDULER; await ns.get(ns.idFromName(seasonObjectName())).fetch('https://discovery.internal/missed', { method: 'POST' }); }
+            catch { console.log(JSON.stringify({ component: 'facebook-live', event: 'missed-drawing-check-failed' })); }
         }
         // In the 5:50-6:30 PM window alert emails leave from this stateless cron invocation; the coordinator sends them otherwise.
         if (env.ALERTS_ENABLED === 'true' && inAlertDeliveryWindow(now)) await deliverLiveAlerts(env);

@@ -20,6 +20,7 @@ export class DiscoveryScheduler extends DurableObject<Env> {
             try { await this.coordinator.recordTiming(JSON.parse(body)); } catch { /* best effort */ }
             return new Response(null,{status:204});
         }
+        if(url.pathname==='/missed' && request.method==='POST') return Response.json(await this.coordinator.missedDrawing());
         if(url.pathname==='/alerts/claim' && request.method==='POST') return Response.json(await this.coordinator.claimAlerts());
         if(url.pathname==='/alerts/result' && request.method==='POST') {
             const body=await request.json() as {id?:unknown;key?:unknown;result?:unknown};

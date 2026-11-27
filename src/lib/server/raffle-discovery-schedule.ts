@@ -79,3 +79,15 @@ export function drawingStartFastUntil(now: Date): number {
 }
 
 export function lastDiscoverySlot(now:Date):number|null {const local=localTime(now);return local&&inDiscoveryWindow(now)?Math.floor(now.getTime()/60000)*60000+(END-1-local.minute)*60000:null;}
+
+/** Missed-drawing check: from the end of the final backup slot (6:16:00 PM Central) to the end of a season day.
+ * The cron evaluates it each minute until 6:30 PM; afterwards the coordinator rechecks only while an incident is open. */
+export function inMissedDrawingCheck(now: Date): boolean {
+    const local = localTime(now);
+    return !!local && inSeasonDay(local.day) && local.minute >= END;
+}
+/** Coordinator recheck cadence for an open missed-drawing incident after the cron window (one KV read each). */
+export const MISSED_RECHECK_MS = 5 * 60_000;
+/** A selection counts as the scheduled drawing only if its first Live observation is at or after 5:30 PM Central. */
+export const DRAWING_EVIDENCE_START_MINUTE = 17 * 60 + 30;
+export function centralMinute(now: Date): number | null { return localTime(now)?.minute ?? null; }

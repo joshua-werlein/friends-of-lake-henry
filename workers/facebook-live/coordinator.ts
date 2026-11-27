@@ -1,9 +1,9 @@
-import { alertWindowEnd, discoverySlot, drawingStartFastUntil, inAlertDeliveryWindow, inDiscoveryWindow, liveDay, nextDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
+import { alertWindowEnd, discoverySlot, drawingStartFastUntil, inAlertDeliveryWindow, inDiscoveryWindow, inMissedDrawingCheck, liveDay, MISSED_RECHECK_MS, nextDiscoverySlot } from '../../src/lib/server/raffle-discovery-schedule';
 import { runPoll, STATE_KEY, type Env, type Outcome } from './poller';
 import { AUTOMATIC_KEY } from '../../src/lib/server/facebook-automation';
 import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
 import { inSeasonDay } from '../../src/lib/server/raffle-season';
-import { claimLiveDeliveries, deliverFromCoordinator, nextLiveDeliveryAt, planLiveAlerts, recordLiveDelivery } from './alerts';
+import { claimLiveDeliveries, deliverFromCoordinator, MISSED_PREFIX, nextLiveDeliveryAt, planLiveAlerts, planMissedDrawing, recordLiveDelivery } from './alerts';
 import type { Delivery } from '../../src/lib/server/alerts';
 import { TimingJournal } from './timing';
 
@@ -60,8 +60,45 @@ export class DiscoveryCoordinator {
 
     async alarm(): Promise<Outcome> {
         const outcome = await this.check();
-        if (outcome.status !== 'already-running') await this.afterCheck();
+        if (outcome.status !== 'already-running') { await this.missedRecheck(); await this.afterCheck(); }
         return outcome;
+    }
+
+    /** Missed scheduled drawing: evaluated by the cron each minute from 6:16 to 6:30 PM on season days, then by this
+     * coordinator's alarm every MISSED_RECHECK_MS while today's incident is open (to send its resolution once a manual
+     * or late automatic selection appears), until the day ends. KV reads happen first; planning is DO-storage only.
+     * Independent of detection: no Graph request, no selection or state write. Never throws. */
+    async missedDrawing(): Promise<{ status: string; open?: boolean }> {
+        const time = this.now(), date = new Date(time);
+        if (this.env.FB_AUTOMATION_ENABLED !== 'true' || this.env.ALERTS_ENABLED !== 'true' || !inMissedDrawingCheck(date)) return { status: 'outside-window' };
+        if (!this.env.CONFIG) return { status: 'storage-unavailable' };
+        try {
+            const cached = await this.storage.get<{ value: string | null }>('cache:' + AUTOMATIC_KEY);
+            const automaticRaw = cached ? cached.value : await this.env.CONFIG.get(AUTOMATIC_KEY);
+            const manualRaw = await this.env.CONFIG.get('raffle_live');
+            const stateRaw = (await this.storage.get<{ value: string | null }>('cache:' + STATE_KEY))?.value ?? null;
+            const result = await planMissedDrawing(this.storage, this.env, new Date(this.now()), { automaticRaw, manualRaw, stateRaw });
+            if (result.open) {
+                // First recheck after the cron window; never past the end of the drawing day.
+                let at = this.now() + MISSED_RECHECK_MS;
+                at = alertWindowEnd(new Date(at)) ?? at;
+                const alarm = await this.storage.getAlarm();
+                if (inMissedDrawingCheck(new Date(at)) && (alarm === null || alarm > at)) await this.storage.setAlarm(at);
+            }
+            console.log(JSON.stringify({ component: 'facebook-live', event: 'missed-drawing-check', status: result.status, open: result.open }));
+            return result;
+        } catch { return { status: 'error' }; }
+    }
+    private async missedRecheck() {
+        try {
+            const date = new Date(this.now());
+            if (this.env.ALERTS_ENABLED !== 'true' || this.env.FB_AUTOMATION_ENABLED !== 'true' || !inMissedDrawingCheck(date)) return;
+            const all = await this.storage.get<Record<string, { status: string }>>('alerts:incidents') ?? {};
+            const record = all[MISSED_PREFIX + drawingDate(date)];
+            // Inside the cron window the cron evaluates every minute; this alarm adds one independent first evaluation
+            // (the 6:16 PM alarm). Outside it, only an open incident is rechecked.
+            if (inAlertDeliveryWindow(date) ? !record : !!record && record.status !== 'resolved') await this.missedDrawing();
+        } catch { /* Missed-drawing rechecks never affect detection. */ }
     }
 
     /** Event-driven alert email outside the cron window: sends due envelopes right after the check that planned them
@@ -101,6 +138,8 @@ export class DiscoveryCoordinator {
             // Arm before external work: a runtime interruption leaves a recovery
             // alarm. Platform serialization prevents the next alarm overlapping.
             if (next !== null) await this.storage.setAlarm(next);
+            // Final backup slot: arm the 6:16 PM missed-drawing evaluation, so it never depends on the cron alone.
+            else if (discoverySlot(date) !== null && !webhook && this.env.ALERTS_ENABLED === 'true') await this.storage.setAlarm(slot + 60_000);
             if (!webhook && previous !== undefined && previous >= slot) return { status: 'slot-already-claimed' };
             // Durable claim precedes every KV/Facebook operation. At-least-once
             // alarm retries never repeat an already-started slot after a reset.
