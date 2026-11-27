@@ -32,7 +32,13 @@ export function timingEntry(value: unknown): TimingEntry | null {
     if(Array.isArray(v.videos))out.videos=v.videos.slice(0,8).filter((x:any)=>typeof x?.videoId==='string'&&/^\d{1,40}$/.test(x.videoId)).map((x:any)=>({
         videoId:x.videoId,liveStatus:['LIVE','LIVE_STOPPED','VOD'].includes(x.liveStatus)?x.liveStatus:'UNKNOWN',
         published:x.published===true,embeddable:x.embeddable===true,metadataVerified:x.metadataVerified===true,originVerified:x.originVerified===true,
+        ...(['page-video','reel','other'].includes(x.form)?{form:x.form}:{}),...(code(x.reason)?{reason:x.reason}:{}),
     }));
+    // Rejection reason codes -> counts only (at most 16 codes); never post text, URLs or raw Graph data.
+    if(v.rejections&&typeof v.rejections==='object'&&!Array.isArray(v.rejections)){
+        const r=Object.entries(v.rejections as Record<string,unknown>).filter(([k,n])=>code(k)&&Number.isSafeInteger(n)&&Number(n)>0&&Number(n)<=1000).slice(0,16);
+        if(r.length)out.rejections=Object.fromEntries(r);
+    }
     return out;
 }
 

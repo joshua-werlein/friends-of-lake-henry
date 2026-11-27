@@ -22,11 +22,13 @@ export type Env = SeasonEnv & FacebookCredentials & AlertEnv & {
     FB_RAFFLE_MARKER?: string;
     FB_ACCESS_REVISION?: string;
     FB_POLL_INTERVAL_SECONDS?: string;
+    /** Optional season days with no scheduled drawing ("YYYY-MM-DD,..."): no missed-drawing alert on those days. */
+    FB_NO_DRAWING_DAYS?: string;
 };
 type State = { version: 1; accessRevision: string; lastAttemptAt: number; nextAttemptAt: number;
-    failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number; lastError?:Record<string,string|number>; lastSuccessAt?:string; pendingVideos?:unknown[]; lastLiveObservation?:unknown; retryAfterUntil?:number };
+    failures: number; status: string; paused: boolean; lastVerifiedVideoId?: string; lastVerifiedAt?: string; candidates?: number; postsExamined?: number; lastError?:Record<string,string|number>; lastSuccessAt?:string; pendingVideos?:unknown[]; lastLiveObservation?:unknown; retryAfterUntil?:number; rejections?:Record<string,number> };
 /** Sanitized facts for alerting and timing: IDs, counts and codes only. */
-export type PollMonitor = { failures: number; paused: boolean; reason?: string; phase?: string; liveVideoId?: string; selected: boolean; pending?:number; candidates?:number; verified?:number; videos?:unknown[] };
+export type PollMonitor = { failures: number; paused: boolean; reason?: string; phase?: string; liveVideoId?: string; selected: boolean; pending?:number; candidates?:number; verified?:number; videos?:unknown[]; rejections?:Record<string,number> };
 export type Outcome = { status: string; candidates?: number; postsExamined?: number; monitor?: PollMonitor };
 export type Staged = Discovery & { schemaVersion: 2; id: string; graphPageId: string; publicPageId: string;
     apiVersion: string; contract: string; observedAt: string };
@@ -102,6 +104,8 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         const prior=previousState?.lastLiveObservation??(previousRaw?JSON.parse(previousRaw):null);
         const result = await discoverLivestreams({ token, now, prior, fetcher: dependencies.fetcher });
         state.pendingVideos=result.pending??[];
+        // Why each examined post/video was not selected (codes and counts only), for the admin status and diagnostics.
+        state.rejections=result.rejections??{};
         if (!result.ok) {
             state.retryAfterUntil=result.retryAfterSeconds?time+result.retryAfterSeconds*1000:undefined;
             state.status = result.reason;
@@ -156,7 +160,7 @@ export async function runPoll(env: Env = {}, dependencies: { now?: Date; fetcher
         }
         await store.put(STATE_KEY, JSON.stringify(state));
         const liveVideoId = result.ok ? result.discoveries[0]?.videoId : result.reason === 'ambiguous-livestream' ? 'ambiguous' : undefined;
-        const monitor: PollMonitor = { failures: state.failures, paused: state.paused, pending:result.pending?.length??0,videos:result.checks,
+        const monitor: PollMonitor = { failures: state.failures, paused: state.paused, pending:result.pending?.length??0,videos:result.checks,rejections:result.rejections,
             ...(result.ok ? {candidates:result.candidates,verified:result.discoveries.length} : { reason: result.reason,phase:typeof result.detail?.phase==='string'?result.detail.phase:undefined }),
             ...(liveVideoId ? { liveVideoId } : {}), selected: !!liveVideoId && ['staged', 'unchanged'].includes(state.status) && state.lastVerifiedVideoId === liveVideoId };
         return { status: state.status, ...(state.candidates === undefined ? {} : { candidates: state.candidates, postsExamined: state.postsExamined }), monitor };

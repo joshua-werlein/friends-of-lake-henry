@@ -213,6 +213,7 @@ export class DiscoveryCoordinator {
             console.log(JSON.stringify({ component: 'facebook-live', event: 'live-timing', trigger: webhook ? 'webhook' : 'poll',
                 ...(webhook ? { eventRef: pending!.slice(0, 12), eventReceivedAt: eventAt !== undefined ? new Date(eventAt).toISOString() : null } : { slotAt: new Date(slot).toISOString() }),
                 alarmAt: date.toISOString(), wakeLagMs, ...timing, pollMs: finished - pollStarted, status: outcome.status,
+                rejections: outcome.monitor?.rejections ?? {},
                 liveVideo: !!outcome.monitor?.liveVideoId, selected: !!outcome.monitor?.selected }));
             if (outcome.monitor?.liveVideoId && /^\d+$/.test(outcome.monitor.liveVideoId)) await this.mark({ firstLiveEvidenceAt: date.toISOString() }, time);
             if (outcome.status === 'staged') await this.storage.put('staged-at', finished);
