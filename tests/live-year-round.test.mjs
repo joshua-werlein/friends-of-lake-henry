@@ -96,7 +96,8 @@ test('unrelated posts, old videos and unverified broadcasts never replace the fe
         'older than 2 hours': [{ id: '6002', published: '2027-01-15T16:30:00+0000' }],
         'VOD never observed Live': [{ id: '6003', published: '2027-01-15T18:55:00+0000', live: 'VOD' }],
         'another Page owns it': [{ id: '6004', published: '2027-01-15T18:55:00+0000', owner: '999' }],
-        'reel/share link, not a Page video': [{ id: '6005', published: '2027-01-15T18:55:00+0000', link: 'https://www.facebook.com/reel/6005' }],
+        // Link form no longer decides (a Live Reel is selected, see live-missed-drawing tests); a Reel without Live status is an ordinary upload.
+        'ordinary Reel with no Live status': [{ id: '6005', published: '2027-01-15T18:55:00+0000', link: 'https://www.facebook.com/reel/6005', live: '' }],
         'photo post': [{ id: '6006', published: '2027-01-15T18:55:00+0000', type: 'photo' }],
     };
     for (const [name, videos] of Object.entries(cases)) {
@@ -155,6 +156,12 @@ test('email: inside the 5:50-6:30 PM November window the cron sends; the coordin
     await h.coord.kick();
     assert.equal((await h.fire(nov12(18, 15))).status, 'permission-denied'); // last backup slot raises the incident
     assert.equal(h.emails.length, 0); // the cron's job inside the window
+    // The final slot arms the 6:16 PM missed-drawing evaluation: no Graph request and no email (the open access
+    // incident already asks for a manual selection, so no second alert is planned). It leaves the 6:31 PM safety net.
+    assert.equal(h.alarm, nov12(18, 16));
+    const graphBefore = h.graphCalls.length;
+    await h.fire(nov12(18, 16));
+    assert.equal(h.graphCalls.length, graphBefore); assert.equal(h.emails.length, 0);
     assert.equal(h.alarm, nov12(18, 31)); // safety net if the cron has not sent it by the window's end
     await h.fire(nov12(18, 31));
     assert.equal(h.emails.length, 1);

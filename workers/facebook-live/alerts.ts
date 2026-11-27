@@ -7,7 +7,9 @@
 // within DELIVERY_GUARD_MS. Both paths use the same claim/lease/idempotency-key records, so nothing is sent twice.
 import { alertConfig, applyDelivery, planIncidents, prepareDelivery, resendSender, testSender, MAX_SENDS_PER_EVALUATION,
     type AlertEnv, type Delivery, type Envelope, type IncidentRecord, type Signal } from '../../src/lib/server/alerts';
-import { drawingDate } from '../../src/lib/server/raffle-discovery-schedule';
+import { centralMinute, drawingDate, DRAWING_EVIDENCE_START_MINUTE, inMissedDrawingCheck } from '../../src/lib/server/raffle-discovery-schedule';
+import { inSeasonDay, seasonObjectName } from '../../src/lib/server/raffle-season';
+import { readRecord, selectionMode } from '../../src/lib/server/raffle-selection';
 import type { Outcome } from './poller';
 
 export const GRAPH_FAILURE_STREAK = 3;     // ~45 s at the 15-second drawing cadence; single transient errors never alert.
@@ -26,7 +28,10 @@ export function liveSignals(previous: LiveMonitor | undefined, outcome: Outcome,
     const day = drawingDate(now) ?? 'unknown', iso = now.toISOString();
     const base: LiveMonitor = previous?.day === day ? previous : { day, failureStreak: previous?.failureStreak ?? 0 };
     const m = outcome.monitor;
-    const failed = FAILURES.includes(outcome.status) || (!!m && m.failures > 0) || !!m?.paused;
+    // An ambiguous drawing (two plausible videos) is a classification hold, not a Graph failure: its own
+    // "confirmed but not shown" alert covers it, so it never also counts toward the failure streak.
+    const ambiguous = outcome.status === 'ambiguous-livestream';
+    const failed = !ambiguous && (FAILURES.includes(outcome.status) || (!!m && m.failures > 0) || !!m?.paused);
     const monitor: LiveMonitor = { ...base, failureStreak: failed ? base.failureStreak + 1 : 0, lastReason: m?.reason ?? outcome.status };
     if (m?.liveVideoId && !monitor.evidenceAt) Object.assign(monitor, { evidenceAt: iso, evidenceVideoId: m.liveVideoId });
     const signals: Signal[] = [];
@@ -54,6 +59,62 @@ export function liveSignals(previous: LiveMonitor | undefined, outcome: Outcome,
     return { monitor, signals };
 }
 
+// ---- Missed scheduled drawing (independent of detection outcomes) ----
+export const MISSED_PREFIX = 'live:missing:';
+export type DrawingContext = { automaticRaw?: string | null; manualRaw?: string | null; stateRaw?: string | null };
+const iso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
+/** Season days without a scheduled drawing, from FB_NO_DRAWING_DAYS ("YYYY-MM-DD,YYYY-MM-DD"). Empty by default. */
+export function noDrawingDays(raw: string | undefined): Set<string> {
+    return new Set((raw ?? '').split(',').map(d => d.trim()).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)));
+}
+/** How the website got today's drawing video, or null. Manual: an explicit save today (any time). Automatic: only when the
+ * public resolver is in automatic mode and the staged video's first Live observation is today at or after 5:30 PM, so an
+ * unrelated earlier Live never counts as the drawing. Pure; no network. */
+export function drawingSelection(day: string, context: DrawingContext): 'manual' | 'automatic' | null {
+    const manual = readRecord(context.manualRaw ?? null);
+    const today = (v: unknown) => iso(v) && drawingDate(new Date(v)) === day;
+    if (manual && (today(manual.manualOverrideAt) || (today(manual.updatedAt) && typeof manual.latestVideoUrl === 'string' && manual.latestVideoUrl))) return 'manual';
+    if (selectionMode(context.manualRaw ?? null) !== 'automatic') return null;
+    const stage = readRecord(context.automaticRaw ?? null);
+    if (!stage || stage.drawingDate !== day || !today(stage.originObservedAt)) return null;
+    const minute = centralMinute(new Date(stage.originObservedAt as string));
+    return minute !== null && minute >= DRAWING_EVIDENCE_START_MINUTE ? 'automatic' : null;
+}
+/** Pure: the missed-drawing signal for `now`, or none. Opened at most once per drawing day (stable id). It is only kept
+ * from OPENING while another Live alert that already says "select the video manually" is open (today's confirmed-but-
+ * not-shown, paused access or repeated Graph failures), so one problem never sends two emails; it opens afterwards if
+ * that incident clears and the drawing still has no video. */
+export function missedDrawingSignals(now: Date, context: DrawingContext, records: IncidentRecord[], noDrawing = new Set<string>()): Signal[] {
+    const day = drawingDate(now);
+    if (!day || !inMissedDrawingCheck(now) || !inSeasonDay(day) || noDrawing.has(day) || drawingSelection(day, context)) return [];
+    const id = MISSED_PREFIX + day, open = (rid: string) => records.some(r => r.id === rid && r.status === 'open');
+    if (!open(id) && ['live:selection:' + day, 'live:access-paused', 'live:graph-failures'].some(open)) return [];
+    const state = readRecord(context.stateRaw ?? null);
+    const status = typeof state?.status === 'string' ? state.status : 'no-check-recorded';
+    const rejections = state?.rejections && typeof state.rejections === 'object' ? Object.entries(state.rejections as Record<string, unknown>)
+        .filter(([k, n]) => /^[a-z][a-z0-9-]{0,59}$/.test(k) && Number.isSafeInteger(n)).map(([k, n]) => `${k} ${n}`).slice(0, 8).join(', ') : '';
+    return [{ id, system: SYSTEM,
+        title: 'Raffle drawing video not on the website',
+        problem: `No video was selected for the ${day} drawing by the end of automatic detection (6:15 PM Central). Last check: ${status}${rejections ? ` (not selected: ${rejections})` : ''}.`,
+        action: 'If the drawing was streamed, paste its Facebook URL (Reel and video links both work) in Admin > Raffle. If there was no drawing today, no action is needed.',
+        detail: { drawingDate: day, lastStatus: status, ...(rejections ? { rejections } : {}) } }];
+}
+/** Missed-drawing planning (DO storage only, no network). Resolves today's incident once a manual or automatic selection
+ * exists (one recovery email if the alert went out); an earlier day's incident resolves quietly. Never throws. */
+export async function planMissedDrawing(storage: Storage, env: AlertEnv & { FB_NO_DRAWING_DAYS?: string }, now: Date, context: DrawingContext) {
+    const config = alertConfig(env);
+    if (!config.enabled) return { status: 'skipped' as const, open: false };
+    try {
+        const all = await loadMap(storage), records = Object.values(all).filter(r => r.id.startsWith(MISSED_PREFIX));
+        const today = MISSED_PREFIX + drawingDate(now);
+        const signals = missedDrawingSignals(now, context, Object.values(all), noDrawingDays(env.FB_NO_DRAWING_DAYS));
+        const changed = planIncidents({ system: SYSTEM, signals, records, now, mode: config.mode, recipients: config, quiet: id => id !== today });
+        if (changed.length) { for (const r of changed) all[r.id] = r; await saveMap(storage, all, now); }
+        const record = all[today];
+        return { status: 'planned' as const, changed: changed.length, open: !!record && record.status !== 'resolved' };
+    } catch { return { status: 'error' as const, open: false }; }
+}
+
 async function loadMap(storage: Storage) { return await storage.get<Record<string, IncidentRecord>>(INCIDENTS_KEY) ?? {}; }
 async function saveMap(storage: Storage, all: Record<string, IncidentRecord>, now: Date) {
     // Keep the map small: resolved incidents older than a week are dropped.
@@ -71,8 +132,9 @@ export async function planLiveAlerts(storage: Storage, env: AlertEnv, outcome: O
         if (JSON.stringify(previous) !== JSON.stringify(monitor)) await storage.put(MONITOR_KEY, monitor);
         const today = `live:selection:${monitor.day}`;
         const all = await loadMap(storage);
-        // Every Live incident is in this one map, so absence here is authoritative.
-        const changed = planIncidents({ system: SYSTEM, signals, records: Object.values(all), now, mode: config.mode, recipients: config,
+        // Every detection incident is in this one map, so absence here is authoritative. Missed-drawing incidents share the
+        // map but are planned only by planMissedDrawing: a detection check must never resolve (or reopen) them.
+        const changed = planIncidents({ system: SYSTEM, signals, records: Object.values(all).filter(r => !r.id.startsWith(MISSED_PREFIX)), now, mode: config.mode, recipients: config,
             quiet: id => id.startsWith('live:selection:') && id !== today }); // A past drawing's unselected broadcast is history, not a recovery.
         if (changed.length) { for (const r of changed) all[r.id] = r; await saveMap(storage, all, now); }
         return { status: 'planned' as const, changed: changed.length, pending: Object.values(all).filter(r => r.envelope).length };
@@ -147,7 +209,7 @@ export async function deliverLiveAlerts(env: AlertEnv & { DISCOVERY_SCHEDULER?: 
     const config = alertConfig(env);
     if (!config.enabled || !env.DISCOVERY_SCHEDULER) return { status: 'skipped' as const, sent: 0 };
     try {
-        const ns = env.DISCOVERY_SCHEDULER, stub = ns.get(ns.idFromName('november-2026'));
+        const ns = env.DISCOVERY_SCHEDULER, stub = ns.get(ns.idFromName(seasonObjectName()));
         const claim = await stub.fetch('https://discovery.internal/alerts/claim', { method: 'POST' });
         if (!claim.ok) return { status: 'error' as const, sent: 0 };
         const due = (await claim.json()) as { id: string; envelope: Envelope }[];

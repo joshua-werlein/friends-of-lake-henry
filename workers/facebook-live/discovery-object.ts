@@ -2,9 +2,11 @@
 import { DurableObject } from 'cloudflare:workers';
 import { DiscoveryCoordinator } from './coordinator';
 import type { Env } from './poller';
+import { configureSeason } from '../../src/lib/server/raffle-season';
 
 /** Private singleton. No public routes and no discovery in fetch(). */
 export class DiscoveryScheduler extends DurableObject<Env> {
+    private readonly seasonConfigured = (configureSeason(this.env), true);
     private coordinator = new DiscoveryCoordinator(this.ctx.storage, this.env);
     async fetch(request:Request): Promise<Response> {
         const url=new URL(request.url);
@@ -18,6 +20,7 @@ export class DiscoveryScheduler extends DurableObject<Env> {
             try { await this.coordinator.recordTiming(JSON.parse(body)); } catch { /* best effort */ }
             return new Response(null,{status:204});
         }
+        if(url.pathname==='/missed' && request.method==='POST') return Response.json(await this.coordinator.missedDrawing());
         if(url.pathname==='/alerts/claim' && request.method==='POST') return Response.json(await this.coordinator.claimAlerts());
         if(url.pathname==='/alerts/result' && request.method==='POST') {
             const body=await request.json() as {id?:unknown;key?:unknown;result?:unknown};

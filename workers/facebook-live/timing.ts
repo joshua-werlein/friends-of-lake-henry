@@ -1,7 +1,8 @@
 import { drawingDate, inDrawingMonth } from '../../src/lib/server/raffle-discovery-schedule';
+import { inSeasonDay } from '../../src/lib/server/raffle-season';
 
 export const TIMING_LIMIT = 256;
-export const timingDay = (day: string) => /^2026-11-(?:0[1-9]|[12]\d|30)$/.test(day);
+export const timingDay = (day: string) => inSeasonDay(day);
 type Store = { get<T>(key: string): Promise<T | undefined>; put(key: string, value: unknown): Promise<unknown> };
 export type TimingEntry = { stage: string; at: number; [key: string]: unknown };
 type Journal = { version: 1; day: string; entries: TimingEntry[]; dropped: number; first: Record<string, TimingEntry> };
@@ -13,7 +14,7 @@ export function timingEntry(value: unknown): TimingEntry | null {
     if (!value || typeof value !== 'object') return null;
     const v = value as Record<string, unknown>;
     if (!stages.has(String(v.stage)) || !Number.isSafeInteger(v.at)) return null;
-    // Evidence is kept for any November 2026 moment (exactly 30 bounded day keys); off-season checks are not journaled.
+    // Evidence is kept for any configured season moment (one bounded key per season day); off-season checks are not journaled.
     if(!inDrawingMonth(new Date(Number(v.at))))return null;
     const out: TimingEntry = { stage: String(v.stage), at: Number(v.at) };
     for (const k of numeric) if (Number.isSafeInteger(v[k]) && Number(v[k]) >= 0) out[k] = v[k];
@@ -21,7 +22,7 @@ export function timingEntry(value: unknown): TimingEntry | null {
     for (const k of ['status','reason','phase','trigger']) if (code(v[k])) out[k] = v[k];
     if (typeof v.eventRef === 'string' && /^[a-f0-9]{12}$/.test(v.eventRef)) out.eventRef = v.eventRef;
     if (typeof v.videoId === 'string' && /^\d{1,40}$/.test(v.videoId)) out.videoId = v.videoId;
-    if (typeof v.observedAt === 'string' && /^2026-11-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v.observedAt)) out.observedAt = v.observedAt;
+    if (typeof v.observedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v.observedAt) && inDrawingMonth(new Date(v.observedAt))) out.observedAt = v.observedAt;
     if (Array.isArray(v.graph)) out.graph = v.graph.slice(0, 11).map((g: any) => ({
         phase: ['identity','posts','video','format'].includes(g?.phase) ? g.phase : 'unknown',
         startedAt: Number.isSafeInteger(g?.startedAt) ? g.startedAt : 0,
