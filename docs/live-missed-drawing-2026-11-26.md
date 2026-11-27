@@ -1,8 +1,7 @@
 # November 26, 2026: missed Live detection and missing alert
 
-> **Status 2026-11-27.** Release A (the missed-drawing alert only) is live as Video Worker `61e98186`
-> (`docs/live-missed-drawing-alert-2026-11-26.md`, on `main`). This branch is **Release B**, rebased on Release A and
-> **not deployed**. The "Release B: signed Live webhook correlation" section below supersedes the earlier plan where
+> **Status 2026-11-27.** Release A (alert) shipped as Video `61e98186`, and Release B is now live as Video `ce1b7724` and
+> Photo `18adc1b9` (see "Production record" below). The "Release B: signed Live webhook correlation" section below supersedes the earlier plan where
 > they differ.
 
 Branch `task/live-missed-drawing` (worktree `C:\Users\Jwerl\dev\.worktrees\friends-of-lake-henry\live-missed-drawing`),
@@ -159,7 +158,34 @@ incident is open, or accept that email. There are no KV, D1 or secret changes to
 - **Ambiguity ordering (pre-existing):** when a second Live is posted a minute after the first, the first poll stages
   the only one visible; later polls hold as ambiguous and the earlier selection remains.
 
-## Release B: signed Live webhook correlation (option 1, owner-approved for build; not deployed)
+## Release B: signed Live webhook correlation (deployed 2026-11-27)
+
+### Production record
+
+| Item | Video Worker | Photo Worker |
+|---|---|---|
+| Version (100%) | `ce1b7724-2924-4f84-a754-fe5a34d70657` (deployed 01:45:53 UTC) | `18adc1b9-6bd3-4b46-a7f2-a92bb530a378` (deployed 01:47:27 UTC) |
+| Source and tag | `a09e4ca`, `video-worker-ce1b7724`; merged into `main` | `23202e5` on base `photo-worker-40eba822`, `photo-worker-18adc1b9`; ported onto `main` (identical hunks) |
+| Bindings and secrets | Identical to `61e98186` (3 secrets, DO, KV, 11 vars) | Identical to `40eba822` (5 secrets, D1, AI, Images, 2 service bindings, 10 vars) |
+| Triggers | Unchanged | Unchanged (`*/2 * * * *`) |
+| Production check | Tail during `/raffle` loads: 4 `LiveEvents.selection` and 4 DO requests on `ce1b7724`, all `ok`, 0 exceptions | Unsigned POST rejected with 403 (`webhook-bad-signature`); two cron ticks `ok`, 0 exceptions, 4–5 ms CPU; D1 unchanged (92 winners, 46 posts, 0 pending, 0 open incidents) |
+| Rollback (independent) | `npx wrangler versions deploy 61e98186-c418-4664-b798-516091d5b344@100% --name folh-facebook-live-discovery` | `npx wrangler versions deploy 40eba822-d6df-42d7-85ea-54ab8249ae68@100% --name folh-facebook-winner-photos` |
+
+**Webhook app (corrected 2026-11-27).** Production webhooks come from **FOHL Sync `2349506929155471`**, not
+`1700219394854878`; the old app was deleted on Nov 5 (`fohl-sync-migration.md`). The production `FB_*` secret names hold
+FOHL Sync's values with `FB_CREDENTIAL_SET` unset, so the code's "legacy" credential path is FOHL Sync. The owner
+verified `feed` and `live_videos` on FOHL Sync at both the Page and app levels (v27.0, callback
+`https://folh-facebook-winner-photos.jjwerlein.workers.dev/facebook/webhook`).
+
+**Follow-up:** the admin-only diagnostic `workers/facebook-live/inspect.ts:37` still queries app-level subscriptions for
+`1700219394854878` when `FB_CREDENTIAL_SET` is unset, so it should use FOHL Sync. Detection, selection and alerts do not
+use it.
+
+**First real evidence** comes at the next Live: watch for `webhook-live-events` (Photo) and `live-event-facts` (Video)
+log lines, the `webhook-live-event` timing entries, and whether `originCorrelation` is `event-video-id` or
+`live-video-lookup`.
+
+### Original design (as built)
 
 The owner's Graph v27 read of Reel `1467167912212118` found it Page-owned, published and embeddable, created
 `2026-11-27T00:03:41Z`, with `live_status` omitted. That proves no Live origin, so discovery here rejects it
