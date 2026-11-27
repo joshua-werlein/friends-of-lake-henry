@@ -177,13 +177,45 @@ FOHL Sync's values with `FB_CREDENTIAL_SET` unset, so the code's "legacy" creden
 verified `feed` and `live_videos` on FOHL Sync at both the Page and app levels (v27.0, callback
 `https://folh-facebook-winner-photos.jjwerlein.workers.dev/facebook/webhook`).
 
-**Follow-up:** the admin-only diagnostic `workers/facebook-live/inspect.ts:37` still queries app-level subscriptions for
-`1700219394854878` when `FB_CREDENTIAL_SET` is unset, so it should use FOHL Sync. Detection, selection and alerts do not
-use it.
+**Close-out (2026-11-27 ~02:00 UTC).**
+- **Release history:** Release A was merged as `1d1a82d`. Release B's Video side was merged as `1877ed4`; its Photo side
+  was ported as `0f9a298`. The port is identical to `23202e5`. A true merge would have pulled the separate pre-009
+  Photo lineage into `main`.
+- **Branches and worktrees:** all three task branches (`task/live-missed-drawing-alert`, `task/live-missed-drawing`,
+  `task/photo-live-event-forwarding`) were deleted locally and on GitHub after checking for open PRs and protection.
+  Their worktrees are removed.
+- **Exact deployed sources** stay on tags `video-worker-61e98186` (`e53af84`), `video-worker-ce1b7724` (`a09e4ca`) and
+  `photo-worker-18adc1b9` (`23202e5`).
+- **Final data check:** 92 winners with no duplicate date/ticket pairs (latest drawing Nov 26), and 46 photo posts, all
+  final. There are no open D1 incidents; the newest is from Nov 25.
 
-**First real evidence** comes at the next Live: watch for `webhook-live-events` (Photo) and `live-event-facts` (Video)
-log lines, the `webhook-live-event` timing entries, and whether `originCorrelation` is `event-video-id` or
-`live-video-lookup`.
+### Rollback (independent; run outside 5:45–6:35 PM CT)
+
+| Target | Command | Notes |
+|---|---|---|
+| Photo only | `npx wrangler versions deploy 40eba822-d6df-42d7-85ea-54ab8249ae68@100% --name folh-facebook-winner-photos` | Stops forwarding facts. The Video Worker keeps working on bare hints |
+| Video to Release A | `npx wrangler versions deploy 61e98186-c418-4664-b798-516091d5b344@100% --name folh-facebook-live-discovery` | Keeps the missed-drawing alert. Ignores forwarded facts and stored facts/mappings |
+| Video to pre-incident | `npx wrangler versions deploy ced68381-190a-42dd-b426-511e14d88ea3@100% --name folh-facebook-live-discovery` | Removes the alert. Its next check resolves an open `live:missing:*` incident, sending one recovery email if that alert was sent |
+
+Every Photo/Video combination above is compatible. There are no KV, D1, secret or trigger changes to undo.
+
+### Follow-ups (recorded, not implemented)
+
+1. **Observe the first Live under Release B** (next drawing). Check the `webhook-live-events` (Photo) and
+   `live-event-facts` (Video) log lines and the `webhook-live-event` timing entries:
+   - whether Meta sends `live_videos` events at all;
+   - whether their `id` is the Video ID (`originCorrelation: event-video-id`) or a LiveVideo ID that the lookup resolves
+     (`live-video-lookup`);
+   - whether `GET /{live-video-id}?fields=id,status,video` works with the Page token (`live-lookup-*` rejection codes).
+
+   Also confirm the 6:16 PM `missed-drawing-check` behaves as expected.
+2. **Fix the stale app ID** in the admin-only diagnostic `workers/facebook-live/inspect.ts:37`. It queries app-level
+   subscriptions for deleted app `1700219394854878` when `FB_CREDENTIAL_SET` is unset, and should use FOHL Sync
+   `2349506929155471`. Detection, selection and alerts do not use it.
+3. **Retire the unused FOHL Sync migration selectors** (the `/facebook/webhook/fohl-sync` route, `FOHL_SYNC_*` bindings
+   and `FB_CREDENTIAL_SET`), or document them as the permanent naming. Needs owner review.
+4. **Release B's Photo change is not yet in the nonprofit staged config.** Carry `photo-worker-18adc1b9` and
+   `video-worker-ce1b7724` into the migration plan when the cutover resumes (untouched tonight).
 
 ### Original design (as built)
 
